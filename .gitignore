@@ -1,0 +1,69 @@
+# Node modules
+node_modules/
+
+# Build output
+dist/
+build/
+out/
+.temp/
+.cache/
+.vite/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Dependency locks
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor directories and files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Environment files
+.env
+.env.*
+
+# PWA generated files
+service-worker.js
+sw.js
+workbox-*.js
+firebase-messaging-sw.js
+*.webmanifest
+manifest.json
+
+# Testing
+coverage/
+*.lcov
+jest-html-reporters-*.html
+
+# TypeScript build artifacts
+*.tsbuildinfo
+
+# Vite cache
+vite.config.ts.timestamp*
+vite.config.js.timestamp*
+
+# Misc
+*.tgz
+
+# Optional: Ignore public/img/ads and public/img/user if generated
+# public/img/ads/
+# public/img/user/
