@@ -67,3 +67,4 @@ vite.config.js.timestamp*
 # Optional: Ignore public/img/ads and public/img/user if generated
 # public/img/ads/
 # public/img/user/
+*.md

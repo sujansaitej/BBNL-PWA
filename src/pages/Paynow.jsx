@@ -216,13 +216,13 @@ export default function Subscribe() {
                     key={key} 
                     className="flex items-center py-2"
                   >
-                    <span className="text-sm text-gray-700 w-36 flex-shrink-0">
+                    <span className={`text-sm w-36 flex-shrink-0 ${key === 'Total Amount' ? 'text-orange-500 font-semibold' : 'text-gray-700'}`}>
                       {key}
                     </span>
                     <span className="text-sm text-gray-700 mx-2">:</span>
                     <span className={`text-sm ${
                       key === 'Total Amount' 
-                        ? 'text-[#ff6b35] font-semibold' 
+                        ? 'text-orange-500 font-semibold' 
                         : 'text-gray-900'
                     }`}>
                       {key === "Plan Name" ? value : `₹${formatToDecimals(value)}`}
@@ -241,13 +241,13 @@ export default function Subscribe() {
                     key={key} 
                     className="flex items-center py-2"
                   >
-                    <span className="text-sm text-gray-700 w-36 flex-shrink-0">
+                    <span className={`text-sm w-36 flex-shrink-0 ${key === 'Amount Deductable' ? 'text-orange-500 font-semibold' : 'text-gray-700'}`}>
                       {key}
                     </span>
                     <span className="text-sm text-gray-700 mx-2">:</span>
                     <span className={`text-sm ${
                       key === 'Amount Deductable' 
-                        ? 'text-[#ff6b35] font-semibold' 
+                        ? 'text-orange-500 font-semibold' 
                         : 'text-gray-900'
                     }`}>
                       ₹{parseFloat(value).toFixed(2)}
