@@ -141,6 +141,15 @@ function FoFiSmartBox() {
         }
     };
 
+    // Handle Order History button click
+    const handleOrderHistory = () => {
+        navigate('/payment-history', {
+            state: { 
+                customer: customerData
+            }
+        });
+    };
+
     // Open QR scanner
     const handleQRScan = () => {
         setShowQRScanner(true);

@@ -10,7 +10,7 @@ function getHeadersForm() {
     Authorization: import.meta.env.VITE_API_AUTH_KEY,
     username: import.meta.env.VITE_API_USERNAME,
     password: import.meta.env.VITE_API_PASSWORD,
-    appkeytype: import.meta.env.VITE_API_APP_USER_TYPE,
+    apptype: import.meta.env.VITE_API_APP_USER_TYPE,
     appversion: import.meta.env.VITE_API_APP_VERSION,
   };
 }
@@ -36,6 +36,8 @@ export async function getOrderHistory({ apiopid, cid }) {
   }).toString();
   
   console.log('🔵 Order History API Request:', { url, apiopid: finalOpId, cid });
+  console.log('🔵 Headers:', headers);
+  console.log('🔵 Body:', body);
   
   const resp = await fetch(url, {
     method: 'POST',
@@ -43,5 +45,7 @@ export async function getOrderHistory({ apiopid, cid }) {
     body,
   });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return await resp.json();
+  const result = await resp.json();
+  console.log('🟢 Order History API Response:', result);
+  return result;
 }

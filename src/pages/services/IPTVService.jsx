@@ -63,6 +63,15 @@ export default function IPTVService() {
         }
     };
 
+    // Handle Order History button click
+    const handleOrderHistory = () => {
+        navigate('/payment-history', {
+            state: { 
+                customer: customerData
+            }
+        });
+    };
+
     if (view === 'packages') {
         return (
             <div className="min-h-screen flex flex-col bg-gray-50">
@@ -216,7 +225,10 @@ export default function IPTVService() {
                     <button className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-colors">
                         Upload Document
                     </button>
-                    <button className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-colors">
+                    <button
+                        className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-colors"
+                        onClick={handleOrderHistory}
+                    >
                         Order History
                     </button>
                 </div>

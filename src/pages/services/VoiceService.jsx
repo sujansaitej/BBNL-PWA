@@ -23,6 +23,15 @@ export default function VoiceService() {
         // TODO: Implement plan details/subscription flow
     };
 
+    // Handle Order History button click
+    const handleOrderHistory = () => {
+        navigate('/payment-history', {
+            state: { 
+                customer: customerData
+            }
+        });
+    };
+
     if (!customerData) {
         return (
             <div className="min-h-screen flex flex-col bg-gray-50">
