@@ -7,7 +7,8 @@ import {
   getUserAssignedItems,
   getCableCustomerDetails,
   getPrimaryCustomerDetails,
-  getMyPlanDetails
+  getMyPlanDetails,
+  getCustKYCPreview
 } from "../../services/generalApis";
 
 export default function InternetService() {
@@ -27,6 +28,7 @@ export default function InternetService() {
   const [planDetails, setPlanDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [uploadLoading, setUploadLoading] = useState(false);
 
   useEffect(() => {
     async function fetchOverview() {
@@ -121,6 +123,32 @@ export default function InternetService() {
     });
   };
 
+  // Handle Upload Document button click
+  const handleUploadDocument = async () => {
+    setUploadLoading(true);
+    try {
+      const cid = customerData?.customer_id || userid;
+      const response = await getCustKYCPreview({ cid, reqtype: 'update' });
+      
+      if (response?.status?.err_code === 0) {
+        // Navigate to upload documents page with the fetched data
+        navigate('/upload-documents', { 
+          state: { 
+            customer: customerData, 
+            kycData: response.body 
+          } 
+        });
+      } else {
+        alert('Failed to load documents: ' + (response?.status?.err_msg || 'Unknown error'));
+      }
+    } catch (err) {
+      console.error('Error loading document preview:', err);
+      alert('Failed to load documents. Please try again.');
+    } finally {
+      setUploadLoading(false);
+    }
+  };
+
   if (!customerData) {
     return (
       <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
@@ -181,8 +209,12 @@ export default function InternetService() {
 
             {/* Action Buttons */}
             <div className="flex gap-3">
-              <button className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-colors">
-                Upload Document
+              <button
+                onClick={handleUploadDocument}
+                disabled={uploadLoading}
+                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {uploadLoading ? 'Loading...' : 'Upload Document'}
               </button>
               <button
                 className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-colors"

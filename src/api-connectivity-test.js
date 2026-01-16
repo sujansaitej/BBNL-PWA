@@ -1,4 +1,6 @@
 // Quick API connectivity test for Vite dev environment
+// Commented out to avoid console warnings - uncomment if you need to test API connectivity
+/*
 const formData = new FormData();
 formData.append('username', import.meta.env.VITE_API_USERNAME);
 formData.append('password', import.meta.env.VITE_API_PASSWORD);
@@ -28,4 +30,5 @@ fetch('/api/ServiceApis/custlogin', {
     console.error('API connectivity test error:', err);
     alert('API connectivity test error: ' + err);
   });
+*/
 

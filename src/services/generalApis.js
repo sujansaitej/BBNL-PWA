@@ -353,3 +353,131 @@ export async function pickTicket(allParams = {}, action='') {
 //   const data = await resp.json();
 //   return data;
 // }
+
+/* Get Customer KYC Preview - Fetches existing uploaded documents */
+export async function getCustKYCPreview({ cid, reqtype = 'update' }) {
+  const url = `${getBaseUrl()}ServiceApis/custKYCpreview`;
+  
+  // Headers matching client documentation exactly
+  const headers = {
+    'Authorization': import.meta.env.VITE_API_AUTH_KEY,
+    'username': import.meta.env.VITE_API_USERNAME,
+    'password': import.meta.env.VITE_API_PASSWORD,
+    'appkeytype': 'employee',
+    'Content-Type': 'application/json; charset=UTF-8'
+  };
+  
+  const payload = { cid, reqtype };
+  
+  console.log('🔵 [custKYCpreview] Request:', { url, payload });
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  });
+  
+  console.log('🔵 [custKYCpreview] Response status:', resp.status, resp.statusText);
+  
+  if (!resp.ok) {
+    const errorText = await resp.text();
+    console.error('❌ [custKYCpreview] Error response:', errorText);
+    throw new Error(`HTTP ${resp.status}: ${errorText}`);
+  }
+  
+  const data = await resp.json();
+  console.log('🟢 [custKYCpreview] Response data:', JSON.stringify(data, null, 2));
+  return data;
+}
+
+/* Upload Customer KYC Document - Uploads document with multipart/form-data */
+export async function uploadCustKYC({ cid, prooftype, reqtype = 'update', file, loginuser = 'superadmin' }) {
+  const url = `${getBaseUrl()}ServiceApis/uploadcustKYC`;
+  
+  // Create FormData for multipart/form-data upload
+  // Fields: cid, prooftype, reqtype, loginuser + file
+  const formData = new FormData();
+  formData.append('cid', cid);
+  formData.append('prooftype', prooftype);
+  formData.append('reqtype', reqtype);
+  formData.append('loginuser', loginuser);
+  formData.append('file', file);
+  
+  // For multipart/form-data, browser sets Content-Type with boundary automatically
+  // Headers matching client documentation
+  const headers = {
+    'Authorization': import.meta.env.VITE_API_AUTH_KEY,
+    'username': import.meta.env.VITE_API_USERNAME,
+    'password': import.meta.env.VITE_API_PASSWORD,
+    'appkeytype': 'employee',
+    'appversion': import.meta.env.VITE_API_APP_VERSION || '1.49',
+  };
+  
+  console.log('🔵 [uploadcustKYC] Request:', { 
+    url, 
+    cid, 
+    prooftype, 
+    reqtype, 
+    loginuser, 
+    fileName: file.name,
+    fileSize: file.size,
+    fileType: file.type
+  });
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+  
+  console.log('🔵 [uploadcustKYC] Response status:', resp.status, resp.statusText);
+  
+  if (!resp.ok) {
+    const errorText = await resp.text();
+    console.error('❌ [uploadcustKYC] Error response:', errorText);
+    throw new Error(`HTTP ${resp.status}: ${errorText}`);
+  }
+  
+  const data = await resp.json();
+  console.log('🟢 [uploadcustKYC] Response data:', JSON.stringify(data, null, 2));
+  return data;
+}
+
+/**
+ * Submit KYC - Final submission of KYC documents
+ * API: ServiceApis/submitKYC
+ * Request: { cid, loginuser, prooftype, reqtype }
+ */
+export async function submitKYC({ cid, loginuser = 'superadmin', prooftype, reqtype = 'update' }) {
+  const url = `${getBaseUrl()}ServiceApis/submitKYC`;
+  
+  // Headers matching client documentation exactly
+  const headers = {
+    'Authorization': import.meta.env.VITE_API_AUTH_KEY,
+    'username': import.meta.env.VITE_API_USERNAME,
+    'password': import.meta.env.VITE_API_PASSWORD,
+    'appkeytype': 'employee',
+    'Content-Type': 'application/json; charset=UTF-8'
+  };
+  
+  const payload = { cid, loginuser, prooftype, reqtype };
+  
+  console.log('🔵 [submitKYC] URL:', url);
+  console.log('🔵 [submitKYC] Headers:', headers);
+  console.log('🔵 [submitKYC] Payload:', JSON.stringify(payload));
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  });
+  
+  console.log('🔵 [submitKYC] Response status:', resp.status, resp.statusText);
+  
+  // Always try to parse JSON response even if not ok
+  const data = await resp.json().catch(() => null);
+  console.log('🟢 [submitKYC] Response data:', JSON.stringify(data, null, 2));
+  
+  // Return the data regardless of status code - let caller handle the error
+  return data;
+}

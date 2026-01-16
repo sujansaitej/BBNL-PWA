@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { mockCustomerServices, iptvAddonPackages } from "../../data";
 import BottomNav from "../../components/BottomNav";
 import { ServiceSelectionModal } from "@/components/ui";
+import { getCustKYCPreview } from "../../services/generalApis";
 
 export default function IPTVService() {
     const location = useLocation();
@@ -28,6 +29,7 @@ export default function IPTVService() {
     const [view, setView] = useState('overview'); // 'overview', 'packages', 'channels'
     const [selectedPackages, setSelectedPackages] = useState([]);
     const [activeTab, setActiveTab] = useState('BROAD-CASTER PA...');
+    const [uploadLoading, setUploadLoading] = useState(false);
 
     // Show modal automatically when navigating from customer list
     useEffect(() => {
@@ -70,6 +72,32 @@ export default function IPTVService() {
                 customer: customerData
             }
         });
+    };
+
+    // Handle Upload Document button click
+    const handleUploadDocument = async () => {
+        setUploadLoading(true);
+        try {
+            const cid = customerData?.customer_id;
+            const response = await getCustKYCPreview({ cid, reqtype: 'update' });
+            
+            if (response?.status?.err_code === 0) {
+                // Navigate to upload documents page with the fetched data
+                navigate('/upload-documents', { 
+                    state: { 
+                        customer: customerData, 
+                        kycData: response.body 
+                    } 
+                });
+            } else {
+                alert('Failed to load documents: ' + (response?.status?.err_msg || 'Unknown error'));
+            }
+        } catch (err) {
+            console.error('Error loading document preview:', err);
+            alert('Failed to load documents. Please try again.');
+        } finally {
+            setUploadLoading(false);
+        }
     };
 
     if (view === 'packages') {
@@ -222,8 +250,12 @@ export default function IPTVService() {
 
                 {/* Action Buttons */}
                 <div className="flex gap-3">
-                    <button className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-colors">
-                        Upload Document
+                    <button
+                        onClick={handleUploadDocument}
+                        disabled={uploadLoading}
+                        className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {uploadLoading ? 'Loading...' : 'Upload Document'}
                     </button>
                     <button
                         className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-colors"
