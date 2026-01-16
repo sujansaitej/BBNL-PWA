@@ -20,6 +20,9 @@ export default function IPTVService() {
     // Check if we should show the service modal automatically (coming from customer list)
     const shouldShowModal = location.state?.showServiceModal || false;
 
+    // Get services from location state (passed from Customerlist)
+    const servicesFromState = location.state?.services || [];
+
     // Use mock data ONLY for service details (new feature)
     const mockServiceData = mockCustomerServices[customerData.customer_id];
     const iptvService = mockServiceData?.services?.iptv;
@@ -42,25 +45,40 @@ export default function IPTVService() {
 
     const handleServiceSelect = (service) => {
         if (service) {
-            // Navigate to specific service pages for voice, internet, and fofi
-            if (service.id === 'voice') {
+            console.log('🔵 [IPTVService] Service selected:', service);
+
+            // Map service name to route
+            // API services have numeric IDs, so we need to check by name
+            const serviceName = (service.name || '').toLowerCase();
+
+            // Navigate to specific service pages based on service name
+            if (serviceName.includes('voice') || serviceName.includes('calling')) {
+                console.log('🔵 [IPTVService] Navigating to Voice service');
                 navigate(`/customer/${customerData.customer_id}/service/voice`, {
-                    state: { customer: customerData }
+                    state: { customer: customerData, services: servicesFromState }
                 });
                 return;
-            } else if (service.id === 'internet') {
+            } else if (serviceName.includes('internet')) {
+                console.log('🔵 [IPTVService] Navigating to Internet service');
                 navigate(`/customer/${customerData.customer_id}/service/internet`, {
-                    state: { customer: customerData }
+                    state: { customer: customerData, services: servicesFromState }
                 });
                 return;
-            } else if (service.id === 'fofi') {
+            } else if (serviceName.includes('fofi') || serviceName.includes('smart box')) {
+                console.log('🔵 [IPTVService] Navigating to FoFi Smart Box service');
                 navigate(`/customer/${customerData.customer_id}/service/fofi-smart-box`, {
-                    state: { customer: customerData }
+                    state: { customer: customerData, services: servicesFromState }
                 });
+                return;
+            } else if (serviceName.includes('cable') || serviceName.includes('iptv') || serviceName.includes('tv')) {
+                console.log('🔵 [IPTVService] Staying on IPTV/Cable TV service');
+                // For IPTV/Cable TV, stay on this page
+                setShowServiceModal(false);
                 return;
             }
 
-            // For IPTV, stay on this page
+            // Default: close modal and stay on current page
+            console.log('🔵 [IPTVService] Unknown service, staying on current page');
             setShowServiceModal(false);
         }
     };
@@ -68,7 +86,7 @@ export default function IPTVService() {
     // Handle Order History button click
     const handleOrderHistory = () => {
         navigate('/payment-history', {
-            state: { 
+            state: {
                 customer: customerData
             }
         });
@@ -80,14 +98,14 @@ export default function IPTVService() {
         try {
             const cid = customerData?.customer_id;
             const response = await getCustKYCPreview({ cid, reqtype: 'update' });
-            
+
             if (response?.status?.err_code === 0) {
                 // Navigate to upload documents page with the fetched data
-                navigate('/upload-documents', { 
-                    state: { 
-                        customer: customerData, 
-                        kycData: response.body 
-                    } 
+                navigate('/upload-documents', {
+                    state: {
+                        customer: customerData,
+                        kycData: response.body
+                    }
                 });
             } else {
                 alert('Failed to load documents: ' + (response?.status?.err_msg || 'Unknown error'));
@@ -118,9 +136,9 @@ export default function IPTVService() {
                     <div className="bg-teal-400 rounded-lg p-3 flex items-center gap-3">
                         <div className="w-14 h-14 bg-white rounded flex items-center justify-center flex-shrink-0">
                             <svg className="w-8 h-8 text-teal-500" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h5v2h8v-2h5c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 14H3V5h18v12z"/>
-                                <rect x="5" y="7" width="14" height="2"/>
-                                <rect x="5" y="10" width="14" height="2"/>
+                                <path d="M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h5v2h8v-2h5c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 14H3V5h18v12z" />
+                                <rect x="5" y="7" width="14" height="2" />
+                                <rect x="5" y="10" width="14" height="2" />
                             </svg>
                         </div>
                         <div className="text-white text-sm space-y-0.5">
@@ -206,12 +224,13 @@ export default function IPTVService() {
 
     return (
         <div className="min-h-screen flex flex-col bg-gray-50">
-            {/* Service Selection Modal */}
+            {/* Service Selection Modal - Now with services prop */}
             <ServiceSelectionModal
                 isOpen={showServiceModal}
                 onClose={() => setShowServiceModal(false)}
                 onSelectService={handleServiceSelect}
                 customer={customerData}
+                services={servicesFromState}
             />
 
             {/* Header */}
