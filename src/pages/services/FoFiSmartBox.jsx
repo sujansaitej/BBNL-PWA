@@ -234,26 +234,51 @@ function FoFiSmartBox() {
             });
 
             console.log('🟢 Validate Asset Response:', response);
+            console.log('🟢 Response Body:', response?.body);
+            console.log('🟢 Response Status:', response?.status);
 
-            if (response?.status?.err_code === 0 && response?.body) {
-                const { mac_addr, serial_number } = response.body;
+            if (response?.status?.err_code === 0) {
+                let extractedMac = '';
+                let extractedSerial = '';
 
-                if (!mac_addr) {
+                // Try to get MAC from response body first
+                if (response?.body) {
+                    // Handle both array and object responses
+                    const bodyData = Array.isArray(response.body) ? response.body[0] : response.body;
+                    extractedMac = bodyData?.mac_addr || bodyData?.macAddress || bodyData?.mac || '';
+                    extractedSerial = bodyData?.serial_number || bodyData?.serialNumber || bodyData?.serial || '';
+                }
+
+                // If MAC not in body, try to extract from success message
+                // Message format: "Fo-Fi device(11:1D:EF:1A:13:9F) belongs to BBNL_OP49 & available"
+                if (!extractedMac && response?.status?.err_msg) {
+                    const macMatch = response.status.err_msg.match(/\(([0-9A-Fa-f:]{17})\)/);
+                    if (macMatch && macMatch[1]) {
+                        extractedMac = macMatch[1];
+                        console.log('✅ Extracted MAC from message:', extractedMac);
+                    }
+                }
+
+                if (!extractedMac) {
                     setValidationError('MAC address not found for this Box ID');
                     setIsLoading(false);
                     return;
                 }
 
                 // Device is available
-                setMacAddress(mac_addr);
-                setSerialNumber(serial_number || serialNumber);
+                setMacAddress(extractedMac);
+                setSerialNumber(extractedSerial || serialNumber);
                 setDeviceInfo({
-                    macAddress: mac_addr,
-                    serialNumber: serial_number || serialNumber,
+                    macAddress: extractedMac,
+                    serialNumber: extractedSerial || serialNumber,
                     boxId: boxId
                 });
                 setDeviceValidated(true);
                 setValidationMethod('manual');
+
+                console.log('✅ Device validated successfully');
+                console.log('✅ MAC Address:', extractedMac);
+                console.log('✅ Serial Number:', extractedSerial || serialNumber);
             } else {
                 setValidationError(response?.status?.err_msg || 'Device not found or invalid Box ID');
             }
@@ -271,14 +296,21 @@ function FoFiSmartBox() {
             setIsLoading(true);
             setValidationError('');
 
+            // Validate all requirements before proceeding
             if (!selectedPlan) {
-                setValidationError('Please select a plan first');
+                setValidationError('Please select one internet plan from the selection');
                 setIsLoading(false);
                 return;
             }
 
             if (!deviceValidated || !macAddress || !deviceInfo) {
-                setValidationError('Please validate device first');
+                setValidationError('Please get MAC ID first by clicking "GET MAC ID" button');
+                setIsLoading(false);
+                return;
+            }
+
+            if (!boxId) {
+                setValidationError('Please enter FO-FI Box ID');
                 setIsLoading(false);
                 return;
             }
@@ -543,6 +575,26 @@ function FoFiSmartBox() {
                     </button>
                 </div>
 
+                {/* Instructions Card - Show when plan not selected */}
+                {!selectedPlan && !validationError && (
+                    <div className="bg-blue-50 border-l-4 border-blue-500 rounded-lg p-4 shadow-sm">
+                        <div className="flex items-start gap-3">
+                            <svg className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                            </svg>
+                            <div>
+                                <p className="text-sm font-semibold text-blue-800">Steps to link your FO-FI Box:</p>
+                                <ol className="text-xs text-blue-700 mt-2 space-y-1 list-decimal list-inside">
+                                    <li>Enter your FO-FI Box ID or scan QR from TV</li>
+                                    <li>Click "GET MAC ID" to fetch device details</li>
+                                    <li><strong>Select an internet plan from the dropdown</strong></li>
+                                    <li>Click "LINK FO-FI BOX" to complete</li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Error Message with better styling */}
                 {validationError && (
                     <div className="bg-red-50 border-l-4 border-red-500 rounded-lg p-4 shadow-sm">
@@ -579,7 +631,10 @@ function FoFiSmartBox() {
                 {/* Select a Plan Dropdown with enhanced styling */}
                 <div className="space-y-2">
                     <label className="block text-sm font-semibold text-indigo-600">
-                        Select a Plan
+                        Select a Plan <span className="text-red-500">*</span>
+                        {selectedPlan && (
+                            <span className="ml-2 text-xs font-normal text-green-600">✓ Plan selected</span>
+                        )}
                     </label>
                     <select
                         value={selectedPlan?.srvid || selectedPlan?.plan_id || selectedPlan?.id || ''}
@@ -593,9 +648,15 @@ function FoFiSmartBox() {
                             console.log('🔵 Selected Plan ID:', planId);
                             console.log('🟢 Found Plan:', plan);
                             setSelectedPlan(plan);
+                            // Clear validation error when plan is selected
+                            if (plan && validationError === 'Please select one internet plan from the selection') {
+                                setValidationError('');
+                            }
                         }}
                         disabled={isLoading}
-                        className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-700 bg-white appearance-none cursor-pointer disabled:bg-gray-100 disabled:cursor-not-allowed transition-all duration-200"
+                        className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-700 bg-white appearance-none cursor-pointer disabled:bg-gray-100 disabled:cursor-not-allowed transition-all duration-200 ${
+                            !selectedPlan ? 'border-orange-400 focus:border-orange-500' : 'border-gray-300 focus:border-indigo-500'
+                        }`}
                         style={{
                             backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%234f46e5'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2.5' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`,
                             backgroundRepeat: 'no-repeat',
@@ -643,10 +704,26 @@ function FoFiSmartBox() {
                         onClick={handleLinkFoFiBox}
                         disabled={isLoading || !deviceValidated || !macAddress || !selectedPlan}
                         className={`bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold py-4 px-16 rounded-lg transition-all duration-200 uppercase text-sm shadow-lg hover:shadow-xl tracking-wide ${isLoading || !deviceValidated || !macAddress || !selectedPlan ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        title={!selectedPlan ? 'Please select a plan first' : !deviceValidated ? 'Please get MAC ID first' : 'Click to link FO-FI Box'}
                     >
                         {isLoading ? 'Linking...' : 'LINK FO-FI BOX'}
                     </button>
                 </div>
+                
+                {/* Status indicators below button */}
+                {(!deviceValidated || !macAddress || !selectedPlan) && (
+                    <div className="text-center text-xs text-gray-500 space-y-1">
+                        <p className="flex items-center justify-center gap-2">
+                            {boxId ? '✓' : '○'} <span>Enter Box ID</span>
+                        </p>
+                        <p className="flex items-center justify-center gap-2">
+                            {deviceValidated && macAddress ? '✓' : '○'} <span>Get MAC ID</span>
+                        </p>
+                        <p className="flex items-center justify-center gap-2">
+                            {selectedPlan ? '✓' : '○'} <span>Select Plan</span>
+                        </p>
+                    </div>
+                )}
             </div>
 
             <BottomNav />
