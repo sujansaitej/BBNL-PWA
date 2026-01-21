@@ -73,7 +73,7 @@ export default function PaymentHistory() {
     return (
       <div className="min-h-screen flex flex-col bg-gradient-to-b from-teal-400 to-cyan-300">
         <header
-          className="sticky top-0 z-40 flex items-center px-4 py-3 bg-teal-500"
+          className="sticky top-0 z-40 flex items-center px-4 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg"
         >
           <button onClick={() => navigate(-1)} className="p-1 mr-3">
             <ArrowLeftIcon className="h-6 w-6 text-white" />
@@ -115,7 +115,7 @@ export default function PaymentHistory() {
 
       {/* Teal Header - Exact match to screenshot */}
       <header
-        className="sticky top-0 z-40 flex items-center px-4 py-3 bg-teal-500 shadow-sm"
+        className="sticky top-0 z-40 flex items-center px-4 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg"
       >
         <button onClick={() => navigate(-1)} className="p-1 mr-3">
           <ArrowLeftIcon className="h-6 w-6 text-white" />

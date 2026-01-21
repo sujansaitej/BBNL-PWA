@@ -139,7 +139,7 @@ export default function Services() {
         return (
             <div className="min-h-screen flex flex-col bg-white dark:bg-gray-900">
                 {/* Teal Header */}
-                <header className="sticky top-0 z-40 flex items-center px-4 py-3 bg-teal-500">
+                <header className="sticky top-0 z-40 flex items-center px-4 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg">
                     <button onClick={() => navigate(-1)} className="p-1 mr-3">
                         <ArrowLeftIcon className="h-6 w-6 text-white" />
                     </button>
@@ -158,7 +158,7 @@ export default function Services() {
     return (
         <div className="min-h-screen flex flex-col bg-white dark:bg-gray-900">
             {/* Teal Header */}
-            <header className="sticky top-0 z-40 flex items-center px-4 py-3 bg-teal-500">
+            <header className="sticky top-0 z-40 flex items-center px-4 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg">
                 <button onClick={() => navigate(-1)} className="p-1 mr-3">
                     <ArrowLeftIcon className="h-6 w-6 text-white" />
                 </button>
@@ -171,7 +171,7 @@ export default function Services() {
                     <input
                         type="text"
                         placeholder="Search Plans"
-                        className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-gray-500"
+                        className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-500 transition-all duration-200"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
@@ -179,7 +179,7 @@ export default function Services() {
                 </div>
 
                 {/* All Services Heading */}
-                <h2 className="text-base font-medium text-orange-500 pt-2">All Services</h2>
+                <h2 className="text-indigo-600 font-semibold text-lg pt-2">All Services</h2>
 
                 {/* Loading State */}
                 {loading && (
@@ -212,7 +212,7 @@ export default function Services() {
                                 )}
 
                                 <div className="flex flex-col flex-1">
-                                    <h3 className="text-base font-medium text-orange-500 uppercase tracking-wide">
+                                    <h3 className="text-base font-semibold text-indigo-600 uppercase tracking-wide">
                                         {service.name}
                                     </h3>
                                     {service.price && (

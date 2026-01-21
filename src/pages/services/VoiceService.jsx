@@ -26,7 +26,7 @@ export default function VoiceService() {
     // Handle Order History button click
     const handleOrderHistory = () => {
         navigate('/payment-history', {
-            state: { 
+            state: {
                 customer: customerData
             }
         });
@@ -35,7 +35,7 @@ export default function VoiceService() {
     if (!customerData) {
         return (
             <div className="min-h-screen flex flex-col bg-gray-50">
-                <header className="sticky top-0 z-40 flex items-center px-4 py-3 bg-teal-500">
+                <header className="sticky top-0 z-40 flex items-center px-4 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg">
                     <button onClick={() => navigate(-1)} className="p-1 mr-3">
                         <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -56,7 +56,7 @@ export default function VoiceService() {
     return (
         <div className="min-h-screen flex flex-col bg-white">
             {/* Header */}
-            <header className="sticky top-0 z-40 flex items-center px-4 py-3 bg-teal-500">
+            <header className="sticky top-0 z-40 flex items-center px-4 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg">
                 <button onClick={() => navigate(-1)} className="p-1 mr-3">
                     <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -72,7 +72,7 @@ export default function VoiceService() {
                         <input
                             type="text"
                             placeholder="Search Plans"
-                            className="w-full border border-gray-300 rounded-md py-2.5 pl-4 pr-12 text-gray-800 text-base bg-gray-50 focus:outline-none focus:border-teal-500 focus:bg-white"
+                            className="w-full border border-gray-300 rounded-md py-2.5 pl-4 pr-12 text-gray-800 text-base bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all duration-200"
                             value={searchTerm}
                             onChange={e => setSearchTerm(e.target.value)}
                         />
@@ -86,7 +86,7 @@ export default function VoiceService() {
 
                 {/* All Services Label */}
                 <div className="bg-white px-4 py-2.5 border-b border-gray-200">
-                    <h2 className="text-orange-500 text-base font-medium">All Services</h2>
+                    <h2 className="text-indigo-600 text-base font-semibold">All Services</h2>
                 </div>
 
                 {/* Voice Plans List */}
@@ -101,16 +101,16 @@ export default function VoiceService() {
                             >
                                 {/* Special Offer Ribbon */}
                                 {plan.isSpecialOffer && (
-                                    <div className="absolute right-0 top-0 flex items-center" style={{zIndex: 2}}>
-                                        <svg width="110" height="36" viewBox="0 0 110 36" fill="none" xmlns="http://www.w3.org/2000/svg" style={{position: 'absolute', right: 0, top: 0}}>
-                                            <path d="M0 0H95C102.18 0 108 5.82 108 13V23C108 30.18 102.18 36 95 36H0V0Z" fill="#e53935"/>
+                                    <div className="absolute right-0 top-0 flex items-center" style={{ zIndex: 2 }}>
+                                        <svg width="110" height="36" viewBox="0 0 110 36" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ position: 'absolute', right: 0, top: 0 }}>
+                                            <path d="M0 0H95C102.18 0 108 5.82 108 13V23C108 30.18 102.18 36 95 36H0V0Z" fill="#e53935" />
                                         </svg>
-                                        <span style={{position: 'absolute', right: 12, top: 8, fontWeight: 'bold', fontSize: 11, color: '#fff', letterSpacing: 0.3}}>SPECIAL OFFER</span>
+                                        <span style={{ position: 'absolute', right: 12, top: 8, fontWeight: 'bold', fontSize: 11, color: '#fff', letterSpacing: 0.3 }}>SPECIAL OFFER</span>
                                     </div>
                                 )}
 
                                 <div className="flex-1 min-w-0 pr-4">
-                                    <div className="text-orange-500 font-medium text-lg truncate mb-1">
+                                    <div className="text-indigo-600 font-semibold text-lg truncate mb-1">
                                         {plan.name}
                                     </div>
                                     <div className="text-gray-700 text-base truncate">
@@ -120,7 +120,7 @@ export default function VoiceService() {
 
                                 <span className="ml-2 flex-shrink-0">
                                     <svg width="10" height="16" fill="none" stroke="#ff6f00" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 10 16">
-                                        <path d="M2 2l6 6-6 6"/>
+                                        <path d="M2 2l6 6-6 6" />
                                     </svg>
                                 </span>
                             </div>

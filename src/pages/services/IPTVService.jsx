@@ -121,8 +121,8 @@ export default function IPTVService() {
     if (view === 'packages') {
         return (
             <div className="min-h-screen flex flex-col bg-gray-50">
-                {/* Header */}
-                <div className="bg-teal-500 text-white px-4 py-3">
+                {/* Blue Gradient Header */}
+                <div className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-4 py-3">
                     <div className="flex items-center gap-3 mb-4">
                         <button onClick={() => setView('overview')} className="p-1">
                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -133,9 +133,9 @@ export default function IPTVService() {
                     </div>
 
                     {/* User Info Card */}
-                    <div className="bg-teal-400 rounded-lg p-3 flex items-center gap-3">
+                    <div className="bg-indigo-500 rounded-lg p-3 flex items-center gap-3">
                         <div className="w-14 h-14 bg-white rounded flex items-center justify-center flex-shrink-0">
-                            <svg className="w-8 h-8 text-teal-500" fill="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-8 h-8 text-indigo-600" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h5v2h8v-2h5c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 14H3V5h18v12z" />
                                 <rect x="5" y="7" width="14" height="2" />
                                 <rect x="5" y="10" width="14" height="2" />
@@ -155,13 +155,13 @@ export default function IPTVService() {
                 </div>
 
                 {/* Tabs */}
-                <div className="bg-teal-500 shadow-md">
+                <div className="bg-gradient-to-r from-indigo-600 to-blue-600 shadow-md">
                     <div className="grid grid-cols-4">
                         {tabs.map(tab => (
                             <button
                                 key={tab}
                                 onClick={() => setActiveTab(tab)}
-                                className={`px-2 py-3 text-[10px] leading-tight font-bold transition-colors text-white ${activeTab === tab ? 'border-b-4 border-orange-500' : 'border-b-4 border-transparent opacity-70'}`}
+                                className={`px-2 py-3 text-[10px] leading-tight font-bold transition-colors text-white ${activeTab === tab ? 'border-b-4 border-white' : 'border-b-4 border-transparent opacity-70'}`}
                             >
                                 {tab}
                             </button>
@@ -178,7 +178,7 @@ export default function IPTVService() {
                         <input
                             type="text"
                             placeholder="Search.."
-                            className="w-full bg-white border border-gray-300 rounded-md pl-10 pr-4 py-2.5 text-sm placeholder-gray-400 focus:outline-none focus:border-teal-500"
+                            className="w-full bg-white border border-gray-300 rounded-md pl-10 pr-4 py-2.5 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         />
                     </div>
 
@@ -188,7 +188,7 @@ export default function IPTVService() {
                             <div key={pkg.id} className="bg-white rounded-lg p-3 flex items-center gap-3 border border-gray-200">
                                 <input
                                     type="checkbox"
-                                    className="w-5 h-5 rounded border-gray-300 text-teal-500 focus:ring-teal-500 flex-shrink-0"
+                                    className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 flex-shrink-0"
                                     checked={selectedPackages.includes(pkg.id)}
                                     onChange={(e) => {
                                         if (e.target.checked) setSelectedPackages([...selectedPackages, pkg.id]);
@@ -200,7 +200,7 @@ export default function IPTVService() {
                                 </div>
                                 <div className="text-right flex-shrink-0">
                                     <p className="text-sm font-normal text-gray-800 mb-1">₹ {pkg.price.toFixed(2)}</p>
-                                    <button className="text-xs text-orange-500 font-bold">Details &gt;</button>
+                                    <button className="text-xs text-indigo-600 font-bold">Details &gt;</button>
                                 </div>
                             </div>
                         ))}
@@ -209,10 +209,10 @@ export default function IPTVService() {
 
                 {/* Footer Buttons */}
                 <div className="fixed bottom-16 left-0 right-0 p-3 bg-white border-t flex gap-3">
-                    <button className="flex-1 bg-emerald-400 text-white font-bold py-3 rounded-lg text-sm">
+                    <button className="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-3 rounded-lg text-sm shadow-md hover:shadow-lg transition-all duration-200">
                         Continue
                     </button>
-                    <button className="flex-1 bg-orange-500 text-white font-bold py-3 rounded-lg text-sm">
+                    <button className="flex-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold py-3 rounded-lg text-sm shadow-md hover:shadow-lg transition-all duration-200">
                         Skip and create new pack
                     </button>
                 </div>
@@ -233,8 +233,8 @@ export default function IPTVService() {
                 services={servicesFromState}
             />
 
-            {/* Header */}
-            <header className="sticky top-0 z-40 flex items-center px-4 py-3 bg-teal-500">
+            {/* Blue Gradient Header */}
+            <header className="sticky top-0 z-40 flex items-center px-4 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg">
                 <button onClick={() => navigate('/customers')} className="p-1 mr-3">
                     <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -246,7 +246,10 @@ export default function IPTVService() {
             <div className="flex-1 max-w-2xl mx-auto w-full px-4 py-4 space-y-4 pb-24">
                 {/* User Details */}
                 <div className="space-y-2">
-                    <h3 className="text-orange-500 font-medium text-base">User Details</h3>
+                    <div className="flex items-center gap-2 mb-3">
+                        <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
+                        <h3 className="text-indigo-600 font-semibold text-lg">User Details</h3>
+                    </div>
                     <div className="space-y-1 text-sm">
                         <div className="flex">
                             <span className="w-36 text-gray-600 dark:text-gray-400">Username</span>
@@ -272,12 +275,12 @@ export default function IPTVService() {
                     <button
                         onClick={handleUploadDocument}
                         disabled={uploadLoading}
-                        className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold py-3 px-4 rounded-lg text-sm transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {uploadLoading ? 'Loading...' : 'Upload Document'}
                     </button>
                     <button
-                        className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-colors"
+                        className="flex-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold py-3 px-4 rounded-lg text-sm transition-all duration-200 shadow-md hover:shadow-lg"
                         onClick={handleOrderHistory}
                     >
                         Order History
@@ -287,14 +290,14 @@ export default function IPTVService() {
                 {/* Filter Badge */}
                 <div className="flex items-center justify-between bg-white dark:bg-gray-800 px-4 py-3 -mx-4">
                     <div className="flex items-center gap-2">
-                        <span className="text-base text-orange-500 font-medium">Filtered by :</span>
-                        <span className="bg-orange-500 text-white text-sm font-medium px-4 py-1.5 rounded-md">
+                        <span className="text-base text-indigo-600 font-semibold">Filtered by :</span>
+                        <span className="bg-indigo-600 text-white text-sm font-medium px-4 py-1.5 rounded-md">
                             Cable TV
                         </span>
                     </div>
                     <button
                         onClick={() => setShowServiceModal(true)}
-                        className="text-orange-500 hover:text-orange-600 transition-colors"
+                        className="text-indigo-600 hover:text-indigo-700 transition-colors"
                     >
                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
@@ -304,9 +307,12 @@ export default function IPTVService() {
 
                 {/* FoFi Box ID */}
                 <div className="space-y-2">
-                    <h3 className="text-orange-500 font-medium text-base">FoFi Box ID</h3>
+                    <div className="flex items-center gap-2 mb-2">
+                        <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
+                        <h3 className="text-indigo-600 font-semibold text-lg">FoFi Box ID</h3>
+                    </div>
                     <div className="bg-gray-100 dark:bg-gray-800 px-4 py-3 rounded flex justify-between items-center">
-                        <p className="text-orange-500 font-medium text-base">{iptvService?.fofiBoxId || 'A43EA0A01F4A'}</p>
+                        <p className="text-indigo-600 font-medium text-base">{iptvService?.fofiBoxId || 'A43EA0A01F4A'}</p>
                         <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                         </svg>
@@ -315,7 +321,10 @@ export default function IPTVService() {
 
                 {/* Plan Details */}
                 <div className="space-y-2">
-                    <h3 className="text-orange-500 font-medium text-base">Plan Details</h3>
+                    <div className="flex items-center gap-2 mb-2">
+                        <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
+                        <h3 className="text-indigo-600 font-semibold text-lg">Plan Details</h3>
+                    </div>
                     <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
                         <div className="flex items-start gap-4">
                             {/* TV Icon */}

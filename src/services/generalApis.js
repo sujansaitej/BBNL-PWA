@@ -401,14 +401,24 @@ export async function getCustKYCPreview({ cid, reqtype = 'update' }) {
 export async function uploadCustKYC({ cid, prooftype, reqtype = 'update', file, loginuser = 'superadmin' }) {
   const url = `${getBaseUrl()}ServiceApis/uploadcustKYC`;
 
+  // Validate file
+  if (!file || !(file instanceof File)) {
+    throw new Error('Invalid file object');
+  }
+
   // Create FormData for multipart/form-data upload
-  // Fields: cid, prooftype, reqtype, loginuser + file
+  // IMPORTANT: Based on client logs, the file field might need to be named differently
+  // Client logs show: FORMREQUEST:cid=iptvuser, prooftype=addProofs, reqtype=update, loginuser=superadmin
+  // But no file field shown - this suggests file might be sent as 'image' or the field name is different
   const formData = new FormData();
   formData.append('cid', cid);
   formData.append('prooftype', prooftype);
   formData.append('reqtype', reqtype);
   formData.append('loginuser', loginuser);
-  formData.append('file', file);
+
+  // Try different field names for the file
+  // Common field names: 'file', 'image', 'photo', 'document'
+  formData.append('image', file, file.name); // Changed from 'file' to 'image'
 
   // For multipart/form-data, browser sets Content-Type with boundary automatically
   // Headers matching client documentation
@@ -426,10 +436,25 @@ export async function uploadCustKYC({ cid, prooftype, reqtype = 'update', file, 
     prooftype,
     reqtype,
     loginuser,
+    fileFieldName: 'image', // Updated field name
     fileName: file.name,
     fileSize: file.size,
     fileType: file.type
   });
+
+  // Log FormData contents for debugging
+  console.log('🔵 [uploadcustKYC] FormData contents:');
+  for (let [key, value] of formData.entries()) {
+    if (value instanceof File) {
+      console.log(`  ${key}:`, {
+        name: value.name,
+        size: value.size,
+        type: value.type
+      });
+    } else {
+      console.log(`  ${key}:`, value, `(empty: ${!value})`);
+    }
+  }
 
   const resp = await fetch(url, {
     method: 'POST',

@@ -89,13 +89,13 @@ export default function Customerlist() {
       console.log('🟢 [selectCustomer] err_code:', servicesData?.status?.err_code);
       console.log('🟢 [selectCustomer] err_msg:', servicesData?.status?.err_msg);
       console.log('🟢 [selectCustomer] body:', servicesData?.body);
-      
+
       if (servicesData?.status?.err_code === 0) {
         console.log('🟢 [selectCustomer] Success! Services:', servicesData?.body);
         // Navigate with customer data and services list
         navigate(`/customer/${customer.customer_id}/service/iptv`, {
-          state: { 
-            customer, 
+          state: {
+            customer,
             showServiceModal: true,
             services: servicesData?.body || []
           }
@@ -122,11 +122,7 @@ export default function Customerlist() {
   return (
     <Layout>
       {loadingServices && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-6">
-            <Loader size={10} color="indigo" text="Loading services..." />
-          </div>
-        </div>
+        <Loader fullScreen showHeader headerTitle="Customer OverView" text="Loading services..." />
       )}
       <div className="max-w-2xl mx-auto space-y-2 px-3 py-2">
         <h1 className="text-medium font-bold text-gray-900 dark:text-white">{title} <Badge color="grey">{customercount}</Badge></h1>
@@ -135,7 +131,7 @@ export default function Customerlist() {
           <input
             type="text"
             placeholder="Search customer..."
-            className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-700 bg-white rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-700 bg-white rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200"
             // onChange={(e) => setPlans(filterPlans(e.target.value))}
             onChange={(e) => filterCustomers(e.target.value)}
             disabled={loading}
@@ -144,16 +140,16 @@ export default function Customerlist() {
         </div>
 
         {loading ? (
-          <Loader size={10} color="indigo" text="Loading customers..." className="py-10" />
+          <Loader text="Loading customers..." />
         ) : (
           <div className="space-y-3">
             {customercount === 0 && <div className="text-center text-gray-500 dark:text-gray-400 py-10">No customers found</div>}
             {customers.map(d => (
-              <div key={d.customer_id} className="flex items-center justify-between bg-white dark:bg-gray-800 p-3 rounded-xl shadow cursor-pointer" onClick={() => selectCustomer(d)}>
+              <div key={d.customer_id} className="flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md hover:shadow-lg transition-all duration-300 cursor-pointer border border-gray-100 dark:border-gray-700" onClick={() => selectCustomer(d)}>
                 <div className="flex flex-col gap-2 text-sm">
                   <div className={`flex`}>
                     <span className={`w-28 text-gray-700 dark:text-gray-400 font-semibold`}>Username</span>
-                    <span className={`text-purple-700 dark:text-gray-400 font-semibold break-words`}>{d.customer_id}</span>
+                    <span className={`text-indigo-600 dark:text-gray-400 font-bold break-words`}>{d.customer_id}</span>
                   </div>
                   <div className={`flex`}>
                     <span className={`w-28 text-gray-700 dark:text-gray-400 font-semibold`}>Name</span>

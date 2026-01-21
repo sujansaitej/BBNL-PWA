@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeftIcon } from "@heroicons/react/24/outline";
 import { getCustKYCPreview, uploadCustKYC, submitKYC } from "../services/generalApis";
+import { Alert, ConfirmDialog, Loader } from "@/components/ui";
 
 export default function UploadDocuments() {
   const location = useLocation();
@@ -11,6 +12,15 @@ export default function UploadDocuments() {
 
   const [loading, setLoading] = useState(!kycData);
   const [uploading, setUploading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Alert state
+  const [alertOpen, setAlertOpen] = useState(false);
+  const [alertConfig, setAlertConfig] = useState({ type: 'success', title: '', message: '' });
+
+  // Confirm Dialog state
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmConfig, setConfirmConfig] = useState({ title: '', message: '', onConfirm: () => { } });
 
   // Store the full proofs array from API to track maxlimit, remainlmt, etc.
   const [proofsData, setProofsData] = useState([]);
@@ -24,6 +34,11 @@ export default function UploadDocuments() {
 
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const loginuser = user?.username || 'superadmin';
+
+  // Debug logging
+  console.log('🔵 [UploadDocuments] Customer Data:', customerData);
+  console.log('🔵 [UploadDocuments] Customer ID:', customerData?.customer_id);
+  console.log('🔵 [UploadDocuments] Login User:', loginuser);
 
   useEffect(() => {
     if (!kycData && customerData) {
@@ -159,12 +174,22 @@ export default function UploadDocuments() {
 
       // Validate required fields
       if (!customerData?.customer_id) {
-        alert('Customer ID is missing');
+        setAlertConfig({
+          type: 'error',
+          title: 'Missing Information',
+          message: 'Customer ID is missing. Please try again.'
+        });
+        setAlertOpen(true);
         return;
       }
 
       if (!prooftype) {
-        alert('Proof type is missing');
+        setAlertConfig({
+          type: 'error',
+          title: 'Invalid Proof Type',
+          message: 'Proof type is missing. Please try again.'
+        });
+        setAlertOpen(true);
         return;
       }
 
@@ -177,7 +202,8 @@ export default function UploadDocuments() {
           reqtype: 'update',
           loginuser,
           fileName: file.name,
-          fileSize: file.size
+          fileSize: file.size,
+          fileType: file.type
         });
 
         // API: uploadcustKYC with multipart/form-data
@@ -190,6 +216,8 @@ export default function UploadDocuments() {
         });
 
         console.log('📤 Upload Response:', response);
+        console.log('📤 Upload Response err_code:', response?.status?.err_code);
+        console.log('📤 Upload Response err_msg:', response?.status?.err_msg);
 
         if (response?.status?.err_code === 0) {
           // Success - now submit the document for verification
@@ -204,34 +232,64 @@ export default function UploadDocuments() {
             });
 
             console.log('📤 Submit Response:', submitResponse);
+            console.log('📤 Submit Response err_code:', submitResponse?.status?.err_code);
+            console.log('📤 Submit Response err_msg:', submitResponse?.status?.err_msg);
 
             if (submitResponse?.status?.err_code === 0) {
-              alert('Document uploaded and submitted for verification!');
+              setAlertConfig({
+                type: 'success',
+                title: 'Upload Successful!',
+                message: 'Document uploaded and submitted for verification successfully.'
+              });
+              setAlertOpen(true);
             } else {
               // Upload succeeded but submit had an issue - still show success
-              alert('Document uploaded successfully!\n\nNote: ' + (submitResponse?.status?.err_msg || ''));
+              setAlertConfig({
+                type: 'warning',
+                title: 'Upload Successful',
+                message: `Document uploaded successfully.\n\nNote: ${submitResponse?.status?.err_msg || 'Verification submission pending.'}`
+              });
+              setAlertOpen(true);
             }
           } catch (submitErr) {
             console.error('❌ Submit error (upload was successful):', submitErr);
-            alert('Document uploaded successfully!');
+            setAlertConfig({
+              type: 'success',
+              title: 'Upload Successful',
+              message: 'Document uploaded successfully. Verification will be processed.'
+            });
+            setAlertOpen(true);
           }
 
           // Refresh documents from API
           await fetchDocuments();
         } else {
-          alert('Upload failed: ' + (response?.status?.err_msg || 'Unknown error'));
+          console.error('❌ Upload failed:', response?.status?.err_msg);
+          setAlertConfig({
+            type: 'error',
+            title: 'Upload Failed',
+            message: response?.status?.err_msg || 'Unknown error occurred. Please try again.'
+          });
+          setAlertOpen(true);
         }
       } catch (err) {
         console.error('❌ Error uploading file:', err);
-        alert('Failed to upload document. Please try again.');
+        console.error('❌ Error details:', {
+          message: err.message,
+          stack: err.stack
+        });
+        setAlertConfig({
+          type: 'error',
+          title: 'Upload Error',
+          message: `Failed to upload document: ${err.message}. Please try again.`
+        });
+        setAlertOpen(true);
       } finally {
         setUploading(false);
       }
     };
     input.click();
   };
-
-  const [submitting, setSubmitting] = useState(false);
 
   // Check if there are any documents uploaded
   const hasDocuments = () => {
@@ -265,29 +323,48 @@ export default function UploadDocuments() {
    */
   const handleFinalSubmission = async () => {
     if (!customerData?.customer_id) {
-      alert('Customer ID is missing');
+      setAlertConfig({
+        type: 'error',
+        title: 'Missing Information',
+        message: 'Customer ID is missing. Please try again.'
+      });
+      setAlertOpen(true);
       return;
     }
 
     // Check if there are any documents to submit
     if (!hasDocuments()) {
-      alert('Please upload at least one document before submitting.');
+      setAlertConfig({
+        type: 'warning',
+        title: 'No Documents',
+        message: 'Please upload at least one document before submitting.'
+      });
+      setAlertOpen(true);
       return;
     }
 
     // Check if all documents are already approved
     if (allDocumentsApproved()) {
-      const confirmResubmit = confirm('All your documents are already approved.\n\nDo you want to request re-verification?');
-      if (!confirmResubmit) {
-        return;
-      }
+      setConfirmConfig({
+        title: 'Documents Already Approved',
+        message: 'All your documents are already approved. Do you want to request re-verification?',
+        onConfirm: () => { setConfirmOpen(false); proceedWithSubmission(); }
+      });
+      setConfirmOpen(true);
+      return;
     } else {
       // Confirm submission
-      if (!confirm('Request verification for all uploaded documents?\n\nNote: Documents are automatically submitted after upload. Use this only if you need to re-verify.')) {
-        return;
-      }
+      setConfirmConfig({
+        title: 'Request Verification',
+        message: 'Request verification for all uploaded documents? Note: Documents are automatically submitted after upload. Use this only if you need to re-verify.',
+        onConfirm: () => { setConfirmOpen(false); proceedWithSubmission(); }
+      });
+      setConfirmOpen(true);
+      return;
     }
+  };
 
+  const proceedWithSubmission = async () => {
     try {
       setSubmitting(true);
 
@@ -303,7 +380,12 @@ export default function UploadDocuments() {
       const proofTypesToSubmit = proofTypes.filter(pt => pt.hasDocuments);
 
       if (proofTypesToSubmit.length === 0) {
-        alert('No documents found to submit.');
+        setAlertConfig({
+          type: 'warning',
+          title: 'No Documents Found',
+          message: 'No documents found to submit. Please upload documents first.'
+        });
+        setAlertOpen(true);
         setSubmitting(false);
         return;
       }
@@ -353,11 +435,26 @@ export default function UploadDocuments() {
       const resultText = results.map(r => `${r.success ? '✅' : '❌'} ${r.name}: ${r.message}`).join('\n');
 
       if (successCount === results.length) {
-        alert('✅ Verification requested successfully!\n\n' + resultText + '\n\nYour documents are under review.');
+        setAlertConfig({
+          type: 'success',
+          title: 'Verification Requested Successfully!',
+          message: resultText + '\n\nYour documents are under review.'
+        });
+        setAlertOpen(true);
       } else if (successCount > 0) {
-        alert('⚠️ Partial success:\n\n' + resultText + '\n\nSome documents may need re-upload.');
+        setAlertConfig({
+          type: 'warning',
+          title: 'Partial Success',
+          message: resultText + '\n\nSome documents may need re-upload.'
+        });
+        setAlertOpen(true);
       } else {
-        alert('❌ Verification request failed:\n\n' + resultText + '\n\nPlease ensure all documents are uploaded correctly.');
+        setAlertConfig({
+          type: 'error',
+          title: 'Verification Request Failed',
+          message: resultText + '\n\nPlease ensure all documents are uploaded correctly.'
+        });
+        setAlertOpen(true);
       }
 
       // Refresh documents to get updated status
@@ -365,7 +462,12 @@ export default function UploadDocuments() {
 
     } catch (err) {
       console.error('❌ Submission error:', err);
-      alert('Verification request failed: ' + err.message + '\n\nPlease try again.');
+      setAlertConfig({
+        type: 'error',
+        title: 'Submission Error',
+        message: 'Verification request failed: ' + err.message + '. Please try again.'
+      });
+      setAlertOpen(true);
     } finally {
       setSubmitting(false);
     }
@@ -387,8 +489,8 @@ export default function UploadDocuments() {
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      {/* Teal Header */}
-      <header className="sticky top-0 z-40 flex items-center px-4 py-3 bg-teal-500 shadow-sm">
+      {/* Blue Gradient Header */}
+      <header className="sticky top-0 z-40 flex items-center px-4 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg">
         <button onClick={() => navigate(-1)} className="p-1 mr-3">
           <ArrowLeftIcon className="h-6 w-6 text-white" />
         </button>
@@ -397,21 +499,24 @@ export default function UploadDocuments() {
 
       <div className="flex-1 px-4 py-5 pb-24 bg-gray-50">
         {loading ? (
-          <div className="text-center py-10 text-gray-500">Loading documents...</div>
+          <Loader text="Loading documents..." />
         ) : uploading ? (
-          <div className="text-center py-10 text-orange-500 font-medium">Uploading document...</div>
+          <Loader text="Uploading document..." />
         ) : submitting ? (
-          <div className="text-center py-10 text-orange-500 font-medium">Submitting documents for verification...</div>
+          <Loader text="Submitting documents for verification..." />
         ) : (
           <div className="space-y-5">
             {/* Photo Proof Section */}
             <div className="bg-white rounded-lg p-4">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-gray-600 text-base font-medium">Photo Proof</h3>
+                <div className="flex items-center gap-2">
+                  <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
+                  <h3 className="text-indigo-600 text-lg font-semibold">Photo Proof</h3>
+                </div>
                 {documents.photoProof.allowupdate === 1 && documents.photoProof.images.length > 0 && (
                   <button
                     onClick={() => handleFileUpload('photoProof')}
-                    className="bg-orange-500 hover:bg-orange-600 text-white font-medium py-2 px-6 rounded-full text-sm transition-colors shadow-sm"
+                    className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-md hover:shadow-lg"
                   >
                     Change Profile
                   </button>
@@ -425,7 +530,7 @@ export default function UploadDocuments() {
                       <img
                         src={img.url}
                         alt="Photo Proof"
-                        className="w-24 h-28 object-cover rounded-lg border-2 border-gray-200 shadow-sm"
+                        className="w-28 h-32 object-cover rounded-xl border-2 border-indigo-200 shadow-md hover:shadow-lg transition-shadow duration-200"
                       />
                       {img.status && (
                         <span className={`text-sm mt-2 font-medium ${img.status === 'approved' ? 'text-green-600' : 'text-orange-500'}`}>
@@ -437,9 +542,9 @@ export default function UploadDocuments() {
                 ) : (
                   <button
                     onClick={() => handleFileUpload('photoProof')}
-                    className="w-28 h-32 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center hover:border-orange-400 hover:bg-orange-50 transition-all bg-white"
+                    className="w-28 h-32 border-2 border-dashed border-indigo-300 rounded-xl flex items-center justify-center hover:border-indigo-500 hover:bg-indigo-50 transition-all bg-white shadow-sm"
                   >
-                    <span className="text-5xl text-orange-500 font-light">+</span>
+                    <span className="text-5xl text-indigo-600 font-light">+</span>
                   </button>
                 )}
               </div>
@@ -448,11 +553,14 @@ export default function UploadDocuments() {
             {/* Address Proof Section */}
             <div className="bg-white rounded-lg p-4">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-gray-600 text-base font-medium">Address Proof</h3>
+                <div className="flex items-center gap-2">
+                  <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
+                  <h3 className="text-indigo-600 text-lg font-semibold">Address Proof</h3>
+                </div>
                 {documents.addressProof.allowupdate === 1 && documents.addressProof.images.length > 0 && (
                   <button
                     onClick={() => handleFileUpload('addressProof')}
-                    className="bg-orange-500 hover:bg-orange-600 text-white font-medium py-2 px-6 rounded-full text-sm transition-colors shadow-sm"
+                    className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-md hover:shadow-lg"
                   >
                     Change Address
                   </button>
@@ -466,7 +574,7 @@ export default function UploadDocuments() {
                     <img
                       src={img.url}
                       alt={`Address Proof ${idx + 1}`}
-                      className="w-24 h-28 object-cover rounded-lg border-2 border-gray-200 shadow-sm"
+                      className="w-28 h-32 object-cover rounded-xl border-2 border-indigo-200 shadow-md hover:shadow-lg transition-shadow duration-200"
                     />
                     {img.status && (
                       <span className={`text-sm mt-2 font-medium ${img.status === 'approved' ? 'text-green-600' : 'text-orange-500'}`}>
@@ -481,9 +589,9 @@ export default function UploadDocuments() {
                   <button
                     key={`add-${idx}`}
                     onClick={() => handleFileUpload('addressProof')}
-                    className="w-28 h-32 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center hover:border-orange-400 hover:bg-orange-50 transition-all bg-white"
+                    className="w-28 h-32 border-2 border-dashed border-indigo-300 rounded-xl flex items-center justify-center hover:border-indigo-500 hover:bg-indigo-50 transition-all bg-white shadow-sm"
                   >
-                    <span className="text-5xl text-orange-500 font-light">+</span>
+                    <span className="text-5xl text-indigo-600 font-light">+</span>
                   </button>
                 ))}
               </div>
@@ -492,11 +600,14 @@ export default function UploadDocuments() {
             {/* ID Proof Section */}
             <div className="bg-white rounded-lg p-4">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-gray-600 text-base font-medium">ID Proof</h3>
+                <div className="flex items-center gap-2">
+                  <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
+                  <h3 className="text-indigo-600 text-lg font-semibold">ID Proof</h3>
+                </div>
                 {documents.idProof.allowupdate === 1 && documents.idProof.images.length > 0 && (
                   <button
                     onClick={() => handleFileUpload('idProof')}
-                    className="bg-orange-500 hover:bg-orange-600 text-white font-medium py-2 px-6 rounded-full text-sm transition-colors shadow-sm"
+                    className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-md hover:shadow-lg"
                   >
                     Change Identity
                   </button>
@@ -510,7 +621,7 @@ export default function UploadDocuments() {
                     <img
                       src={img.url}
                       alt={`ID Proof ${idx + 1}`}
-                      className="w-24 h-28 object-cover rounded-lg border-2 border-gray-200 shadow-sm"
+                      className="w-28 h-32 object-cover rounded-xl border-2 border-indigo-200 shadow-md hover:shadow-lg transition-shadow duration-200"
                     />
                     {img.status && (
                       <span className={`text-sm mt-2 font-medium ${img.status === 'approved' ? 'text-green-600' : 'text-orange-500'}`}>
@@ -525,9 +636,9 @@ export default function UploadDocuments() {
                   <button
                     key={`add-${idx}`}
                     onClick={() => handleFileUpload('idProof')}
-                    className="w-28 h-32 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center hover:border-orange-400 hover:bg-orange-50 transition-all bg-white"
+                    className="w-28 h-32 border-2 border-dashed border-indigo-300 rounded-xl flex items-center justify-center hover:border-indigo-500 hover:bg-indigo-50 transition-all bg-white shadow-sm"
                   >
-                    <span className="text-5xl text-orange-500 font-light">+</span>
+                    <span className="text-5xl text-indigo-600 font-light">+</span>
                   </button>
                 ))}
               </div>
@@ -538,9 +649,9 @@ export default function UploadDocuments() {
               <button
                 onClick={handleFinalSubmission}
                 disabled={submitting || uploading}
-                className={`w-full font-semibold py-4 rounded-lg text-base uppercase tracking-wider shadow-md transition-colors ${submitting || uploading
+                className={`w-full font-bold py-4 rounded-lg text-base uppercase tracking-wider shadow-lg transition-all duration-200 ${submitting || uploading
                   ? 'bg-gray-400 cursor-not-allowed text-white'
-                  : 'bg-orange-500 hover:bg-orange-600 text-white'
+                  : 'bg-gradient-to-r from-green-600 to-green-600 hover:from-green-700 hover:to-green-700 text-white hover:shadow-xl'
                   }`}
               >
                 {submitting ? 'SUBMITTING...' : 'FINAL SUBMISSION'}
@@ -549,6 +660,24 @@ export default function UploadDocuments() {
           </div>
         )}
       </div>
+
+      {/* Beautiful Alert Component */}
+      <Alert
+        isOpen={alertOpen}
+        onClose={() => setAlertOpen(false)}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+      />
+
+      {/* Beautiful Confirm Dialog */}
+      <ConfirmDialog
+        open={confirmOpen}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        onConfirm={confirmConfig.onConfirm}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   );
 }

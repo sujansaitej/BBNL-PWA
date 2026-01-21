@@ -14,13 +14,13 @@ export default function Header({ onOpenSidebar }) {
     navigate("/login");
   }
   return (
-    <header className="sticky top-0 z-40 flex items-center justify-between px-4 py-2 shadow" style={{ background: '#6d67ff' }}>
+    <header className="sticky top-0 z-40 flex items-center justify-between px-4 py-3 shadow-lg bg-gradient-to-r from-indigo-600 to-blue-600">
       <button onClick={onOpenSidebar} className="p-2 rounded-lg white-icon">
         <Bars3Icon className="h-7 w-7 text-white dark:text-black" />
       </button>
       <Link to="/"><img src={import.meta.env.VITE_API_APP_DIR_PATH + import.meta.env.VITE_API_APP_LOGO_WHITE} alt="Fo-Fi" className="h-10" /></Link>
       <div className="flex items-center gap-2">
-          {/* <div id="google_translate_element"></div> */}
+        {/* <div id="google_translate_element"></div> */}
         {/* <div className="relative">
 
           <button className="p-2 rounded-full bg-gray-200 dark:bg-gray-700">

@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { formatToDecimals } from "../services/helpers";
 import { getWalBal } from "../services/generalApis";
 import { getPayDets, payNow } from "../services/registrationApis";
-import { Button, Loader, Badge } from "@/components/ui";
+import { Button, Loader, Badge, Alert } from "@/components/ui";
 
 export default function Subscribe() {
   const navigate = useNavigate();
@@ -12,6 +12,10 @@ export default function Subscribe() {
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
+
+  // Alert state
+  const [alertOpen, setAlertOpen] = useState(false);
+  const [alertConfig, setAlertConfig] = useState({ type: 'success', title: '', message: '' });
 
   const [intWB, setIntWB] = useState(0);
 
@@ -169,11 +173,23 @@ export default function Subscribe() {
         localStorage.setItem('groups', '');
         localStorage.setItem('selectedPlan', '');
         localStorage.setItem('filerefid', '');
-        alert("Payment successful and service activated.");
-        navigate('/');
+        setAlertConfig({
+          type: 'success',
+          title: 'Payment Successful!',
+          message: 'Your payment has been processed successfully and the service has been activated.'
+        });
+        setAlertOpen(true);
+        setTimeout(() => {
+          navigate('/');
+        }, 2000);
         // window.location.href = '/';
       } else {
-        alert("Payment failed: " + (data?.result || "Unknown error"));
+        setAlertConfig({
+          type: 'error',
+          title: 'Payment Failed',
+          message: data?.result || "An unknown error occurred. Please try again."
+        });
+        setAlertOpen(true);
       }
     } catch (err) {
       // setErrors((p) => ({ ...p, onumacid: "Invalid ONU MAC" }));
@@ -185,8 +201,8 @@ export default function Subscribe() {
 
   return (
     <Layout hideHeader={true} hideBottomNav={true}>
-      {/* Teal Header Bar - Exact match to screenshot */}
-      <div className="bg-teal-500 text-white px-4 py-3 flex items-center shadow-sm">
+      {/* Blue Gradient Header - Exact match to dashboard */}
+      <div className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-4 py-3 flex items-center shadow-lg">
         <button onClick={() => navigate(-1)} className="mr-3">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -203,26 +219,26 @@ export default function Subscribe() {
             {/* Payment Details Heading */}
             <div className="text-center">
               <h3 className="text-base font-medium text-teal-500 mb-1">Payment details</h3>
-              <p className="text-sm font-semibold text-orange-500">
+              <p className="text-sm font-semibold text-indigo-600">
                 Wallet Balance : Rs {formatToDecimals(intWB)}
               </p>
             </div>
 
-            {/* Payment Details Card with Cyan Left Border */}
-            <div className="bg-white rounded-lg shadow-sm border-l-4 border-cyan-400">
+            {/* Payment Details Card with Indigo Left Border */}
+            <div className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 border-l-4 border-indigo-600">
               <div className="px-4 py-3">
                 {paydet && Object.entries(paydet).map(([key, value], index) => (
                   <div
                     key={key}
                     className="flex items-start py-1.5"
                   >
-                    <span className={`text-sm w-36 flex-shrink-0 ${key === 'Total Amount' ? 'text-orange-500 font-semibold' : 'text-gray-600'}`}>
+                    <span className={`text-sm w-36 flex-shrink-0 ${key === 'Total Amount' ? 'text-indigo-600 font-semibold' : 'text-gray-600'}`}>
                       {key}
                     </span>
                     <span className="text-sm text-gray-600 mx-2">:</span>
                     <span className={`text-sm ${key === 'Total Amount'
-                        ? 'text-orange-500 font-semibold'
-                        : 'text-gray-800'
+                      ? 'text-indigo-600 font-semibold'
+                      : 'text-gray-800'
                       }`}>
                       {key === "Plan Name" ? value : `₹${formatToDecimals(value)}`}
                     </span>
@@ -231,22 +247,22 @@ export default function Subscribe() {
               </div>
             </div>
 
-            {/* More Details Card with Cyan Left Border */}
-            <div className="bg-white rounded-lg shadow-sm border-l-4 border-cyan-400">
+            {/* More Details Card with Indigo Left Border */}
+            <div className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 border-l-4 border-indigo-600">
               <div className="px-4 py-3">
-                <h3 className="text-sm font-medium text-orange-500 mb-2">More Details</h3>
+                <h3 className="text-sm font-medium text-indigo-600 mb-2">More Details</h3>
                 {sharedet && Object.entries(sharedet).map(([key, value], index) => (
                   <div
                     key={key}
                     className="flex items-start py-1.5"
                   >
-                    <span className={`text-sm w-36 flex-shrink-0 ${key === 'Amount Deductable' ? 'text-orange-500 font-semibold' : 'text-gray-600'}`}>
+                    <span className={`text-sm w-36 flex-shrink-0 ${key === 'Amount Deductable' ? 'text-indigo-600 font-semibold' : 'text-gray-600'}`}>
                       {key}
                     </span>
                     <span className="text-sm text-gray-600 mx-2">:</span>
                     <span className={`text-sm ${key === 'Amount Deductable'
-                        ? 'text-orange-500 font-semibold'
-                        : 'text-gray-800'
+                      ? 'text-indigo-600 font-semibold'
+                      : 'text-gray-800'
                       }`}>
                       ₹{parseFloat(value).toFixed(2)}
                     </span>
@@ -260,7 +276,7 @@ export default function Subscribe() {
               <button
                 onClick={() => paynow(payNowInp)}
                 disabled={submitting}
-                className="bg-orange-500 hover:bg-orange-600 text-white font-semibold text-sm py-3 px-16 rounded-lg shadow-md disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wider"
+                className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold text-sm py-3 px-16 rounded-lg shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wider transition-all duration-200"
               >
                 {submitting ? 'Processing...' : 'PROCEED TO PAY'}
               </button>
@@ -268,6 +284,15 @@ export default function Subscribe() {
           </div>
         )}
       </div>
+
+      {/* Beautiful Alert Component */}
+      <Alert
+        isOpen={alertOpen}
+        onClose={() => setAlertOpen(false)}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+      />
     </Layout>
   );
 }
