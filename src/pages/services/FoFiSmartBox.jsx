@@ -17,7 +17,7 @@ import {
     createFoFiPaymentOrder,
     verifyFoFiPayment,
 } from "../../services/fofiApis";
-import { getCableCustomerDetails, getPrimaryCustomerDetails } from "../../services/generalApis";
+import { getCableCustomerDetails, getPrimaryCustomerDetails, getMyPlanDetails } from "../../services/generalApis";
 
 function FoFiSmartBox() {
     const location = useLocation();
@@ -50,6 +50,7 @@ function FoFiSmartBox() {
     const [showQRScanner, setShowQRScanner] = useState(false);
     const [customerDetails, setCustomerDetails] = useState(null);
     const [primaryCustomerDetails, setPrimaryCustomerDetails] = useState(null);
+    const [customerInternetPlanId, setCustomerInternetPlanId] = useState(null);
 
     // Fetch FoFi plans on component mount
     useEffect(() => {
@@ -95,6 +96,45 @@ function FoFiSmartBox() {
 
         loadFoFiPlans();
     }, []);
+
+    // Fetch customer's current internet plan ID (needed for freeOTAService API)
+    useEffect(() => {
+        const fetchCustomerInternetPlan = async () => {
+            try {
+                const user = JSON.parse(localStorage.getItem('user'));
+                const userid = customerData?.username || user?.username;
+                
+                if (!userid) return;
+
+                console.log('🔵 Fetching customer internet plan for userid:', userid);
+                
+                const planDetails = await getMyPlanDetails({
+                    servicekey: "internet",
+                    userid: userid,
+                    fofiboxid: "",
+                    voipnumber: ""
+                });
+
+                console.log('🟢 Customer Plan Details:', planDetails);
+
+                // Extract internet plan ID from the response
+                if (planDetails?.body?.subscribed_services) {
+                    const internetService = planDetails.body.subscribed_services.find(
+                        s => s.servicekey === 'internet'
+                    );
+                    if (internetService?.srvid || internetService?.planid) {
+                        const planId = internetService.srvid || internetService.planid;
+                        console.log('✅ Found customer internet plan ID:', planId);
+                        setCustomerInternetPlanId(planId);
+                    }
+                }
+            } catch (error) {
+                console.warn('⚠️ Could not fetch customer internet plan:', error);
+            }
+        };
+
+        fetchCustomerInternetPlan();
+    }, [customerData]);
 
     // Fetch existing customer's FoFi device details (OPTIONAL - endpoint may not exist)
     useEffect(() => {
@@ -320,21 +360,14 @@ function FoFiSmartBox() {
             const loginuname = user?.username || 'superadmin';
             const username = customerData?.username || loginuname;
 
-            // First, get customer details
-            const cableDetails = await getCableCustomerDetails(username);
-            const primaryDetails = await getPrimaryCustomerDetails(username);
-
-            console.log('🟢 Cable Customer Details:', cableDetails);
-            console.log('🟢 Primary Customer Details:', primaryDetails);
-
             // Extract plan_id properly - API expects string format
-            // Priority: planid > plan_id > srvid > id (planid is often the correct field for API calls)
-            const planId = String(selectedPlan.planid || selectedPlan.plan_id || selectedPlan.srvid || selectedPlan.id);
+            // Priority: Use selected plan's srvid, or customer's internet plan ID as fallback
+            const planId = String(selectedPlan.srvid || selectedPlan.planid || selectedPlan.plan_id || selectedPlan.id);
             
             console.log('🔵 Selected Plan Object:', selectedPlan);
             console.log('🔵 All plan fields:', Object.keys(selectedPlan));
             console.log('🔵 Extracted Plan ID for API:', planId);
-            console.log('🔵 Plan field values - planid:', selectedPlan.planid, 'plan_id:', selectedPlan.plan_id, 'srvid:', selectedPlan.srvid);
+            console.log('🔵 Customer Internet Plan ID:', customerInternetPlanId);
 
             const linkPayload = {
                 fofiboxid: deviceInfo.boxId,
@@ -348,14 +381,25 @@ function FoFiSmartBox() {
 
             console.log('🔵 Link FoFi Box Payload:', JSON.stringify(linkPayload, null, 2));
 
+            // Call linkFoFiBox API first
             const linkResponse = await linkFoFiBox(linkPayload);
 
             console.log('🟢 Link FoFi Box Response:', linkResponse);
 
             if (linkResponse?.status?.err_code === 0) {
+                // Success - now fetch customer details (optional, don't fail if these fail)
+                try {
+                    const cableDetails = await getCableCustomerDetails(username);
+                    const primaryDetails = await getPrimaryCustomerDetails(username);
+                    console.log('🟢 Cable Customer Details:', cableDetails);
+                    console.log('🟢 Primary Customer Details:', primaryDetails);
+                    setCustomerDetails(cableDetails);
+                    setPrimaryCustomerDetails(primaryDetails);
+                } catch (detailsError) {
+                    console.warn('⚠️ Could not fetch customer details:', detailsError);
+                }
+
                 alert('FoFi Box linked successfully!');
-                setCustomerDetails(cableDetails);
-                setPrimaryCustomerDetails(primaryDetails);
                 setView('overview');
                 // Refresh device details
                 setDeviceValidated(false);
