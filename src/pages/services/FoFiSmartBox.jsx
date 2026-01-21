@@ -75,7 +75,8 @@ function FoFiSmartBox() {
                     const plans = response.body;
                     console.log('✅ Setting FoFi Plans from API. Total plans:', plans.length);
                     console.log('✅ First plan object:', plans[0]);
-                    console.log('✅ All fields in first plan:', plans[0]);
+                    console.log('✅ All fields in first plan:', Object.keys(plans[0]));
+                    console.log('✅ Plan ID fields check - srvid:', plans[0].srvid, 'plan_id:', plans[0].plan_id, 'planid:', plans[0].planid, 'id:', plans[0].id);
                     setFofiPlans(plans);
                 } else {
                     console.warn('⚠️ API response invalid, using mock data');
@@ -326,15 +327,28 @@ function FoFiSmartBox() {
             console.log('🟢 Cable Customer Details:', cableDetails);
             console.log('🟢 Primary Customer Details:', primaryDetails);
 
-            const linkResponse = await linkFoFiBox({
+            // Extract plan_id properly - API expects string format
+            // Priority: planid > plan_id > srvid > id (planid is often the correct field for API calls)
+            const planId = String(selectedPlan.planid || selectedPlan.plan_id || selectedPlan.srvid || selectedPlan.id);
+            
+            console.log('🔵 Selected Plan Object:', selectedPlan);
+            console.log('🔵 All plan fields:', Object.keys(selectedPlan));
+            console.log('🔵 Extracted Plan ID for API:', planId);
+            console.log('🔵 Plan field values - planid:', selectedPlan.planid, 'plan_id:', selectedPlan.plan_id, 'srvid:', selectedPlan.srvid);
+
+            const linkPayload = {
                 fofiboxid: deviceInfo.boxId,
                 fofimac: macAddress,
                 fofiserailnumber: deviceInfo.serialNumber,
                 loginuname: loginuname,
-                plan_id: selectedPlan.id || selectedPlan.plan_id,
+                plan_id: planId,
                 services: ["ott"],
                 username: username
-            });
+            };
+
+            console.log('🔵 Link FoFi Box Payload:', JSON.stringify(linkPayload, null, 2));
+
+            const linkResponse = await linkFoFiBox(linkPayload);
 
             console.log('🟢 Link FoFi Box Response:', linkResponse);
 
@@ -641,12 +655,14 @@ function FoFiSmartBox() {
                         onChange={(e) => {
                             const planId = e.target.value;
                             const plan = fofiPlans.find(p =>
-                                String(p.srvid) === String(planId) ||
+                                String(p.planid) === String(planId) ||
                                 String(p.plan_id) === String(planId) ||
+                                String(p.srvid) === String(planId) ||
                                 String(p.id) === String(planId)
                             );
                             console.log('🔵 Selected Plan ID:', planId);
                             console.log('🟢 Found Plan:', plan);
+                            console.log('🟢 Plan fields - srvid:', plan?.srvid, 'planid:', plan?.planid, 'plan_id:', plan?.plan_id);
                             setSelectedPlan(plan);
                             // Clear validation error when plan is selected
                             if (plan && validationError === 'Please select one internet plan from the selection') {
@@ -667,7 +683,8 @@ function FoFiSmartBox() {
                     >
                         <option value="" disabled>{isLoading ? 'Loading plans...' : 'Select a Plan'}</option>
                         {fofiPlans.map((plan, index) => {
-                            const planId = plan.srvid || plan.plan_id || plan.id;
+                            // Try multiple possible ID fields - planid is often the correct one for API calls
+                            const planId = plan.planid || plan.plan_id || plan.srvid || plan.id;
                             const planName = plan.serv_name || plan.planname || plan.name;
                             const planPrice = plan.rate || plan.planrate || plan.price || '';
 
