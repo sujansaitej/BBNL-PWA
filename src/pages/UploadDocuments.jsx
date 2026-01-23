@@ -1,7 +1,13 @@
 import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeftIcon } from "@heroicons/react/24/outline";
-import { getCustKYCPreview, uploadCustKYC, submitKYC } from "../services/generalApis";
+import {
+  getCustKYCPreview,
+  uploadCustKYC,
+  submitKYC,
+  getCableCustomerDetails,
+  getPrimaryCustomerDetails
+} from "../services/generalApis";
 import { Alert, ConfirmDialog, Loader } from "@/components/ui";
 
 export default function UploadDocuments() {
@@ -152,8 +158,12 @@ export default function UploadDocuments() {
 
   /**
    * Handle file upload
-   * API: uploadcustKYC
-   * FormData: cid, prooftype, reqtype, loginuser, file
+   * API Flow (matching client logs):
+   * 1. custKYCpreview - Get current status
+   * 2. uploadcustKYC - Upload the file
+   * 3. cblCustDet - Get cable customer details
+   * 4. primaryCustdet - Get primary customer details
+   * 5. custKYCpreview - Refresh status
    */
   const handleFileUpload = async (type) => {
     const input = document.createElement('input');
@@ -196,18 +206,27 @@ export default function UploadDocuments() {
       try {
         setUploading(true);
 
-        console.log('📤 Uploading document:', {
-          cid: customerData?.customer_id,
-          prooftype,
-          reqtype: 'update',
-          loginuser,
-          fileName: file.name,
-          fileSize: file.size,
-          fileType: file.type
+        console.log('📤 [UPLOAD FLOW] Starting file upload...');
+        console.log('📤 [UPLOAD FLOW] Customer ID:', customerData?.customer_id);
+        console.log('📤 [UPLOAD FLOW] Proof Type:', prooftype);
+        console.log('📤 [UPLOAD FLOW] Login User:', loginuser);
+        console.log('📤 [UPLOAD FLOW] File:', {
+          name: file.name,
+          size: file.size,
+          type: file.type
         });
 
-        // API: uploadcustKYC with multipart/form-data
-        const response = await uploadCustKYC({
+        // Step 1: Upload the file
+        console.log('📤 [STEP 1/5] Uploading file...');
+        console.log('📤 [STEP 1/5] Calling uploadCustKYC with:', {
+          cid: customerData?.customer_id,
+          prooftype: prooftype,
+          reqtype: 'update',
+          loginuser: loginuser,
+          file: file.name
+        });
+
+        const uploadResponse = await uploadCustKYC({
           cid: customerData?.customer_id,
           prooftype,
           reqtype: 'update',
@@ -215,63 +234,69 @@ export default function UploadDocuments() {
           loginuser
         });
 
-        console.log('📤 Upload Response:', response);
-        console.log('📤 Upload Response err_code:', response?.status?.err_code);
-        console.log('📤 Upload Response err_msg:', response?.status?.err_msg);
+        console.log('📤 [STEP 1/5] Upload Response:', uploadResponse);
 
-        if (response?.status?.err_code === 0) {
-          // Success - now submit the document for verification
-          console.log('📤 Upload successful, now submitting for verification...');
-
-          try {
-            const submitResponse = await submitKYC({
-              cid: customerData?.customer_id,
-              loginuser,
-              prooftype,
-              reqtype: 'update'
-            });
-
-            console.log('📤 Submit Response:', submitResponse);
-            console.log('📤 Submit Response err_code:', submitResponse?.status?.err_code);
-            console.log('📤 Submit Response err_msg:', submitResponse?.status?.err_msg);
-
-            if (submitResponse?.status?.err_code === 0) {
-              setAlertConfig({
-                type: 'success',
-                title: 'Upload Successful!',
-                message: 'Document uploaded and submitted for verification successfully.'
-              });
-              setAlertOpen(true);
-            } else {
-              // Upload succeeded but submit had an issue - still show success
-              setAlertConfig({
-                type: 'warning',
-                title: 'Upload Successful',
-                message: `Document uploaded successfully.\n\nNote: ${submitResponse?.status?.err_msg || 'Verification submission pending.'}`
-              });
-              setAlertOpen(true);
-            }
-          } catch (submitErr) {
-            console.error('❌ Submit error (upload was successful):', submitErr);
-            setAlertConfig({
-              type: 'success',
-              title: 'Upload Successful',
-              message: 'Document uploaded successfully. Verification will be processed.'
-            });
-            setAlertOpen(true);
-          }
-
-          // Refresh documents from API
-          await fetchDocuments();
-        } else {
-          console.error('❌ Upload failed:', response?.status?.err_msg);
+        if (uploadResponse?.status?.err_code !== 0) {
+          console.error('❌ Upload failed:', uploadResponse?.status?.err_msg);
           setAlertConfig({
             type: 'error',
             title: 'Upload Failed',
-            message: response?.status?.err_msg || 'Unknown error occurred. Please try again.'
+            message: uploadResponse?.status?.err_msg || 'Unknown error occurred. Please try again.'
           });
           setAlertOpen(true);
+          setUploading(false);
+          return;
         }
+
+        console.log('✅ [STEP 1/5] File uploaded successfully!');
+
+        // Step 2: Get cable customer details (matching client flow)
+        console.log('📤 [STEP 2/5] Fetching cable customer details...');
+        try {
+          const cableDetails = await getCableCustomerDetails(customerData?.customer_id);
+          console.log('📤 [STEP 2/5] Cable Details:', cableDetails);
+        } catch (err) {
+          console.warn('⚠️ [STEP 2/5] Cable details fetch failed (non-critical):', err.message);
+        }
+
+        // Step 3: Get primary customer details (matching client flow)
+        console.log('📤 [STEP 3/5] Fetching primary customer details...');
+        try {
+          const primaryDetails = await getPrimaryCustomerDetails(customerData?.customer_id);
+          console.log('📤 [STEP 3/5] Primary Details:', primaryDetails);
+        } catch (err) {
+          console.warn('⚠️ [STEP 3/5] Primary details fetch failed (non-critical):', err.message);
+        }
+
+        // Step 4: Submit for verification (optional - some implementations skip this)
+        console.log('📤 [STEP 4/5] Submitting for verification...');
+        try {
+          const submitResponse = await submitKYC({
+            cid: customerData?.customer_id,
+            loginuser,
+            prooftype,
+            reqtype: 'update'
+          });
+
+          console.log('📤 [STEP 4/5] Submit Response:', submitResponse);
+        } catch (submitErr) {
+          console.warn('⚠️ [STEP 4/5] Submit failed (non-critical):', submitErr.message);
+        }
+
+        // Step 5: Refresh KYC preview to get updated documents
+        console.log('📤 [STEP 5/5] Refreshing document list...');
+        await fetchDocuments();
+
+        console.log('✅ [UPLOAD FLOW] Complete!');
+
+        // Show success message
+        setAlertConfig({
+          type: 'success',
+          title: 'Upload Successful!',
+          message: 'Document uploaded successfully and is being processed.'
+        });
+        setAlertOpen(true);
+
       } catch (err) {
         console.error('❌ Error uploading file:', err);
         console.error('❌ Error details:', {

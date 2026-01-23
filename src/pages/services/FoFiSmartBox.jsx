@@ -9,7 +9,6 @@ import {
     getSpecialInternetPlans,
     validateFoFiAsset,
     linkFoFiBox,
-    validateDeviceByQR,
     fetchMACBySerial,
     registerFoFiDevice,
     getFoFiDeviceDetails,
@@ -206,36 +205,83 @@ function FoFiSmartBox() {
 
             console.log('QR Code scanned:', qrData);
 
-            // Validate the scanned QR code with backend
-            const response = await validateDeviceByQR({
-                qrData: qrData,
-                customerId: customerData.customer_id
+            // QR data is base64 encoded JSON: {"emacid":"11:1D:EF:1A:13:9F","firmware":"","serialno":"FOFI201010180020039"}
+            let parsedQRData;
+            try {
+                const decodedData = atob(qrData);
+                parsedQRData = JSON.parse(decodedData);
+                console.log('Parsed QR data:', parsedQRData);
+            } catch (parseError) {
+                console.error('Failed to parse QR data:', parseError);
+                setValidationError('Invalid QR code format. Please scan a valid FoFi device QR code.');
+                setIsLoading(false);
+                return;
+            }
+
+            // Extract MAC address and serial number from QR data
+            const qrMacAddress = parsedQRData.emacid || parsedQRData.macid || '';
+            const qrSerialNumber = parsedQRData.serialno || parsedQRData.serial || '';
+
+            if (!qrMacAddress && !qrSerialNumber) {
+                setValidationError('QR code does not contain device information.');
+                setIsLoading(false);
+                return;
+            }
+
+            // Validate the asset using existing API
+            const response = await validateFoFiAsset({
+                mac_addr: qrMacAddress,
+                serialno: qrSerialNumber,
+                userid: customerData.customer_id,
+                boxid: ''
             });
 
-            if (response.success && response.data) {
-                setMacAddress(response.data.macAddress);
-                setDeviceInfo(response.data);
-                setDeviceValidated(true);
-                setView('payment');
-            } else {
-                setValidationError(response.message || 'Failed to validate device via QR code');
+            console.log('validateFoFiAsset response:', response);
+
+            // Extract device data from API response (handle empty array case)
+            let deviceData = {};
+            if (Array.isArray(response.body) && response.body.length > 0) {
+                deviceData = response.body[0];
+            } else if (response.body && typeof response.body === 'object' && !Array.isArray(response.body)) {
+                deviceData = response.body;
             }
+
+            // Use QR data as primary source since it contains valid device info
+            // API validation may fail but QR data is still usable
+            const finalMacAddress = qrMacAddress || deviceData?.mac_addr || deviceData?.macAddress || '';
+            const finalSerialNumber = qrSerialNumber || deviceData?.serialno || deviceData?.serialNumber || '';
+            // Box ID: use API value if available, otherwise use serial number as box ID
+            const finalBoxId = deviceData?.boxid || deviceData?.box_id || qrSerialNumber || '';
+
+            console.log('Device info extracted:', {
+                macAddress: finalMacAddress,
+                serialNumber: finalSerialNumber,
+                boxId: finalBoxId,
+                apiSuccess: response.status?.err_code === 0
+            });
+
+            if (!finalMacAddress || !finalSerialNumber) {
+                setValidationError('Could not extract device information from QR code.');
+                setIsLoading(false);
+                return;
+            }
+
+            // Set all device states
+            setMacAddress(finalMacAddress);
+            setSerialNumber(finalSerialNumber);
+            setBoxId(finalBoxId);
+            setDeviceInfo({
+                multicastDeviceId: deviceData?.multicast_id || deviceData?.multicastDeviceId || '',
+                unicastDeviceId: deviceData?.unicast_id || deviceData?.unicastDeviceId || '',
+                macAddress: finalMacAddress,
+                serialNumber: finalSerialNumber,
+                boxId: finalBoxId
+            });
+            setDeviceValidated(true);
+            setView('payment');
         } catch (error) {
             console.error('QR validation error:', error);
-            setValidationError('Failed to validate device. Please try manual entry.');
-
-            // Fallback to mock for development
-            setTimeout(() => {
-                setDeviceValidated(true);
-                setMacAddress('AA:BB:CC:DD:EE:FF');
-                setDeviceInfo({
-                    multicastDeviceId: 'MC123456789',
-                    unicastDeviceId: 'UC987654321',
-                    macAddress: 'AA:BB:CC:DD:EE:FF',
-                    serialNumber: 'SN_QR_SCAN'
-                });
-                setView('payment');
-            }, 500);
+            setValidationError('Failed to validate device: ' + error.message);
         } finally {
             setIsLoading(false);
         }

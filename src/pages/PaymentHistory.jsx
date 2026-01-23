@@ -1,6 +1,15 @@
 import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeftIcon, MagnifyingGlassIcon, PrinterIcon } from "@heroicons/react/24/outline";
+import {
+  ArrowLeftIcon,
+  PrinterIcon,
+  CreditCardIcon,
+  CalendarDaysIcon,
+  BanknotesIcon,
+  UserIcon,
+  DevicePhoneMobileIcon,
+  DocumentTextIcon
+} from "@heroicons/react/24/outline";
 import { getOrderHistory } from "../services/orderApis";
 import BottomNav from "../components/BottomNav";
 
@@ -13,7 +22,6 @@ export default function PaymentHistory() {
   const [orderHistory, setOrderHistory] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     async function fetchOrderHistory() {
@@ -22,27 +30,23 @@ export default function PaymentHistory() {
       try {
         const apiopid = cableDetails?.body?.op_id || customerData?.op_id;
         const cid = customerData?.customer_id;
-        console.log("🔵 Fetching order history for:", { apiopid, cid });
+        console.log("Fetching order history for:", { apiopid, cid });
         const data = await getOrderHistory({ apiopid, cid });
-        console.log("🟢 Order history response:", data);
+        console.log("Order history response:", data);
 
-        // Check if body is null or if error code indicates failure
         if (!data.body || data.body === null) {
           const errorMsg = data.status?.err_msg || "No payment history found for this customer";
-          console.log("⚠️ No data in response:", errorMsg);
           setError(errorMsg);
-          setOrderHistory({ body: [] }); // Set empty array to show "No payment history found" message
+          setOrderHistory({ body: [] });
         } else if (data.status?.err_code !== 0 && data.status?.err_code !== '0') {
-          // Check for error code
           const errorMsg = data.status?.err_msg || "Failed to fetch payment history";
-          console.log("⚠️ API returned error:", errorMsg);
           setError(errorMsg);
           setOrderHistory({ body: [] });
         } else {
           setOrderHistory(data);
         }
       } catch (err) {
-        console.error("❌ Failed to fetch order history:", err);
+        console.error("Failed to fetch order history:", err);
         setError("Failed to fetch order history. Please try again.");
       } finally {
         setLoading(false);
@@ -54,35 +58,35 @@ export default function PaymentHistory() {
     }
   }, [customerData, cableDetails]);
 
-  // Filter orders based on search query
-  const filteredOrders = orderHistory?.body?.filter(order => {
-    const searchLower = searchQuery.toLowerCase();
-    return (
-      order.name?.toLowerCase().includes(searchLower) ||
-      order.cid?.toLowerCase().includes(searchLower) ||
-      order.mobile?.toLowerCase().includes(searchLower)
-    );
-  }) || [];
+  const orders = orderHistory?.body || [];
 
   const handlePrint = (order) => {
-    // Implement print functionality
     window.print();
+  };
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return "N/A";
+    return dateStr;
+  };
+
+  const formatAmount = (amount) => {
+    if (!amount) return "0";
+    return Number(amount).toLocaleString('en-IN');
   };
 
   if (!customerData) {
     return (
-      <div className="min-h-screen flex flex-col bg-gradient-to-b from-teal-400 to-cyan-300">
-        <header
-          className="sticky top-0 z-40 flex items-center px-4 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg"
-        >
+      <div className="min-h-screen flex flex-col bg-gray-50">
+        <header className="sticky top-0 z-40 flex items-center px-4 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg">
           <button onClick={() => navigate(-1)} className="p-1 mr-3">
             <ArrowLeftIcon className="h-6 w-6 text-white" />
           </button>
           <h1 className="text-lg font-medium text-white">Payment History</h1>
         </header>
-        <div className="flex-1 px-3 py-4">
-          <div className="text-center text-white py-10 bg-white/20 rounded-xl backdrop-blur-sm">
-            No customer data available.
+        <div className="flex-1 flex items-center justify-center px-4">
+          <div className="text-center py-10 px-6 bg-white rounded-2xl shadow-lg">
+            <DocumentTextIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-500 font-medium">No customer data available</p>
           </div>
         </div>
         <BottomNav />
@@ -91,137 +95,172 @@ export default function PaymentHistory() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col relative overflow-hidden bg-gradient-to-b from-teal-400 to-cyan-300">
-
-      {/* Bottom Wave Decoration - Exact match to screenshot */}
-      <div className="fixed bottom-0 left-0 right-0 z-0 pointer-events-none">
-        <svg viewBox="0 0 400 200" className="w-full" preserveAspectRatio="none" style={{ height: '60vh' }}>
-          {/* Main wave shape */}
-          <path
-            d="M0,100 Q100,50 200,100 T400,100 L400,200 L0,200 Z"
-            fill="#f5f5f0"
-            opacity="1"
-          />
-          {/* Top curve accent */}
-          <path
-            d="M0,90 Q100,40 200,90 T400,90"
-            fill="none"
-            stroke="#e0e0d8"
-            strokeWidth="1"
-            opacity="0.5"
-          />
-        </svg>
-      </div>
-
-      {/* Teal Header - Exact match to screenshot */}
-      <header
-        className="sticky top-0 z-40 flex items-center px-4 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg"
-      >
+    <div className="min-h-screen flex flex-col bg-gray-50">
+      {/* Header */}
+      <header className="sticky top-0 z-40 flex items-center px-4 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg">
         <button onClick={() => navigate(-1)} className="p-1 mr-3">
           <ArrowLeftIcon className="h-6 w-6 text-white" />
         </button>
         <h1 className="text-lg font-medium text-white">Payment History</h1>
       </header>
 
-      <div className="relative z-10 flex-1 max-w-md mx-auto w-full px-4 py-4 pb-24">
-        {/* Search Bar - Exact match to screenshot */}
-        <div className="relative mb-4">
-          <input
-            type="text"
-            placeholder={customerData.customer_id || "Search..."}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full px-4 py-2.5 pr-12 rounded-lg bg-white border-0 focus:outline-none focus:ring-2 focus:ring-teal-300 shadow-sm text-gray-700 placeholder-gray-400 text-sm"
-          />
-          <button className="absolute right-3 top-1/2 transform -translate-y-1/2">
-            <MagnifyingGlassIcon className="w-5 h-5 text-teal-500" />
-          </button>
+      {/* Customer Info Banner */}
+      <div className="bg-gradient-to-r from-indigo-500 to-blue-500 px-4 py-4">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+            <UserIcon className="w-6 h-6 text-white" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-white font-semibold text-base">
+              {customerData.name || "Customer"}
+            </h2>
+            <p className="text-white/80 text-sm">
+              ID: {customerData.customer_id}
+            </p>
+          </div>
         </div>
+      </div>
 
-        {/* Payment History Cards - Exact match to screenshot */}
+      {/* API Error Banner */}
+      {error && (
+        <div className="mx-4 mt-4 bg-red-50 border border-red-200 rounded-xl p-3 flex items-start gap-3">
+          <div className="flex-shrink-0 w-6 h-6 bg-red-100 rounded-full flex items-center justify-center mt-0.5">
+            <span className="text-red-500 text-sm font-bold">✕</span>
+          </div>
+          <p className="text-red-600 text-sm flex-1">{error}</p>
+        </div>
+      )}
+
+      <div className="flex-1 px-4 py-4 pb-24">
+        {/* Payment Cards */}
         {loading ? (
-          <div className="text-center py-10 text-white bg-white/20 rounded-xl backdrop-blur-sm">
-            Loading payment history...
+          <div className="flex flex-col items-center justify-center py-16">
+            <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
+            <p className="text-gray-500 font-medium">Loading payment history...</p>
           </div>
-        ) : error ? (
-          <div className="text-center py-10 bg-white rounded-xl shadow-md">
-            <div className="text-orange-500 font-medium mb-2">⚠️ {error}</div>
-            <p className="text-gray-500 text-sm">This customer may not have any payment records yet.</p>
-          </div>
-        ) : filteredOrders.length > 0 ? (
-          filteredOrders.map((order, idx) => (
-            <div
-              key={order.orderid || idx}
-              className="bg-white rounded-xl shadow-md p-4 mb-4 relative"
-            >
-              {/* Print Button - Top Right */}
-              <button
-                onClick={() => handlePrint(order)}
-                className="absolute right-4 top-4"
+        ) : orders.length > 0 ? (
+          <div className="space-y-4">
+            {orders.map((order, idx) => (
+              <div
+                key={order.orderid || idx}
+                className="bg-white rounded-2xl shadow-lg overflow-hidden"
               >
-                <PrinterIcon className="w-7 h-7 text-teal-500" />
-              </button>
-
-              {/* Payment Details - Exact layout from screenshot */}
-              <div className="space-y-1 pr-12 text-sm">
-                {/* Name */}
-                <div className="flex">
-                  <span className="text-gray-600 w-32 flex-shrink-0">Name</span>
-                  <span className="text-gray-600 mr-2">:</span>
-                  <span className="text-gray-800">{order.name || customerData.name || "N/A"}</span>
+                {/* Card Header */}
+                <div className="bg-gradient-to-r from-indigo-50 to-blue-50 px-4 py-3 flex items-center justify-between border-b border-indigo-100">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center">
+                      <CreditCardIcon className="w-4 h-4 text-indigo-600" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500">Transaction</p>
+                      <p className="text-sm font-semibold text-gray-800">#{order.orderid || idx + 1}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handlePrint(order)}
+                    className="w-10 h-10 bg-indigo-100 hover:bg-indigo-200 rounded-xl flex items-center justify-center transition-colors"
+                  >
+                    <PrinterIcon className="w-5 h-5 text-indigo-600" />
+                  </button>
                 </div>
 
-                {/* Customer Id - Single line format: (count)cid [op_id] */}
-                <div className="flex">
-                  <span className="text-gray-600 w-32 flex-shrink-0">Customer Id</span>
-                  <span className="text-gray-600 mr-2">:</span>
-                  <span className="text-gray-800">
-                    <span className="text-teal-500">({order.count || "1"})</span>
-                    {order.cid || customerData.customer_id}{" "}
-                    <span className="text-gray-500">[{order.op_id || cableDetails?.body?.op_id || "N/A"}]</span>
-                  </span>
-                </div>
+                {/* Card Body */}
+                <div className="p-4 space-y-3">
+                  {/* Amount - Highlighted */}
+                  <div className="flex items-center justify-between bg-green-50 rounded-xl p-3">
+                    <div className="flex items-center gap-2">
+                      <BanknotesIcon className="w-5 h-5 text-green-600" />
+                      <span className="text-gray-600 text-sm">Amount Paid</span>
+                    </div>
+                    <span className="text-xl font-bold text-green-600">
+                      ₹{formatAmount(order.total_amt || order.paid_amt)}
+                    </span>
+                  </div>
 
-                {/* Mobile */}
-                <div className="flex">
-                  <span className="text-gray-600 w-32 flex-shrink-0">Mobile</span>
-                  <span className="text-gray-600 mr-2">:</span>
-                  <span className="text-gray-800">{order.mobile || customerData.mobile || "N/A"}</span>
-                </div>
+                  {/* Details Grid */}
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Customer Name */}
+                    <div className="bg-gray-50 rounded-xl p-3">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <UserIcon className="w-3.5 h-3.5 text-gray-400" />
+                        <span className="text-xs text-gray-500">Name</span>
+                      </div>
+                      <p className="text-sm font-medium text-gray-800 truncate">
+                        {order.name || customerData.name || "N/A"}
+                      </p>
+                    </div>
 
-                {/* Amount */}
-                <div className="flex">
-                  <span className="text-gray-600 w-32 flex-shrink-0">Amount</span>
-                  <span className="text-gray-600 mr-2">:</span>
-                  <span className="text-gray-800">₹{order.total_amt || order.paid_amt || "0"}</span>
-                </div>
+                    {/* Mobile */}
+                    <div className="bg-gray-50 rounded-xl p-3">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <DevicePhoneMobileIcon className="w-3.5 h-3.5 text-gray-400" />
+                        <span className="text-xs text-gray-500">Mobile</span>
+                      </div>
+                      <p className="text-sm font-medium text-gray-800">
+                        {order.mobile || customerData.mobile || "N/A"}
+                      </p>
+                    </div>
 
-                {/* Payment mode */}
-                <div className="flex">
-                  <span className="text-gray-600 w-32 flex-shrink-0">Payment mode</span>
-                  <span className="text-gray-600 mr-2">:</span>
-                  <span className="text-gray-800">{order.pymt_mode || "N/A"}</span>
-                </div>
+                    {/* Payment Mode */}
+                    <div className="bg-gray-50 rounded-xl p-3">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <CreditCardIcon className="w-3.5 h-3.5 text-gray-400" />
+                        <span className="text-xs text-gray-500">Payment Mode</span>
+                      </div>
+                      <p className="text-sm font-medium text-gray-800 capitalize">
+                        {order.pymt_mode || "N/A"}
+                      </p>
+                    </div>
 
-                {/* Payment date */}
-                <div className="flex">
-                  <span className="text-gray-600 w-32 flex-shrink-0">Payment date</span>
-                  <span className="text-gray-600 mr-2">:</span>
-                  <span className="text-gray-800">{order.payment_date || "N/A"}</span>
-                </div>
+                    {/* Payment Date */}
+                    <div className="bg-gray-50 rounded-xl p-3">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <CalendarDaysIcon className="w-3.5 h-3.5 text-gray-400" />
+                        <span className="text-xs text-gray-500">Date</span>
+                      </div>
+                      <p className="text-sm font-medium text-gray-800">
+                        {formatDate(order.payment_date)}
+                      </p>
+                    </div>
+                  </div>
 
-                {/* Plan */}
-                <div className="flex">
-                  <span className="text-gray-600 w-32 flex-shrink-0">Plan</span>
-                  <span className="text-gray-600 mr-2">:</span>
-                  <span className="text-gray-800">{order.plan_name || "N/A"}</span>
+                  {/* Plan Info */}
+                  <div className="bg-indigo-50 rounded-xl p-3">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <DocumentTextIcon className="w-3.5 h-3.5 text-indigo-500" />
+                      <span className="text-xs text-indigo-600">Plan</span>
+                    </div>
+                    <p className="text-sm font-semibold text-indigo-700">
+                      {order.plan_name || "N/A"}
+                    </p>
+                  </div>
+
+                  {/* Customer ID */}
+                  <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-100">
+                    <span>Customer ID: <span className="font-medium text-indigo-600">{order.cid || customerData.customer_id}</span></span>
+                    {order.op_id && <span>OP: {order.op_id}</span>}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))
+            ))}
+          </div>
         ) : (
-          <div className="text-center py-10 bg-white rounded-xl shadow-md text-gray-500">
-            No payment history found{searchQuery ? ` for "${searchQuery}"` : ""}.
+          <div className="bg-white rounded-2xl shadow-lg p-6 text-center">
+            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <DocumentTextIcon className="w-8 h-8 text-gray-400" />
+            </div>
+            <h3 className="text-gray-800 font-semibold mb-2">No Results</h3>
+            <p className="text-gray-500 text-sm">No payment history found.</p>
+          </div>
+        )}
+
+        {/* Summary */}
+        {!loading && !error && orders.length > 0 && (
+          <div className="mt-4 bg-white rounded-2xl shadow-lg p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-gray-600 text-sm">Total Payments</span>
+              <span className="text-lg font-bold text-indigo-600">{orders.length}</span>
+            </div>
           </div>
         )}
       </div>

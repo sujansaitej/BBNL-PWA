@@ -406,22 +406,28 @@ export async function uploadCustKYC({ cid, prooftype, reqtype = 'update', file, 
     throw new Error('Invalid file object');
   }
 
+  // Validate required parameters
+  if (!cid) {
+    throw new Error('Customer ID (cid) is required');
+  }
+  if (!prooftype) {
+    throw new Error('Proof type is required');
+  }
+
   // Create FormData for multipart/form-data upload
-  // IMPORTANT: Based on client logs, the file field might need to be named differently
-  // Client logs show: FORMREQUEST:cid=iptvuser, prooftype=addProofs, reqtype=update, loginuser=superadmin
-  // But no file field shown - this suggests file might be sent as 'image' or the field name is different
+  // Based on client logs: FORMREQUEST:cid=iptvuser, prooftype=addProofs, reqtype=update, loginuser=superadmin
+  // The file field must be named 'docimg' as per server specification
   const formData = new FormData();
   formData.append('cid', cid);
   formData.append('prooftype', prooftype);
   formData.append('reqtype', reqtype);
   formData.append('loginuser', loginuser);
 
-  // Try different field names for the file
-  // Common field names: 'file', 'image', 'photo', 'document'
-  formData.append('image', file, file.name); // Changed from 'file' to 'image'
+  // Append file with field name 'docimg' as required by the server API
+  formData.append('docimg', file, file.name);
 
   // For multipart/form-data, browser sets Content-Type with boundary automatically
-  // Headers matching client documentation
+  // Headers matching client documentation exactly
   const headers = {
     'Authorization': import.meta.env.VITE_API_AUTH_KEY,
     'username': import.meta.env.VITE_API_USERNAME,
@@ -432,29 +438,10 @@ export async function uploadCustKYC({ cid, prooftype, reqtype = 'update', file, 
 
   console.log('🔵 [uploadcustKYC] Request:', {
     url,
-    cid,
-    prooftype,
-    reqtype,
-    loginuser,
-    fileFieldName: 'image', // Updated field name
-    fileName: file.name,
+    formData: { cid, prooftype, reqtype, loginuser, docimg: file.name },
     fileSize: file.size,
     fileType: file.type
   });
-
-  // Log FormData contents for debugging
-  console.log('🔵 [uploadcustKYC] FormData contents:');
-  for (let [key, value] of formData.entries()) {
-    if (value instanceof File) {
-      console.log(`  ${key}:`, {
-        name: value.name,
-        size: value.size,
-        type: value.type
-      });
-    } else {
-      console.log(`  ${key}:`, value, `(empty: ${!value})`);
-    }
-  }
 
   const resp = await fetch(url, {
     method: 'POST',
