@@ -9,9 +9,9 @@ export default function Terms() {
             <strong>Commitment Period:</strong> The minimum commitment period for our internet service is 6 months from the date of activation.
             <ul className="list-disc pl-6 space-y-2">
                 <li>If the customer disconnects the service during this time, they will have to pay for the remaining months.</li>
-                <li>During this time temporary disconnection is allowed, a maintenance fee of Rs 100 will be charged to keep the account active. The 6 months commitment will get extended to subsequent month/s in order to maintain the committed months.</li>
+                <li>During this time temporary disconnection is allowed, a maintenance fee of ₹100 will be charged to keep the account active. The 6 months commitment will get extended to subsequent month/s in order to maintain the committed months.</li>
                 <li>During this time customers cannot downgrade the bandwidth but they can upgrade.</li>
-                <li>Payment has to be done online or in the nearby office of BBNL. If payment needs to be collected at the premises, a collection fee of Rs 30 will be charged extra apart from the monthly service charge.</li>
+                <li>Payment has to be done online or in the nearby office of BBNL. If payment needs to be collected at the premises, a collection fee of ₹30 will be charged extra apart from the monthly service charge.</li>
                 <li>The Security Deposit will be refunded only after 1 year completion. Service is prepaid.</li>
                 <li>Since this is a prepaid service, the customer has to pay in advance to avail the service.</li>
                 <li>Billing cycle starts from the 1st to end of the month.</li>

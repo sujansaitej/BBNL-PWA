@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowLeftIcon,
-  PrinterIcon,
+  ArrowDownTrayIcon,
   CreditCardIcon,
   CalendarDaysIcon,
   BanknotesIcon,
@@ -11,6 +11,7 @@ import {
   DocumentTextIcon
 } from "@heroicons/react/24/outline";
 import { getOrderHistory } from "../services/orderApis";
+import { formatCustomerId } from "../services/helpers";
 import BottomNav from "../components/BottomNav";
 
 export default function PaymentHistory() {
@@ -115,7 +116,7 @@ export default function PaymentHistory() {
               {customerData.name || "Customer"}
             </h2>
             <p className="text-white/80 text-sm">
-              ID: {customerData.customer_id}
+              ID: {formatCustomerId(customerData.customer_id)}
             </p>
           </div>
         </div>
@@ -149,18 +150,18 @@ export default function PaymentHistory() {
                 <div className="bg-gradient-to-r from-indigo-50 to-blue-50 px-4 py-3 flex items-center justify-between border-b border-indigo-100">
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center">
-                      <CreditCardIcon className="w-4 h-4 text-indigo-600" />
+                      <CalendarDaysIcon className="w-4 h-4 text-indigo-600" />
                     </div>
                     <div>
-                      <p className="text-xs text-gray-500">Transaction</p>
-                      <p className="text-sm font-semibold text-gray-800">#{order.orderid || idx + 1}</p>
+                      <p className="text-xs text-gray-500">Date</p>
+                      <p className="text-sm font-semibold text-gray-800">{formatDate(order.payment_date)}</p>
                     </div>
                   </div>
                   <button
                     onClick={() => handlePrint(order)}
                     className="w-10 h-10 bg-indigo-100 hover:bg-indigo-200 rounded-xl flex items-center justify-center transition-colors"
                   >
-                    <PrinterIcon className="w-5 h-5 text-indigo-600" />
+                    <ArrowDownTrayIcon className="w-5 h-5 text-indigo-600" />
                   </button>
                 </div>
 
@@ -237,8 +238,7 @@ export default function PaymentHistory() {
 
                   {/* Customer ID */}
                   <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-100">
-                    <span>Customer ID: <span className="font-medium text-indigo-600">{order.cid || customerData.customer_id}</span></span>
-                    {order.op_id && <span>OP: {order.op_id}</span>}
+                    <span>Customer ID: <span className="font-medium text-indigo-600">{formatCustomerId(order.cid || customerData.customer_id)}</span></span>
                   </div>
                 </div>
               </div>

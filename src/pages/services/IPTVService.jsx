@@ -4,6 +4,7 @@ import { mockCustomerServices, iptvAddonPackages } from "../../data";
 import BottomNav from "../../components/BottomNav";
 import { ServiceSelectionModal } from "@/components/ui";
 import { getCustKYCPreview } from "../../services/generalApis";
+import { formatCustomerId } from "../../services/helpers";
 
 export default function IPTVService() {
     const location = useLocation();
@@ -148,7 +149,7 @@ export default function IPTVService() {
                             </div>
                             <div className="flex gap-2">
                                 <span className="font-medium">User Id</span>
-                                <span>: {customerData.customer_id}</span>
+                                <span>: {formatCustomerId(customerData.customer_id)}</span>
                             </div>
                         </div>
                     </div>
@@ -253,7 +254,7 @@ export default function IPTVService() {
                     <div className="space-y-1 text-sm">
                         <div className="flex">
                             <span className="w-36 text-gray-600 dark:text-gray-400">Username</span>
-                            <span className="text-gray-600 dark:text-gray-400">: {customerData.customer_id}</span>
+                            <span className="text-gray-600 dark:text-gray-400">: {formatCustomerId(customerData.customer_id)}</span>
                         </div>
                         <div className="flex">
                             <span className="w-36 text-gray-600 dark:text-gray-400">Customer Name</span>

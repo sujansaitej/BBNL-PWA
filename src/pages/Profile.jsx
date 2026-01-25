@@ -41,10 +41,6 @@ export default function Profile() {
               <span className="text-gray-600 dark:text-gray-400">: {user.name || 'N/A'}</span>
             </div>
             <div className="flex">
-              <span className="w-36 text-gray-600 dark:text-gray-400">Operator ID</span>
-              <span className="text-gray-600 dark:text-gray-400">: {user.op_id || 'N/A'}</span>
-            </div>
-            <div className="flex">
               <span className="w-36 text-gray-600 dark:text-gray-400">Role</span>
               <span className="text-gray-600 dark:text-gray-400">: {user.role || 'Operator'}</span>
             </div>

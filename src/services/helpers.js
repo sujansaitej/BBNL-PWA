@@ -4,6 +4,12 @@ export function formatToDecimals(value) {
   return num.toFixed(2);
 }
 
+// Strip op_id pattern like [BBNL_OP49] from customer_id for display
+export function formatCustomerId(cid) {
+  if (!cid) return "N/A";
+  return String(cid).replace(/\s*\[.*\]\s*$/, '').trim();
+}
+
 export function tktTabs() {
   return [
     "OPEN",

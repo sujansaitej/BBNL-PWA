@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import { XMarkIcon, ExclamationCircleIcon } from "@heroicons/react/24/outline";
 import { mockCustomerServices, fofiPlans as mockFofiPlans, mockDeviceDatabase } from "../../data";
 import BottomNav from "../../components/BottomNav";
 import { ServiceSelectionModal } from "@/components/ui";
@@ -37,6 +39,7 @@ function FoFiSmartBox() {
     const [view, setView] = useState(fromInternet ? 'plans' : 'overview'); // Auto navigate to plans if from Internet
     const [selectedPlan, setSelectedPlan] = useState(null);
     const [deviceValidated, setDeviceValidated] = useState(false);
+    const [showValidationSuccess, setShowValidationSuccess] = useState(false);
     const [validationMethod, setValidationMethod] = useState(null); // 'qr' or 'manual'
     const [serialNumber, setSerialNumber] = useState('');
     const [boxId, setBoxId] = useState('');
@@ -161,6 +164,16 @@ function FoFiSmartBox() {
         loadDeviceDetails();
     }, [isExistingUser, customerData?.customer_id]);
 
+    // Auto-hide device validation success message after 3 seconds
+    useEffect(() => {
+        if (showValidationSuccess) {
+            const timer = setTimeout(() => {
+                setShowValidationSuccess(false);
+            }, 3000);
+            return () => clearTimeout(timer);
+        }
+    }, [showValidationSuccess]);
+
     // Service navigation handler
     const handleServiceSelect = (service) => {
         if (service) {
@@ -278,6 +291,7 @@ function FoFiSmartBox() {
                 boxId: finalBoxId
             });
             setDeviceValidated(true);
+            setShowValidationSuccess(true);
             setView('payment');
         } catch (error) {
             console.error('QR validation error:', error);
@@ -361,6 +375,7 @@ function FoFiSmartBox() {
                     boxId: boxId
                 });
                 setDeviceValidated(true);
+                setShowValidationSuccess(true);
                 setValidationMethod('manual');
 
                 console.log('✅ Device validated successfully');
@@ -699,17 +714,57 @@ function FoFiSmartBox() {
                     </div>
                 )}
 
-                {/* Error Message with better styling */}
-                {validationError && (
-                    <div className="bg-red-50 border-l-4 border-red-500 rounded-lg p-4 shadow-sm">
-                        <div className="flex items-center gap-2">
-                            <svg className="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                            </svg>
-                            <p className="text-sm font-medium text-red-700">{validationError}</p>
+                {/* Error Message Popup Modal */}
+                <AnimatePresence>
+                    {validationError && (
+                        <div className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50 px-4">
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.9, y: -20 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                                transition={{ duration: 0.3, ease: "easeOut" }}
+                                className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+                            >
+                                {/* Gradient Header */}
+                                <div className="bg-gradient-to-r from-red-500 to-red-600 px-6 py-4 flex items-center justify-between">
+                                    <h3 className="text-lg font-semibold text-white">Error</h3>
+                                    <button
+                                        onClick={() => setValidationError('')}
+                                        className="text-white/80 hover:text-white hover:bg-white/20 rounded-full p-1 transition-all duration-200"
+                                    >
+                                        <XMarkIcon className="h-6 w-6" />
+                                    </button>
+                                </div>
+
+                                {/* Content */}
+                                <div className="p-8">
+                                    <motion.div
+                                        initial={{ scale: 0 }}
+                                        animate={{ scale: 1 }}
+                                        transition={{ delay: 0.1, type: "spring", stiffness: 200 }}
+                                        className="flex justify-center mb-6"
+                                    >
+                                        <div className="bg-gradient-to-br from-red-100 to-red-200 rounded-full p-4">
+                                            <ExclamationCircleIcon className="h-16 w-16 text-red-500" />
+                                        </div>
+                                    </motion.div>
+
+                                    <p className="text-gray-700 text-center text-base leading-relaxed mb-6">
+                                        {validationError}
+                                    </p>
+
+                                    {/* Action Button */}
+                                    <button
+                                        onClick={() => setValidationError('')}
+                                        className="w-full px-6 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
+                                    >
+                                        OK
+                                    </button>
+                                </div>
+                            </motion.div>
                         </div>
-                    </div>
-                )}
+                    )}
+                </AnimatePresence>
 
                 {/* FOFI MAC ID Input with enhanced styling */}
                 <div className="space-y-2">
@@ -788,7 +843,7 @@ function FoFiSmartBox() {
                 </div>
 
                 {/* Success Message with enhanced styling */}
-                {deviceValidated && macAddress && (
+                {showValidationSuccess && macAddress && (
                     <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-green-500 rounded-lg p-4 shadow-sm">
                         <div className="flex items-start gap-3">
                             <svg className="w-6 h-6 text-green-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">

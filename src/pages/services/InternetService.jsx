@@ -11,6 +11,7 @@ import {
   getMyPlanDetails,
   getCustKYCPreview
 } from "../../services/generalApis";
+import { formatCustomerId } from "../../services/helpers";
 
 export default function InternetService() {
   const { customerId } = useParams();
@@ -194,7 +195,7 @@ export default function InternetService() {
               <div className="space-y-1 text-sm">
                 <div className="flex">
                   <span className="w-36 text-gray-600 dark:text-gray-400">Username</span>
-                  <span className="text-gray-600 dark:text-gray-400">: {customerData.customer_id}</span>
+                  <span className="text-gray-600 dark:text-gray-400">: {formatCustomerId(customerData.customer_id)}</span>
                 </div>
                 <div className="flex">
                   <span className="w-36 text-gray-600 dark:text-gray-400">Customer Name</span>

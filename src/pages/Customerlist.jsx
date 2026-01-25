@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import Layout from "../layout/Layout";
 import { MagnifyingGlassIcon, ArrowRightIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
 import { getCustList, getServiceList } from "../services/generalApis";
+import { formatCustomerId } from "../services/helpers";
 import { Loader, Badge } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 
@@ -149,7 +150,7 @@ export default function Customerlist() {
                 <div className="flex flex-col gap-2 text-sm">
                   <div className={`flex`}>
                     <span className={`w-28 text-gray-700 dark:text-gray-400 font-semibold`}>Username</span>
-                    <span className={`text-indigo-600 dark:text-gray-400 font-bold break-words`}>{d.customer_id}</span>
+                    <span className={`text-indigo-600 dark:text-gray-400 font-bold break-words`}>{formatCustomerId(d.customer_id)}</span>
                   </div>
                   <div className={`flex`}>
                     <span className={`w-28 text-gray-700 dark:text-gray-400 font-semibold`}>Name</span>

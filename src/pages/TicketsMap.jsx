@@ -16,7 +16,7 @@ import "leaflet/dist/leaflet.css";
 import iconUrl from "leaflet/dist/images/marker-icon.png";
 import iconShadow from "leaflet/dist/images/marker-shadow.png";
 import { getTickets, pickTicket } from "../services/generalApis";
-import { tktTabs, formatTo12Hour } from "../services/helpers";
+import { tktTabs, formatTo12Hour, formatCustomerId } from "../services/helpers";
 import { useToast } from "../components/ui/Toast";
 const user   = JSON.parse(localStorage.getItem('user'));
 const userImg  = user?.photo ? import.meta.env.VITE_API_BASE_URL + import.meta.env.VITE_API_APP_USER_IMG_PATH + user?.photo : import.meta.env.VITE_API_APP_DIR_PATH + import.meta.env.VITE_API_APP_DEFAULT_TECHCIAN_IMG;
@@ -269,7 +269,7 @@ const TicketsMap = () => {
                     </div>
                     <p>
                       <span className="font-semibold">Customer ID:</span>{" "}
-                      {selectedMarkerData.customername}
+                      {formatCustomerId(selectedMarkerData.customername)}
                     </p>
                     <p>
                       <span className="font-semibold">Name:</span>{" "}

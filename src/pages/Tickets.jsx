@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Loader, ConfirmDialog, TicketDialog } from "@/components/ui";
 import { useToast } from "../components/ui/Toast";
 import { Search, MapPin, ClipboardList } from "lucide-react";
-import { tktTabs, formatTo12Hour } from "../services/helpers";
+import { tktTabs, formatTo12Hour, formatCustomerId } from "../services/helpers";
 import { useOpenMap } from "../hooks/useOpenMap";
 import { getTktDepartments, getTickets, pickTicket } from "../services/generalApis";
 
@@ -427,7 +427,7 @@ const Tickets = () => {
             <div className="text-sm text-gray-600 space-y-1">
               <p>
                 <span className="w-32 font-semibold">Customer ID:</span>{" "}
-                {t.customerId}
+                {formatCustomerId(t.customerId)}
               </p>
               <p>
                 <span className="font-semibold">Mobile:</span> {t.mobile}

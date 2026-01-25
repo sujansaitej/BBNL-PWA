@@ -220,7 +220,7 @@ export default function Subscribe() {
             <div className="text-center">
               <h3 className="text-base font-medium text-teal-500 mb-1">Payment details</h3>
               <p className="text-sm font-semibold text-indigo-600">
-                Wallet Balance : Rs {formatToDecimals(intWB)}
+                Wallet Balance : ₹{formatToDecimals(intWB)}
               </p>
             </div>
 
