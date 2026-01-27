@@ -69,9 +69,9 @@ export default function DataUsage({ customer, onBack }) {
                             <p className="text-xs text-orange-600 mb-1">Used Data</p>
                             <p className="text-lg font-bold text-orange-700">{usageData.usedData}</p>
                         </div>
-                        <div className="bg-green-50 rounded-lg p-4">
-                            <p className="text-xs text-green-600 mb-1">Remaining</p>
-                            <p className="text-lg font-bold text-green-700">{usageData.remainingData}</p>
+                        <div className="bg-purple-50 rounded-lg p-4">
+                            <p className="text-xs text-purple-600 mb-1">Remaining</p>
+                            <p className="text-lg font-bold text-purple-700">{usageData.remainingData}</p>
                         </div>
                         <div className="bg-blue-50 rounded-lg p-4">
                             <p className="text-xs text-blue-600 mb-1">Validity</p>

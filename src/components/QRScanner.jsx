@@ -374,7 +374,7 @@ export default function QRScanner({ onScan, onClose, onError }) {
                                     </p>
                                 )}
                                 {scanStatus === 'processing' && (
-                                    <p className="text-sm text-green-400 font-medium">
+                                    <p className="text-sm text-purple-400 font-medium">
                                         QR Code detected!
                                     </p>
                                 )}

@@ -216,16 +216,16 @@ function FoFiSmartBox() {
             setValidationError('');
             setValidationMethod('qr');
 
-            console.log('QR Code scanned:', qrData);
+            console.log('🔵 QR Code scanned:', qrData);
 
             // QR data is base64 encoded JSON: {"emacid":"11:1D:EF:1A:13:9F","firmware":"","serialno":"FOFI201010180020039"}
             let parsedQRData;
             try {
                 const decodedData = atob(qrData);
                 parsedQRData = JSON.parse(decodedData);
-                console.log('Parsed QR data:', parsedQRData);
+                console.log('🟢 Parsed QR data:', parsedQRData);
             } catch (parseError) {
-                console.error('Failed to parse QR data:', parseError);
+                console.error('❌ Failed to parse QR data:', parseError);
                 setValidationError('Invalid QR code format. Please scan a valid FoFi device QR code.');
                 setIsLoading(false);
                 return;
@@ -241,17 +241,34 @@ function FoFiSmartBox() {
                 return;
             }
 
-            // Validate the asset using existing API
+            console.log('🔵 Calling validateAsset API with MAC:', qrMacAddress, 'Serial:', qrSerialNumber);
+
+            // Get logged in user for API call
+            const user = JSON.parse(localStorage.getItem('user'));
+            const userid = user?.username || customerData?.username || 'superadmin';
+
+            // Validate the asset using validateAsset API (multi-purpose API)
+            // Input: MAC Address & Serial Number → Output: Box ID
             const response = await validateFoFiAsset({
                 mac_addr: qrMacAddress,
                 serialno: qrSerialNumber,
-                userid: customerData.customer_id,
+                userid: userid,
                 boxid: ''
             });
 
-            console.log('validateFoFiAsset response:', response);
+            console.log('🟢 validateFoFiAsset response:', response);
+            console.log('🟢 Response Status:', response?.status);
+            console.log('🟢 Response Body:', response?.body);
 
-            // Extract device data from API response (handle empty array case)
+            // Check if API validation was successful
+            if (response?.status?.err_code !== 0) {
+                // API validation failed - show error message from API
+                setValidationError(response?.status?.err_msg || 'Device validation failed. Please try again.');
+                setIsLoading(false);
+                return;
+            }
+
+            // Extract device data from API response
             let deviceData = {};
             if (Array.isArray(response.body) && response.body.length > 0) {
                 deviceData = response.body[0];
@@ -259,30 +276,43 @@ function FoFiSmartBox() {
                 deviceData = response.body;
             }
 
-            // Use QR data as primary source since it contains valid device info
-            // API validation may fail but QR data is still usable
-            const finalMacAddress = qrMacAddress || deviceData?.mac_addr || deviceData?.macAddress || '';
-            const finalSerialNumber = qrSerialNumber || deviceData?.serialno || deviceData?.serialNumber || '';
-            // Box ID: use API value if available, otherwise use serial number as box ID
-            const finalBoxId = deviceData?.boxid || deviceData?.box_id || qrSerialNumber || '';
+            console.log('🟢 Device data from API:', deviceData);
 
-            console.log('Device info extracted:', {
+            // Extract Box ID from API response or success message
+            let extractedBoxId = deviceData?.boxid || deviceData?.box_id || deviceData?.fofiboxid || '';
+
+            // Try to extract Box ID from success message if not in body
+            // Message format might contain box ID information
+            if (!extractedBoxId && response?.status?.err_msg) {
+                // Check if serial number can be used as box ID (common pattern)
+                const msgLower = response.status.err_msg.toLowerCase();
+                if (msgLower.includes('available') || msgLower.includes('belongs to')) {
+                    // Device is valid, use serial number as box ID if not provided
+                    extractedBoxId = qrSerialNumber;
+                }
+            }
+
+            // Final values - prioritize API response, fallback to QR data
+            const finalMacAddress = deviceData?.mac_addr || deviceData?.macAddress || qrMacAddress;
+            const finalSerialNumber = deviceData?.serialno || deviceData?.serialNumber || deviceData?.serial_number || qrSerialNumber;
+            const finalBoxId = extractedBoxId || qrSerialNumber;
+
+            console.log('✅ Final device info:', {
                 macAddress: finalMacAddress,
                 serialNumber: finalSerialNumber,
-                boxId: finalBoxId,
-                apiSuccess: response.status?.err_code === 0
+                boxId: finalBoxId
             });
 
-            if (!finalMacAddress || !finalSerialNumber) {
-                setValidationError('Could not extract device information from QR code.');
+            if (!finalMacAddress) {
+                setValidationError('Could not retrieve MAC address from device validation.');
                 setIsLoading(false);
                 return;
             }
 
-            // Set all device states
+            // Populate all input fields with validated data
+            setBoxId(finalBoxId);
             setMacAddress(finalMacAddress);
             setSerialNumber(finalSerialNumber);
-            setBoxId(finalBoxId);
             setDeviceInfo({
                 multicastDeviceId: deviceData?.multicast_id || deviceData?.multicastDeviceId || '',
                 unicastDeviceId: deviceData?.unicast_id || deviceData?.unicastDeviceId || '',
@@ -292,9 +322,9 @@ function FoFiSmartBox() {
             });
             setDeviceValidated(true);
             setShowValidationSuccess(true);
-            setView('payment');
+            // Stay on the same view so user can see populated fields and select plan
         } catch (error) {
-            console.error('QR validation error:', error);
+            console.error('❌ QR validation error:', error);
             setValidationError('Failed to validate device: ' + error.message);
         } finally {
             setIsLoading(false);
@@ -766,7 +796,7 @@ function FoFiSmartBox() {
                     )}
                 </AnimatePresence>
 
-                {/* FOFI MAC ID Input with enhanced styling */}
+                {/* FOFI MAC ID Input - Editable for Flow 2 */}
                 <div className="space-y-2">
                     <label className="block text-sm font-semibold text-indigo-600">
                         FOFI MAC ID
@@ -775,9 +805,9 @@ function FoFiSmartBox() {
                         <input
                             type="text"
                             value={macAddress}
-                            readOnly
-                            placeholder="MAC address will appear here"
-                            className="w-full px-4 py-3 pr-12 border-2 border-gray-300 rounded-lg bg-gray-50 text-gray-700 font-mono text-sm"
+                            onChange={(e) => setMacAddress(e.target.value)}
+                            placeholder="Enter MAC Address or fetch via Box ID"
+                            className="w-full px-4 py-3 pr-12 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-800 bg-white font-mono text-sm transition-all duration-200"
                         />
                         <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
                             <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -792,7 +822,7 @@ function FoFiSmartBox() {
                     <label className="block text-sm font-semibold text-indigo-600">
                         Select a Plan <span className="text-red-500">*</span>
                         {selectedPlan && (
-                            <span className="ml-2 text-xs font-normal text-green-600">✓ Plan selected</span>
+                            <span className="ml-2 text-xs font-normal text-purple-600">✓ Plan selected</span>
                         )}
                     </label>
                     <select
@@ -844,16 +874,16 @@ function FoFiSmartBox() {
 
                 {/* Success Message with enhanced styling */}
                 {showValidationSuccess && macAddress && (
-                    <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-green-500 rounded-lg p-4 shadow-sm">
+                    <div className="bg-gradient-to-r from-purple-50 to-violet-50 border-l-4 border-purple-500 rounded-lg p-4 shadow-sm">
                         <div className="flex items-start gap-3">
-                            <svg className="w-6 h-6 text-green-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                            <svg className="w-6 h-6 text-purple-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                             </svg>
                             <div>
-                                <p className="text-sm font-semibold text-green-800">Device validated successfully</p>
-                                <p className="text-xs text-green-700 mt-1 font-mono">MAC: {macAddress}</p>
+                                <p className="text-sm font-semibold text-purple-800">Device validated successfully</p>
+                                <p className="text-xs text-purple-700 mt-1 font-mono">MAC: {macAddress}</p>
                                 {deviceInfo?.serialNumber && (
-                                    <p className="text-xs text-green-700 font-mono">Serial: {deviceInfo.serialNumber}</p>
+                                    <p className="text-xs text-purple-700 font-mono">Serial: {deviceInfo.serialNumber}</p>
                                 )}
                             </div>
                         </div>

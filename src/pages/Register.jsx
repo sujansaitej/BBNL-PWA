@@ -97,7 +97,7 @@ const FloatingInput = forwardRef(({ label, type = "text", name, cls, value, len 
       />
       <label
         htmlFor={name}
-        className={`absolute left-3 top-2 bg-white px-1 text-green-700 text-sm transition-all
+        className={`absolute left-3 top-2 bg-white px-1 text-purple-700 text-sm transition-all
           peer-placeholder-shown:top-3 peer-placeholder-shown:text-gray-400
           peer-focus:-top-2 peer-focus:text-xs
           ${value ? "-top-2.4 text-xs" : ""}
@@ -801,11 +801,11 @@ export default function Register() {
             {checking ? "Checking..." : "Check"}
           </button>
         </div>
-        {/* {usernameStatus && <p className={`text-xs ${usernameStatus.available ? "text-green-600" : "text-red-600"}`}>{usernameStatus.message}</p>} */}
+        {/* {usernameStatus && <p className={`text-xs ${usernameStatus.available ? "text-purple-600" : "text-red-600"}`}>{usernameStatus.message}</p>} */}
         {usernameStatus && (
             <p
                 className={`flex items-center gap-1 text-xs ${
-                usernameStatus.available ? "text-green-600" : "text-red-600"
+                usernameStatus.available ? "text-purple-600" : "text-red-600"
                 }`}
             >
                 {usernameStatus.available ? (
@@ -826,7 +826,7 @@ export default function Register() {
         <FloatingInput label="Last Name" name="lastname" ref={refs.lastname} value={form.lastname} onChange={handleChange} error={errors.lastname} onlyLetters required />
 
         <FloatingInput label="Mobile Number" name="mobileno" ref={refs.mobileno} value={form.mobileno} len={10} onChange={handleChange} error={errors.mobileno} onlyNumbers required />
-        {/* {mobileStatus && <p className={`text-xs ${mobileStatus.available ? "text-green-600" : "text-red-600"}`}>{mobileStatus.message}</p>} */}
+        {/* {mobileStatus && <p className={`text-xs ${mobileStatus.available ? "text-purple-600" : "text-red-600"}`}>{mobileStatus.message}</p>} */}
         {mobileStatus && !mobileStatus.available && (
             <p className="flex items-center gap-1 text-xs text-red-600">{mobileStatus.message}</p>
         )}

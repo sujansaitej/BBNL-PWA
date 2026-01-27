@@ -241,7 +241,7 @@ const TicketsMap = () => {
           iconCreateFunction={(cluster) => {
             const count = cluster.getChildCount();
             let color = "bg-blue-600";
-            if (count > 10) color = "bg-green-600";
+            if (count > 10) color = "bg-purple-600";
             if (count > 50) color = "bg-red-600";
             return L.divIcon({
               html: `<div class="flex items-center justify-center ${color} text-white rounded-full w-10 h-10 text-sm font-semibold border-2 border-white shadow-md">${count}</div>`,
@@ -313,7 +313,7 @@ const TicketsMap = () => {
                       </button>
 
                       {/* {actionSuccess && (
-                        <p className="text-green-600 text-xs mt-1">
+                        <p className="text-purple-600 text-xs mt-1">
                           ✅ Action completed successfully!
                         </p>
                       )} */}

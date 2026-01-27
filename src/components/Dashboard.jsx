@@ -128,7 +128,7 @@ export default function Dashboard() {
                   <p className="text-xs text-gray-500 dark:text-gray-400">{tx.desc}</p>
                 </div>
               </div>
-              <span className={`font-semibold ${tx.amount.trim().startsWith('+') ? 'text-green-600' : 'text-red-600'}`}>{tx.amount}</span>
+              <span className={`font-semibold ${tx.amount.trim().startsWith('+') ? 'text-purple-600' : 'text-red-600'}`}>{tx.amount}</span>
             </div>
           ))}
         </div>
@@ -136,7 +136,7 @@ export default function Dashboard() {
       <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)}>
         {greet ? (
           <>
-          <h2 className="text-xl font-semibold text-center text-green-500 mb-2">Warm Welcome!</h2>
+          <h2 className="text-xl font-semibold text-center text-purple-500 mb-2">Warm Welcome!</h2>
           <img src={import.meta.env.VITE_API_APP_DIR_PATH + 'img/welcome.png'} alt="Modal Info" className="w-70 h-70 mx-auto" />
           <p className="text-center text-blue-600 mt-1">We’re thrilled to introduce our new platform independent app — designed to bring you a faster, smarter, and more seamless experience!</p>
           </>

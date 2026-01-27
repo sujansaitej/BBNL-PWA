@@ -558,7 +558,7 @@ export default function UploadDocuments() {
                         className="w-28 h-32 object-cover rounded-xl border-2 border-indigo-200 shadow-md hover:shadow-lg transition-shadow duration-200"
                       />
                       {img.status && (
-                        <span className={`text-sm mt-2 font-medium ${img.status === 'approved' ? 'text-green-600' : 'text-orange-500'}`}>
+                        <span className={`text-sm mt-2 font-medium ${img.status === 'approved' ? 'text-purple-600' : 'text-orange-500'}`}>
                           {img.status}
                         </span>
                       )}
@@ -602,7 +602,7 @@ export default function UploadDocuments() {
                       className="w-28 h-32 object-cover rounded-xl border-2 border-indigo-200 shadow-md hover:shadow-lg transition-shadow duration-200"
                     />
                     {img.status && (
-                      <span className={`text-sm mt-2 font-medium ${img.status === 'approved' ? 'text-green-600' : 'text-orange-500'}`}>
+                      <span className={`text-sm mt-2 font-medium ${img.status === 'approved' ? 'text-purple-600' : 'text-orange-500'}`}>
                         {img.status}
                       </span>
                     )}
@@ -649,7 +649,7 @@ export default function UploadDocuments() {
                       className="w-28 h-32 object-cover rounded-xl border-2 border-indigo-200 shadow-md hover:shadow-lg transition-shadow duration-200"
                     />
                     {img.status && (
-                      <span className={`text-sm mt-2 font-medium ${img.status === 'approved' ? 'text-green-600' : 'text-orange-500'}`}>
+                      <span className={`text-sm mt-2 font-medium ${img.status === 'approved' ? 'text-purple-600' : 'text-orange-500'}`}>
                         {img.status}
                       </span>
                     )}
@@ -676,7 +676,7 @@ export default function UploadDocuments() {
                 disabled={submitting || uploading}
                 className={`w-full font-bold py-4 rounded-lg text-base uppercase tracking-wider shadow-lg transition-all duration-200 ${submitting || uploading
                   ? 'bg-gray-400 cursor-not-allowed text-white'
-                  : 'bg-gradient-to-r from-green-600 to-green-600 hover:from-green-700 hover:to-green-700 text-white hover:shadow-xl'
+                  : 'bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white hover:shadow-xl'
                   }`}
               >
                 {submitting ? 'SUBMITTING...' : 'FINAL SUBMISSION'}

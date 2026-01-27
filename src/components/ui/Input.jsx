@@ -45,7 +45,7 @@ const Input = forwardRef(
         {/* Floating Label */}
         <label
           htmlFor={name}
-          className={`absolute left-3 top-2 bg-white dark:bg-white px-1 text-green-700 text-sm transition-all
+          className={`absolute left-3 top-2 bg-white dark:bg-white px-1 text-purple-700 text-sm transition-all
             peer-placeholder-shown:top-3 peer-placeholder-shown:text-gray-400
             peer-focus:-top-2 peer-focus:text-xs peer-focus:text-blue-500
             ${value ? "-top-2.4 text-xs text-blue-600" : ""}

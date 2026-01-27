@@ -115,7 +115,7 @@ export default function Sidebar({ open, onClose }) {
           </div> */}
           <p className="text-xs uppercase text-gray-500 dark:text-gray-400 mt-2 mb-2">Menu</p>
           <nav className="space-y-1">
-            <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="/customers"><UsersIcon className="h-5 w-5 text-blue bg-blue" /> All Users {/*<span className="ml-auto text-xs bg-green-600 text-white rounded px-2">10</span>*/}</Link>
+            <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="/customers"><UsersIcon className="h-5 w-5 text-blue bg-blue" /> All Users {/*<span className="ml-auto text-xs bg-purple-600 text-white rounded px-2">10</span>*/}</Link>
             <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="/customers?filter=expiring"><BellAlertIcon className="h-5 w-5" /> Today's Expiry {/*<span className="ml-auto text-xs bg-yellow-500 text-white rounded px-2">5</span>*/}</Link>
             <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="/tickets"><TicketIcon className="h-5 w-5" /> Tickets</Link>
             <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="#" onClick={comingsoon}><ArchiveBoxIcon className="h-5 w-5" /> Order History</Link>

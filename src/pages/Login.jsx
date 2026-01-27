@@ -178,7 +178,7 @@ export default function Login() {
         <div className="bg-blue-50 dark:bg-gray-800 rounded-xl p-2 mb-2 text-left space-y-2">
           <div className="flex items-center space-x-2">
             {/* <Smartphone className="text-blue-500" /> */}
-            <AndroidIcon className="w-6 h-8 text-green-600" />
+            <AndroidIcon className="w-6 h-8 text-purple-600" />
             <p className="text-sm font-semibold text-blue-700 dark:text-blue-300 mt-2">
               Android Users:
             </p>
@@ -217,7 +217,7 @@ export default function Login() {
     return (
       <>
       <div className="text-sm bg-white dark:bg-gray-900 shadow-xl rounded-2xl p-8 max-w-md w-full text-center animate-fade-in">
-        <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3 animate-pulse" />
+        <CheckCircle className="h-12 w-12 text-purple-500 mx-auto mb-3 animate-pulse" />
         <h1 className="text-sm font-bold text-gray-800 dark:text-gray-100 mb-3">
           Thank You for Installing Fo-Fi CRM!
         </h1>

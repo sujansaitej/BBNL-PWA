@@ -10,21 +10,21 @@ const Alert = ({ isOpen, onClose, type = "success", title, message, autoClose = 
     }
 
     const icons = {
-        success: <CheckCircleIcon className="h-16 w-16 text-green-500" />,
+        success: <CheckCircleIcon className="h-16 w-16 text-purple-500" />,
         error: <XCircleIcon className="h-16 w-16 text-red-500" />,
         warning: <ExclamationTriangleIcon className="h-16 w-16 text-orange-500" />,
         info: <InformationCircleIcon className="h-16 w-16 text-blue-500" />
     };
 
     const gradients = {
-        success: "from-green-500 to-emerald-600",
+        success: "from-purple-500 to-violet-600",
         error: "from-red-500 to-rose-600",
         warning: "from-orange-500 to-amber-600",
         info: "from-indigo-600 to-blue-600"
     };
 
     const bgColors = {
-        success: "bg-green-50",
+        success: "bg-purple-50",
         error: "bg-red-50",
         warning: "bg-orange-50",
         info: "bg-indigo-50"

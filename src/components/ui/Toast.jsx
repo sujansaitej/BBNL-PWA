@@ -68,7 +68,7 @@ function ToastItem({ toast, onClose }) {
   }, [duration, onClose]);
 
   const bg =
-    type === "success" ? "bg-green-500 ring-green-300" : type === "error" ? "bg-red-400 ring-red-300" : type === "warning" ? "bg-orange-400 ring-orange-300" : type === "info" ? "bg-blue-500 ring-blue-300" : "bg-gray-200 ring-slate-300";
+    type === "success" ? "bg-purple-500 ring-purple-300" : type === "error" ? "bg-red-400 ring-red-300" : type === "warning" ? "bg-orange-400 ring-orange-300" : type === "info" ? "bg-blue-500 ring-blue-300" : "bg-gray-200 ring-slate-300";
   const accent =
     type === "success" ? "text-white" : type === "error" ? "text-white" : type === "warning" ? "text-white" : type === "info" ? "text-white" : "text-slate-700";
 

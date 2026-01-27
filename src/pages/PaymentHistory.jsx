@@ -168,12 +168,12 @@ export default function PaymentHistory() {
                 {/* Card Body */}
                 <div className="p-4 space-y-3">
                   {/* Amount - Highlighted */}
-                  <div className="flex items-center justify-between bg-green-50 rounded-xl p-3">
+                  <div className="flex items-center justify-between bg-purple-50 rounded-xl p-3">
                     <div className="flex items-center gap-2">
-                      <BanknotesIcon className="w-5 h-5 text-green-600" />
+                      <BanknotesIcon className="w-5 h-5 text-purple-600" />
                       <span className="text-gray-600 text-sm">Amount Paid</span>
                     </div>
-                    <span className="text-xl font-bold text-green-600">
+                    <span className="text-xl font-bold text-purple-600">
                       ₹{formatAmount(order.total_amt || order.paid_amt)}
                     </span>
                   </div>

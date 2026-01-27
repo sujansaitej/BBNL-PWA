@@ -210,7 +210,7 @@ export default function IPTVService() {
 
                 {/* Footer Buttons */}
                 <div className="fixed bottom-16 left-0 right-0 p-3 bg-white border-t flex gap-3">
-                    <button className="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-3 rounded-lg text-sm shadow-md hover:shadow-lg transition-all duration-200">
+                    <button className="flex-1 bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-bold py-3 rounded-lg text-sm shadow-md hover:shadow-lg transition-all duration-200">
                         Continue
                     </button>
                     <button className="flex-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold py-3 rounded-lg text-sm shadow-md hover:shadow-lg transition-all duration-200">
@@ -364,13 +364,13 @@ export default function IPTVService() {
                         <div className="flex gap-3 mt-4">
                             <button
                                 onClick={() => setView('packages')}
-                                className="flex-1 bg-emerald-400 hover:bg-emerald-500 text-white font-semibold py-3 px-4 rounded-lg transition-colors text-sm"
+                                className="flex-1 bg-purple-400 hover:bg-purple-500 text-white font-semibold py-3 px-4 rounded-lg transition-colors text-sm"
                             >
                                 SELECT PACKAGES
                             </button>
                             <button
                                 onClick={() => setView('packages')}
-                                className="flex-1 bg-emerald-400 hover:bg-emerald-500 text-white font-semibold py-3 px-4 rounded-lg transition-colors text-sm"
+                                className="flex-1 bg-purple-400 hover:bg-purple-500 text-white font-semibold py-3 px-4 rounded-lg transition-colors text-sm"
                             >
                                 SELECT CHANNELS
                             </button>

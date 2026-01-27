@@ -123,7 +123,7 @@ export default function Plans() {
                 </div>
               </div>
               <ArrowRightIcon className="h-6 w-6 text-gray-500" />
-              {/* <span className={`font-semibold text-green-600`}>₹ {p.serv_rates?.prices[0]}</span> */}
+              {/* <span className={`font-semibold text-purple-600`}>₹ {p.serv_rates?.prices[0]}</span> */}
             </div>
           ))}
         </div>

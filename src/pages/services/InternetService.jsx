@@ -264,18 +264,17 @@ export default function InternetService() {
               </h3>
               <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 border border-gray-100 dark:border-gray-700">
                 <div className="flex items-start gap-4">
-                  {/* Globe Icon */}
+                  {/* Globe Icon - Clean outlined style */}
                   <div className="flex-shrink-0">
-                    <svg className="w-16 h-16" viewBox="0 0 100 100">
-                      <circle cx="45" cy="50" r="35" fill="#4CAF50" />
-                      <ellipse cx="45" cy="50" rx="15" ry="35" fill="none" stroke="#2196F3" strokeWidth="2" />
-                      <ellipse cx="45" cy="50" rx="35" ry="15" fill="none" stroke="#2196F3" strokeWidth="2" />
-                      <path d="M20 35 Q45 25 70 35" fill="none" stroke="#2196F3" strokeWidth="2" />
-                      <path d="M20 65 Q45 75 70 65" fill="none" stroke="#2196F3" strokeWidth="2" />
-                      <path d="M30 40 Q35 35 45 38 Q55 35 60 42 L58 50 Q50 55 40 52 Q32 48 30 40Z" fill="#2196F3" />
-                      <path d="M35 58 Q40 55 48 58 Q52 62 48 68 Q42 70 35 65 Q33 62 35 58Z" fill="#2196F3" />
-                      <path d="M70 70 Q85 55 75 35" fill="none" stroke="#FF9800" strokeWidth="3" strokeLinecap="round" />
-                      <polygon points="73,32 78,40 70,38" fill="#FF9800" />
+                    <svg className="w-16 h-16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      {/* Outer circle */}
+                      <circle cx="12" cy="12" r="10" className="text-gray-700" />
+                      {/* Vertical ellipse (meridian) */}
+                      <ellipse cx="12" cy="12" rx="4" ry="10" className="text-gray-700" />
+                      {/* Horizontal lines (parallels) */}
+                      <path d="M2 12h20" className="text-gray-700" />
+                      <path d="M4 7h16" className="text-gray-700" />
+                      <path d="M4 17h16" className="text-gray-700" />
                     </svg>
                   </div>
 
@@ -304,7 +303,7 @@ export default function InternetService() {
                   <button
                     onClick={handlePayBill}
                     disabled={!planDetails?.body?.other_service_renewal?.btn_status || planDetails?.body?.other_service_renewal?.btn_status === 'disable'}
-                    className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed text-white font-semibold py-3 px-4 rounded-lg transition-all duration-200 text-sm shadow-md hover:shadow-lg"
+                    className="w-full bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed text-white font-semibold py-3 px-4 rounded-lg transition-all duration-200 text-sm shadow-md hover:shadow-lg"
                   >
                     PAY BILL
                   </button>

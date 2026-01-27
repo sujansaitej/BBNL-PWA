@@ -215,7 +215,7 @@ export default function SmartNavigationMap() {
           </button>
           <button
             onClick={navigateInGoogleMaps}
-            className="bg-green-600 text-white px-3 py-1 rounded-md text-sm"
+            className="bg-purple-600 text-white px-3 py-1 rounded-md text-sm"
           >
             🗺️ Google Maps
           </button>
