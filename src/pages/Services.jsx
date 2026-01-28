@@ -63,20 +63,27 @@ export default function Services() {
 
     // Map API services to UI format
     // API response format: [{ servkey: "internet", servname: "Internet", ... }]
+    // Note: FoFi Smart Box is hidden from service list but accessible via Internet module
     const getServicesFromAPI = () => {
         if (!apiServices || apiServices.length === 0) {
             return [];
         }
 
-        return apiServices.map(service => ({
-            id: service.servkey || service.id,
-            name: service.servname || service.name,
-            path: `/customer/${customerId}/service/${service.servkey || service.id}`,
-            isActive: service.isactive === 1 || service.isactive === '1' || false,
-            hasSpecialOffer: service.hasoffer === 1 || service.hasoffer === '1' || false,
-            price: service.price || null,
-            icon: service.icon || null
-        }));
+        return apiServices
+            .filter(service => {
+                const serviceKey = service.servkey || service.id;
+                // Hide FoFi from service list (functionality available in Internet module)
+                return serviceKey !== 'fofi' && serviceKey !== 'fofi-smart-box';
+            })
+            .map(service => ({
+                id: service.servkey || service.id,
+                name: service.servname || service.name,
+                path: `/customer/${customerId}/service/${service.servkey || service.id}`,
+                isActive: service.isactive === 1 || service.isactive === '1' || false,
+                hasSpecialOffer: service.hasoffer === 1 || service.hasoffer === '1' || false,
+                price: service.price || null,
+                icon: service.icon || null
+            }));
     };
 
     // Fallback to default services if API fails
@@ -99,13 +106,7 @@ export default function Services() {
                 hasSpecialOffer: true,
                 price: 100
             },
-            {
-                id: 'fofi',
-                name: 'FoFi Smart Box',
-                path: `/customer/${customerId}/service/fofi-smart-box`,
-                isActive: mockServices?.services?.fofi?.active || false,
-                hasSpecialOffer: false
-            },
+            // Note: FoFi Smart Box is hidden from service list but accessible via Internet module
             {
                 id: 'iptv',
                 name: 'IPTV',

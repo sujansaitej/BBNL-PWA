@@ -57,6 +57,60 @@ export async function getSpecialInternetPlans(payload) {
 }
 
 /**
+ * Validate before FoFi Box registration/upgrade
+ * @param {Object} payload - { username: string, loginuname: string }
+ * @returns {Promise<Object>} Response containing validation status
+ */
+export async function validateBeforeFofiBoxReg(payload) {
+    const url = `${getBaseUrl()}ServiceApis/validateBeforeFofiBoxReg`;
+    const headers = getHeadersJson();
+
+    console.log('🔵 [validateBeforeFofiBoxReg] Calling API:', url);
+    console.log('🔵 [validateBeforeFofiBoxReg] Payload:', payload);
+
+    const resp = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+    });
+
+    if (!resp.ok) {
+        throw new Error(`Failed to validate before FoFi Box registration: HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    console.log('🟢 [validateBeforeFofiBoxReg] Response:', data);
+    return data;
+}
+
+/**
+ * Get registration necessities for FoFi upgrade plans
+ * @param {Object} payload - { logUname: string, moduletype: string, userid: string }
+ * @returns {Promise<Object>} Response containing upgrade plans and service details
+ */
+export async function getFofiUpgradePlans(payload) {
+    const url = `${getBaseUrl()}ServiceApis/registrationNecessities`;
+    const headers = getHeadersJson();
+
+    console.log('🔵 [getFofiUpgradePlans] Calling API:', url);
+    console.log('🔵 [getFofiUpgradePlans] Payload:', payload);
+
+    const resp = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+    });
+
+    if (!resp.ok) {
+        throw new Error(`Failed to fetch FoFi upgrade plans: HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    console.log('🟢 [getFofiUpgradePlans] Response:', data);
+    return data;
+}
+
+/**
  * Validate FoFi Asset (Get MAC ID)
  * @param {Object} payload - { mac_addr: string, serialno: string, userid: string, boxid: string }
  * @returns {Promise<Object>} Response containing validated asset details with MAC address

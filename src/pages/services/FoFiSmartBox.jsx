@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { XMarkIcon, ExclamationCircleIcon } from "@heroicons/react/24/outline";
+import { XMarkIcon, ExclamationCircleIcon, MagnifyingGlassIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
 import { mockCustomerServices, fofiPlans as mockFofiPlans, mockDeviceDatabase } from "../../data";
 import BottomNav from "../../components/BottomNav";
-import { ServiceSelectionModal } from "@/components/ui";
+import { ServiceSelectionModal, Badge, Loader } from "@/components/ui";
 import QRScanner from "../../components/QRScanner";
 import {
     getFoFiPlans,
@@ -17,8 +17,10 @@ import {
     changeFoFiPlan,
     createFoFiPaymentOrder,
     verifyFoFiPayment,
+    validateBeforeFofiBoxReg,
+    getFofiUpgradePlans,
 } from "../../services/fofiApis";
-import { getCableCustomerDetails, getPrimaryCustomerDetails, getMyPlanDetails } from "../../services/generalApis";
+import { getCableCustomerDetails, getPrimaryCustomerDetails, getMyPlanDetails, getCustKYCPreview, getUserAssignedItems } from "../../services/generalApis";
 
 function FoFiSmartBox() {
     const location = useLocation();
@@ -36,7 +38,8 @@ function FoFiSmartBox() {
 
     // State management
     const [showServiceModal, setShowServiceModal] = useState(false);
-    const [view, setView] = useState(fromInternet ? 'plans' : 'overview'); // Auto navigate to plans if from Internet
+    // View states: 'overview' (customer details), 'link-fofi' (link device form), 'upgrade-plans' (upgrade plans list)
+    const [view, setView] = useState('overview'); // Always start with overview
     const [selectedPlan, setSelectedPlan] = useState(null);
     const [deviceValidated, setDeviceValidated] = useState(false);
     const [showValidationSuccess, setShowValidationSuccess] = useState(false);
@@ -48,11 +51,115 @@ function FoFiSmartBox() {
     const [deviceInfo, setDeviceInfo] = useState(null);
     const [fofiPlans, setFofiPlans] = useState(mockFofiPlans); // Initialize with mock data
     const [isLoading, setIsLoading] = useState(false);
+    const [isOverviewLoading, setIsOverviewLoading] = useState(true); // Loading state for overview data
     const [paymentOrderId, setPaymentOrderId] = useState(null);
     const [showQRScanner, setShowQRScanner] = useState(false);
     const [customerDetails, setCustomerDetails] = useState(null);
     const [primaryCustomerDetails, setPrimaryCustomerDetails] = useState(null);
     const [customerInternetPlanId, setCustomerInternetPlanId] = useState(null);
+    // FoFi service status - will be validated by API response
+    const [hasFofiService, setHasFofiService] = useState(false); // false = new user, true = existing user
+    const [fofiServiceDetails, setFofiServiceDetails] = useState(null); // Existing FoFi service details
+    const [fofiAssignedItems, setFofiAssignedItems] = useState(null); // FoFi assigned items from API
+    
+    // Upgrade Plans state
+    const [upgradePlans, setUpgradePlans] = useState([]);
+    const [filteredUpgradePlans, setFilteredUpgradePlans] = useState([]);
+    const [upgradePlansLoading, setUpgradePlansLoading] = useState(false);
+    const [upgradePlansError, setUpgradePlansError] = useState('');
+    const [upgradeSearchTerm, setUpgradeSearchTerm] = useState('');
+
+    // =====================================================
+    // FETCH CUSTOMER OVERVIEW DATA ON COMPONENT MOUNT
+    // APIs called: getUserAssignedItems, cblCustDet, primaryCustdet
+    // =====================================================
+    useEffect(() => {
+        const fetchCustomerOverviewData = async () => {
+            if (!customerData) return;
+
+            const userid = customerData?.username || customerData?.customer_id;
+            console.log('🔵 [FoFi SmartBox] Starting to fetch customer overview data...');
+            console.log('🔵 [FoFi SmartBox] Customer Data:', customerData);
+            console.log('🔵 [FoFi SmartBox] User ID:', userid);
+
+            setIsOverviewLoading(true);
+
+            try {
+                // Call all 3 APIs in parallel for better performance
+                console.log('🔵 [FoFi SmartBox] Calling APIs in parallel...');
+                
+                const [assignedItemsResponse, cableDetailsResponse, primaryDetailsResponse] = await Promise.all([
+                    // API 1: getUserAssignedItems - Check if user has FoFi service
+                    getUserAssignedItems('fofi', userid).catch(err => {
+                        console.error('❌ [FoFi SmartBox] getUserAssignedItems API failed:', err);
+                        return null;
+                    }),
+                    // API 2: cblCustDet - Get cable customer details
+                    getCableCustomerDetails(userid).catch(err => {
+                        console.error('❌ [FoFi SmartBox] getCableCustomerDetails API failed:', err);
+                        return null;
+                    }),
+                    // API 3: primaryCustdet - Get primary customer details
+                    getPrimaryCustomerDetails(userid).catch(err => {
+                        console.error('❌ [FoFi SmartBox] getPrimaryCustomerDetails API failed:', err);
+                        return null;
+                    })
+                ]);
+
+                // Log API responses
+                console.log('🟢 [FoFi SmartBox] getUserAssignedItems Response:', assignedItemsResponse);
+                console.log('🟢 [FoFi SmartBox] getCableCustomerDetails Response:', cableDetailsResponse);
+                console.log('🟢 [FoFi SmartBox] getPrimaryCustomerDetails Response:', primaryDetailsResponse);
+
+                // Process getUserAssignedItems response
+                if (assignedItemsResponse) {
+                    setFofiAssignedItems(assignedItemsResponse);
+                    
+                    // Check if user has FoFi service based on response
+                    // If body contains fofi items, user has the service
+                    const fofiItems = assignedItemsResponse?.body?.fofi;
+                    console.log('🔵 [FoFi SmartBox] FoFi Items from API:', fofiItems);
+                    
+                    if (fofiItems && Array.isArray(fofiItems) && fofiItems.length > 0) {
+                        // User has existing FoFi service
+                        console.log('✅ [FoFi SmartBox] User has EXISTING FoFi service');
+                        setHasFofiService(true);
+                        setFofiServiceDetails({
+                            boxId: fofiItems[0]?.fofiboxid || fofiItems[0]?.boxid || fofiItems[0]?.product_name || 'N/A',
+                            planName: fofiItems[0]?.planname || fofiItems[0]?.plan_name || 'N/A',
+                            expiryDate: fofiItems[0]?.expirydate || fofiItems[0]?.expiry_date || 'N/A',
+                            macAddress: fofiItems[0]?.macid || fofiItems[0]?.mac_addr || 'N/A',
+                            status: fofiItems[0]?.status || 'Active'
+                        });
+                    } else {
+                        // User does not have FoFi service - NEW USER
+                        console.log('ℹ️ [FoFi SmartBox] User is NEW - No FoFi service found');
+                        setHasFofiService(false);
+                        setFofiServiceDetails(null);
+                    }
+                }
+
+                // Store cable and primary customer details
+                if (cableDetailsResponse) {
+                    setCustomerDetails(cableDetailsResponse);
+                    console.log('✅ [FoFi SmartBox] Cable customer details stored');
+                }
+
+                if (primaryDetailsResponse) {
+                    setPrimaryCustomerDetails(primaryDetailsResponse);
+                    console.log('✅ [FoFi SmartBox] Primary customer details stored');
+                }
+
+            } catch (error) {
+                console.error('❌ [FoFi SmartBox] Error fetching customer overview data:', error);
+            } finally {
+                setIsOverviewLoading(false);
+                console.log('✅ [FoFi SmartBox] Finished fetching customer overview data');
+            }
+        };
+
+        fetchCustomerOverviewData();
+    }, [customerData]);
 
     // Fetch FoFi plans on component mount
     useEffect(() => {
@@ -201,6 +308,150 @@ function FoFiSmartBox() {
                 customer: customerData
             }
         });
+    };
+
+    // Handle Upload Document button click
+    const handleUploadDocument = async () => {
+        try {
+            setIsLoading(true);
+            const cid = customerData?.customer_id || customerData?.username;
+            const response = await getCustKYCPreview({ cid, reqtype: 'update' });
+
+            if (response?.status?.err_code === 0) {
+                navigate('/upload-documents', {
+                    state: {
+                        customer: customerData,
+                        kycData: response.body
+                    }
+                });
+            } else {
+                alert('Failed to load documents: ' + (response?.status?.err_msg || 'Unknown error'));
+            }
+        } catch (err) {
+            console.error('Error loading document preview:', err);
+            alert('Failed to load documents. Please try again.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // =====================================================
+    // UPGRADE BUTTON HANDLER - Fetch upgrade plans and show services screen
+    // APIs called: validateBeforeFofiBoxReg, cblCustDet, primaryCustdet, registrationNecessities
+    // =====================================================
+    const handleUpgradeClick = async () => {
+        const userid = customerData?.username || customerData?.customer_id;
+        const user = JSON.parse(localStorage.getItem('user'));
+        const logUname = user?.username || 'superadmin';
+
+        console.log('🔵 [UPGRADE] Starting upgrade flow...');
+        console.log('🔵 [UPGRADE] User ID:', userid);
+        console.log('🔵 [UPGRADE] Log Username:', logUname);
+
+        setUpgradePlansLoading(true);
+        setUpgradePlansError('');
+        setUpgradePlans([]);
+        setFilteredUpgradePlans([]);
+        setUpgradeSearchTerm('');
+
+        try {
+            // API 1: validateBeforeFofiBoxReg - Validate before registration
+            console.log('🔵 [UPGRADE] Step 1: Calling validateBeforeFofiBoxReg...');
+            const validateResponse = await validateBeforeFofiBoxReg({
+                username: userid,
+                loginuname: logUname
+            });
+            console.log('🟢 [UPGRADE] validateBeforeFofiBoxReg Response:', validateResponse);
+
+            // Check if validation passed
+            if (validateResponse?.status?.err_code !== 0) {
+                const errorMsg = validateResponse?.status?.err_msg || 'Validation failed. Please try again.';
+                console.error('❌ [UPGRADE] Validation failed:', errorMsg);
+                setUpgradePlansError(errorMsg);
+                setUpgradePlansLoading(false);
+                return;
+            }
+
+            // API 2 & 3: cblCustDet and primaryCustdet (already called on mount, but call again for fresh data)
+            console.log('🔵 [UPGRADE] Step 2: Calling cblCustDet and primaryCustdet...');
+            const [cableDetailsResponse, primaryDetailsResponse] = await Promise.all([
+                getCableCustomerDetails(userid).catch(err => {
+                    console.error('❌ [UPGRADE] getCableCustomerDetails failed:', err);
+                    return null;
+                }),
+                getPrimaryCustomerDetails(userid).catch(err => {
+                    console.error('❌ [UPGRADE] getPrimaryCustomerDetails failed:', err);
+                    return null;
+                })
+            ]);
+            console.log('🟢 [UPGRADE] cblCustDet Response:', cableDetailsResponse);
+            console.log('🟢 [UPGRADE] primaryCustdet Response:', primaryDetailsResponse);
+
+            // API 4: registrationNecessities with moduletype="upgradation"
+            console.log('🔵 [UPGRADE] Step 3: Calling registrationNecessities for upgrade plans...');
+            const plansResponse = await getFofiUpgradePlans({
+                logUname: logUname,
+                moduletype: "upgradation",
+                userid: userid
+            });
+            console.log('🟢 [UPGRADE] registrationNecessities Response:', plansResponse);
+
+            // Process plans from response
+            if (plansResponse?.status?.err_code === 0) {
+                // Plans can be in different locations based on API response structure
+                const plans = plansResponse?.body?.internet_plans || 
+                              plansResponse?.body?.plans || 
+                              plansResponse?.body?.fofi_plans ||
+                              plansResponse?.body ||
+                              [];
+                
+                console.log('✅ [UPGRADE] Plans found:', plans.length);
+                console.log('✅ [UPGRADE] Plans data:', plans);
+
+                if (Array.isArray(plans) && plans.length > 0) {
+                    setUpgradePlans(plans);
+                    setFilteredUpgradePlans(plans);
+                    setView('upgrade-plans');
+                } else {
+                    setUpgradePlansError('No upgrade plans available at the moment.');
+                }
+            } else {
+                const errorMsg = plansResponse?.status?.err_msg || 'Failed to fetch upgrade plans.';
+                console.error('❌ [UPGRADE] Plans fetch failed:', errorMsg);
+                setUpgradePlansError(errorMsg);
+            }
+        } catch (error) {
+            console.error('❌ [UPGRADE] Error in upgrade flow:', error);
+            setUpgradePlansError('An error occurred while fetching upgrade plans. Please try again.');
+        } finally {
+            setUpgradePlansLoading(false);
+        }
+    };
+
+    // Filter upgrade plans based on search term
+    const handleUpgradeSearch = (term) => {
+        setUpgradeSearchTerm(term);
+        if (!term) {
+            setFilteredUpgradePlans(upgradePlans);
+            return;
+        }
+
+        const lowerTerm = term.toLowerCase();
+        const filtered = upgradePlans.filter(plan =>
+            plan.serv_name?.toLowerCase().includes(lowerTerm) ||
+            plan.serv_desc?.toLowerCase().includes(lowerTerm) ||
+            plan.plan_name?.toLowerCase().includes(lowerTerm) ||
+            (plan.serv_rates?.prices && plan.serv_rates.prices.some(price => price.toString().includes(term)))
+        );
+        setFilteredUpgradePlans(filtered);
+    };
+
+    // Select an upgrade plan
+    const handleUpgradePlanSelect = (plan) => {
+        console.log('🔵 [UPGRADE] Plan selected:', plan);
+        setSelectedPlan(plan);
+        // Navigate to link-fofi view with selected plan
+        setView('link-fofi');
     };
 
     // Open QR scanner
@@ -644,7 +895,335 @@ function FoFiSmartBox() {
         );
     }
 
-    // MAIN LINK FO-FI BOX VIEW - Single streamlined page
+    // =====================================================
+    // CUSTOMER OVERVIEW VIEW - Shows customer details and service status
+    // Matches Internet module UI/UX exactly
+    // =====================================================
+    if (view === 'overview') {
+        // Get customer details from API response or fallback to passed customerData
+        const displayUsername = primaryCustomerDetails?.body?.username || 
+                               customerDetails?.body?.username || 
+                               customerData?.username || 
+                               customerData?.customer_id || 'N/A';
+        const displayName = primaryCustomerDetails?.body?.custname || 
+                           primaryCustomerDetails?.body?.name ||
+                           customerDetails?.body?.custname ||
+                           customerDetails?.body?.name ||
+                           customerData?.name || 
+                           customerData?.customer_name || 'N/A';
+        const displayPhone = primaryCustomerDetails?.body?.mobile || 
+                            primaryCustomerDetails?.body?.phone ||
+                            customerDetails?.body?.mobile ||
+                            customerDetails?.body?.contactno ||
+                            customerData?.mobile || 
+                            customerData?.phone || 'N/A';
+        const displayEmail = primaryCustomerDetails?.body?.email || 
+                            customerDetails?.body?.email ||
+                            customerData?.email || 'N/A';
+
+        console.log('📊 [FoFi SmartBox] Overview Display Data:', {
+            username: displayUsername,
+            name: displayName,
+            phone: displayPhone,
+            email: displayEmail,
+            hasFofiService: hasFofiService,
+            isOverviewLoading: isOverviewLoading
+        });
+
+        return (
+            <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+                {/* Header - Matching Internet module exactly */}
+                <header className="sticky top-0 z-40 flex items-center px-4 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg">
+                    <button onClick={() => navigate(-1)} className="p-1 mr-3">
+                        <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                        </svg>
+                    </button>
+                    <h1 className="text-lg font-medium text-white">Customer OverView</h1>
+                </header>
+
+                <div className="flex-1 max-w-2xl mx-auto w-full px-4 py-4 space-y-4 pb-24">
+                    {/* Loading State */}
+                    {isOverviewLoading ? (
+                        <div className="flex flex-col items-center justify-center py-20">
+                            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600 mb-4"></div>
+                            <p className="text-gray-500 text-sm">Loading customer details...</p>
+                        </div>
+                    ) : (
+                        <>
+                            {/* User Details - Matching Internet module */}
+                            <div className="space-y-3">
+                                <h3 className="text-indigo-600 font-semibold text-lg flex items-center gap-2">
+                                    <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
+                                    User Details
+                                </h3>
+                                <div className="space-y-1 text-sm">
+                                    <div className="flex">
+                                        <span className="w-36 text-gray-600 dark:text-gray-400">Username</span>
+                                        <span className="text-gray-600 dark:text-gray-400">: {displayUsername}</span>
+                                    </div>
+                                    <div className="flex">
+                                        <span className="w-36 text-gray-600 dark:text-gray-400">Customer Name</span>
+                                        <span className="text-gray-600 dark:text-gray-400">: {displayName}</span>
+                                    </div>
+                                    <div className="flex">
+                                        <span className="w-36 text-gray-600 dark:text-gray-400">Ph Number</span>
+                                        <span className="text-gray-600 dark:text-gray-400">: {displayPhone}</span>
+                                    </div>
+                                    <div className="flex">
+                                        <span className="w-36 text-gray-600 dark:text-gray-400">Email Id</span>
+                                        <span className="text-gray-600 dark:text-gray-400">: {displayEmail}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Action Buttons - Matching Internet module */}
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={handleUploadDocument}
+                                    disabled={isLoading}
+                                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {isLoading ? 'Loading...' : 'Upload Document'}
+                                </button>
+                                <button
+                                    onClick={handleOrderHistory}
+                                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-all duration-200 shadow-md hover:shadow-lg"
+                                >
+                                    Order History
+                                </button>
+                            </div>
+
+                            {/* Filter Badge - Matching Internet module */}
+                            <div className="flex items-center justify-between bg-white dark:bg-gray-800 px-4 py-3 -mx-4">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-base text-indigo-600 font-semibold">Filtered by :</span>
+                                    <span className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white text-sm font-medium px-4 py-1.5 rounded-full shadow-md">
+                                        FOFI Smart Box
+                                    </span>
+                                </div>
+                                <button className="text-indigo-600 hover:text-indigo-700 transition-colors">
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                                    </svg>
+                                </button>
+                            </div>
+
+                            {/* Service Status Section */}
+                            {!hasFofiService ? (
+                                // NEW USER - Not opted for FoFi service
+                                <div className="flex-1 flex flex-col items-center justify-center py-10">
+                                    <p className="text-gray-600 dark:text-gray-400 text-center text-sm mb-6">
+                                        Selected Customer have not opted<br />for this Service
+                                    </p>
+                                    <button
+                                        onClick={handleUpgradeClick}
+                                        disabled={upgradePlansLoading}
+                                        className="bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-semibold py-3 px-10 rounded-lg text-sm uppercase tracking-wide transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        {upgradePlansLoading ? 'Loading...' : 'UPGRADE'}
+                                    </button>
+                                    {upgradePlansError && (
+                                        <p className="text-red-500 text-sm mt-3 text-center">{upgradePlansError}</p>
+                                    )}
+                                </div>
+                            ) : (
+                                // EXISTING USER - Has FoFi service
+                                <div className="flex-1 flex flex-col py-4">
+                                    {/* Active Status Banner */}
+                                    <div className="bg-green-50 dark:bg-green-900/20 border-l-4 border-green-500 rounded-lg p-4 mb-6">
+                                        <div className="flex items-start gap-3">
+                                            <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                            </svg>
+                                            <div>
+                                                <p className="text-sm font-semibold text-green-800 dark:text-green-300">FoFi Service Active</p>
+                                                <p className="text-xs text-green-700 dark:text-green-400 mt-1">Your FoFi Smart Box subscription is currently active.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Service Details Card */}
+                                    {fofiServiceDetails && (
+                                        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5 mb-6">
+                                            <div className="flex items-center gap-2 mb-4">
+                                                <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
+                                                <h3 className="text-indigo-600 dark:text-indigo-400 font-semibold text-lg">Current Plan Details</h3>
+                                            </div>
+                                            <div className="space-y-3">
+                                                <div className="flex items-center">
+                                                    <span className="w-36 text-gray-600 dark:text-gray-400 text-sm">Plan</span>
+                                                    <span className="text-gray-800 dark:text-white font-medium text-sm">{fofiServiceDetails.planName || 'N/A'}</span>
+                                                </div>
+                                                <div className="flex items-center">
+                                                    <span className="w-36 text-gray-600 dark:text-gray-400 text-sm">Box ID</span>
+                                                    <span className="text-gray-800 dark:text-white font-medium text-sm">{fofiServiceDetails.boxId || 'N/A'}</span>
+                                                </div>
+                                                <div className="flex items-center">
+                                                    <span className="w-36 text-gray-600 dark:text-gray-400 text-sm">MAC Address</span>
+                                                    <span className="text-gray-800 dark:text-white font-medium text-sm">{fofiServiceDetails.macAddress || 'N/A'}</span>
+                                                </div>
+                                                <div className="flex items-center">
+                                                    <span className="w-36 text-gray-600 dark:text-gray-400 text-sm">Expiry Date</span>
+                                                    <span className="text-gray-800 dark:text-white font-medium text-sm">{fofiServiceDetails.expiryDate || 'N/A'}</span>
+                                                </div>
+                                                <div className="flex items-center">
+                                                    <span className="w-36 text-gray-600 dark:text-gray-400 text-sm">Status</span>
+                                                    <span className="inline-flex items-center gap-1.5">
+                                                        <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                                                        <span className="text-green-600 dark:text-green-400 font-medium text-sm">{fofiServiceDetails.status || 'Active'}</span>
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Upgrade Button */}
+                                    <div className="flex justify-center mt-4">
+                                        <button
+                                            onClick={handleUpgradeClick}
+                                            disabled={upgradePlansLoading}
+                                            className="bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-semibold py-3 px-12 rounded-full text-sm uppercase tracking-wide transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            {upgradePlansLoading ? 'Loading...' : 'UPGRADE PLAN'}
+                                        </button>
+                                    </div>
+                                    {upgradePlansError && (
+                                        <p className="text-red-500 text-sm mt-3 text-center">{upgradePlansError}</p>
+                                    )}
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+
+                <BottomNav />
+            </div>
+        );
+    }
+
+    // =====================================================
+    // UPGRADE PLANS VIEW - Show available upgrade plans/services
+    // =====================================================
+    if (view === 'upgrade-plans') {
+        return (
+            <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+                {/* Header - Blue/Indigo gradient matching app theme */}
+                <header className="sticky top-0 z-40 flex items-center px-4 py-4 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg">
+                    <button onClick={() => setView('overview')} className="p-1 mr-3">
+                        <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                        </svg>
+                    </button>
+                    <h1 className="text-xl font-medium text-white">Services</h1>
+                </header>
+
+                <div className="flex-1 px-4 py-4 space-y-4 pb-24 max-w-2xl mx-auto w-full">
+                    {/* Search Input - Matching app theme */}
+                    <div className="relative w-full">
+                        <input
+                            type="text"
+                            placeholder="Search Plans"
+                            value={upgradeSearchTerm}
+                            onChange={(e) => handleUpgradeSearch(e.target.value)}
+                            className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm"
+                        />
+                        <MagnifyingGlassIcon className="h-5 w-5 absolute right-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                    </div>
+
+                    {/* All Services Section Header - Matching app theme */}
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <div className="w-1 h-5 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
+                            <span className="text-indigo-600 dark:text-indigo-400 font-semibold text-base">All Services</span>
+                            {!upgradePlansLoading && (
+                                <span className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white text-xs font-medium px-2.5 py-1 rounded-full shadow-sm">
+                                    {filteredUpgradePlans.length}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Loading State */}
+                    {upgradePlansLoading && (
+                        <div className="flex justify-center py-10">
+                            <Loader size={10} color="indigo" text="Loading plans..." />
+                        </div>
+                    )}
+
+                    {/* Error State */}
+                    {upgradePlansError && !upgradePlansLoading && (
+                        <div className="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 rounded-lg p-4">
+                            <p className="text-red-700 dark:text-red-400 text-sm">{upgradePlansError}</p>
+                        </div>
+                    )}
+
+                    {/* Plans List */}
+                    {!upgradePlansLoading && filteredUpgradePlans.length > 0 && (
+                        <div className="space-y-3">
+                            {filteredUpgradePlans.map((plan, index) => {
+                                // Handle different API response structures
+                                const planName = plan.serv_name || plan.plan_name || plan.name || 'Unknown Plan';
+                                const planPrice = plan.serv_rates?.prices?.[0] || plan.price || plan.amount || '0';
+                                const planLabel = plan.serv_rates?.labels?.[0] || '';
+                                const planId = plan.servid || plan.srvid || plan.plan_id || plan.id || index;
+
+                                return (
+                                    <div
+                                        key={planId}
+                                        onClick={() => handleUpgradePlanSelect(plan)}
+                                        className="relative flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 cursor-pointer hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-700 transition-all duration-200 overflow-hidden"
+                                    >
+                                        {/* Special Offer Ribbon - Always shown */}
+                                        <div className="absolute top-0 right-0">
+                                            <div className="bg-gradient-to-r from-orange-500 to-red-500 text-white text-[10px] font-bold px-3 py-1 shadow-md uppercase tracking-wide" style={{ clipPath: 'polygon(0 0, 100% 0, 100% 100%, 10% 100%)' }}>
+                                                SPECIAL OFFER
+                                            </div>
+                                        </div>
+
+                                        {/* Plan Details */}
+                                        <div className="flex-1 pr-20">
+                                            <p className="font-medium text-gray-800 dark:text-white text-base">{planName}</p>
+                                            <p className="text-gray-500 dark:text-gray-400 text-sm mt-0.5">
+                                                {import.meta.env.VITE_API_APP_DEFAULT_CURRENCY_SYMBOL || '₹'}{planPrice}
+                                            </p>
+                                        </div>
+
+                                        {/* Arrow Icon */}
+                                        <ChevronRightIcon className="h-5 w-5 text-gray-400" />
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+
+                    {/* Empty State */}
+                    {!upgradePlansLoading && !upgradePlansError && filteredUpgradePlans.length === 0 && (
+                        <div className="flex flex-col items-center justify-center py-10">
+                            <div className="w-20 h-20 bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center mb-4">
+                                <svg className="w-10 h-10 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                            </div>
+                            <p className="text-gray-600 dark:text-gray-400 text-center text-sm">No plans found matching your search.</p>
+                            <button 
+                                onClick={() => { setUpgradeSearchTerm(''); setFilteredUpgradePlans(upgradePlans); }}
+                                className="mt-3 text-indigo-600 dark:text-indigo-400 text-sm font-medium hover:underline"
+                            >
+                                Clear search
+                            </button>
+                        </div>
+                    )}
+                </div>
+
+                <BottomNav />
+            </div>
+        );
+    }
+
+    // =====================================================
+    // LINK FO-FI BOX VIEW - Device linking form
+    // =====================================================
     return (
         <div className="min-h-screen flex flex-col bg-gray-50">
             {/* QR Scanner Modal */}
@@ -658,7 +1237,7 @@ function FoFiSmartBox() {
 
             {/* Blue Gradient Header */}
             <header className="sticky top-0 z-40 flex items-center px-4 py-4 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg">
-                <button onClick={() => navigate(-1)} className="p-1 mr-3">
+                <button onClick={() => setView('overview')} className="p-1 mr-3">
                     <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                     </svg>
