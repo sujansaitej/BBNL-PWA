@@ -20,6 +20,7 @@ import FoFiSmartBox from "../pages/services/FoFiSmartBox";
 import IPTVService from "../pages/services/IPTVService";
 import PaymentHistory from "../pages/PaymentHistory";
 import UploadDocuments from "../pages/UploadDocuments";
+import FofiPayment from "../pages/FofiPayment";
 
 export default function AppRoutes() {
   return (
@@ -174,6 +175,14 @@ export default function AppRoutes() {
         element={
           <PrivateRoute>
             <UploadDocuments />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/fofi-payment"
+        element={
+          <PrivateRoute>
+            <FofiPayment />
           </PrivateRoute>
         }
       />

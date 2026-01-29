@@ -13,6 +13,7 @@ import {
 import { getOrderHistory } from "../services/orderApis";
 import { formatCustomerId } from "../services/helpers";
 import BottomNav from "../components/BottomNav";
+import { Loader } from "@/components/ui";
 
 export default function PaymentHistory() {
   const location = useLocation();
@@ -135,10 +136,7 @@ export default function PaymentHistory() {
       <div className="flex-1 px-4 py-4 pb-24">
         {/* Payment Cards */}
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-16">
-            <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
-            <p className="text-gray-500 font-medium">Loading payment history...</p>
-          </div>
+          <Loader size="lg" color="indigo" text="Loading payment history..." className="py-10" />
         ) : orders.length > 0 ? (
           <div className="space-y-4">
             {orders.map((order, idx) => (

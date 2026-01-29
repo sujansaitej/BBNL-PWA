@@ -802,36 +802,66 @@ function FoFiSmartBox() {
                 // Payment info API failed, but registration was successful
                 console.warn('⚠️ Payment info API failed, but registration succeeded');
                 alert('FoFi Box registered successfully! Payment info could not be retrieved.');
+                // Reset form and navigate back to overview
+                setView('overview');
+                setDeviceValidated(false);
+                setMacAddress('');
+                setSerialNumber('');
+                setBoxId('');
+                setDeviceInfo(null);
+                setSelectedPlan(null);
             } else {
-                // Both APIs succeeded
-                alert('FoFi Box registered successfully!');
-            }
+                // Both APIs succeeded - Navigate to FoFi Payment Review Page
+                console.log('✅ Registration successful, navigating to payment page...');
+                
+                // Extract payment details from the response
+                const paymentBody = paymentResponse?.body || {};
+                const planRates = paymentBody?.planrates_android?.[0] || paymentBody?.planrates?.[0] || {};
+                
+                // Prepare payment data for the review page
+                const fofiPaymentData = {
+                    // Customer & Plan identifiers
+                    userid: username,
+                    fofiboxid: deviceInfo.boxId || boxId,
+                    planid: planId,
+                    priceid: priceId,
+                    servid: servId,
+                    loginuname: loginuname,
+                    
+                    // Wallet balance
+                    walletBalance: paymentBody?.wallet?.avlbal || 0,
+                    
+                    // Payment details for display
+                    paymentDetails: {
+                        "Plan Name": paymentBody?.planname || selectedPlan?.planname || selectedPlan?.plan_name || "N/A",
+                        "Plan Rate": planRates?.planrate || planRates?.rate || selectedPlan?.price || 0,
+                        "CGST": planRates?.taxdetails?.subtaxes?.CGST?.value || planRates?.cgst || 0,
+                        "SGST": planRates?.taxdetails?.subtaxes?.SGST?.value || planRates?.sgst || 0,
+                        "Other Charges": paymentBody?.othcharge?.amt || planRates?.othcharge || 0,
+                        "Balance Amount": planRates?.shareinfo?.balamt || planRates?.balamt || 0,
+                        "Total Amount": planRates?.total || planRates?.totalamt || selectedPlan?.price || 0
+                    },
+                    
+                    // More details (share info)
+                    moreDetails: {
+                        "Operator Share": planRates?.shareinfo?.optrshare || planRates?.optrshare || 0,
+                        "Amount Deductable": planRates?.shareinfo?.totbbnlshare || planRates?.totbbnlshare || 0
+                    },
+                    
+                    // Additional payment info
+                    noofmonth: parseInt(planRates?.shareinfo?.month || planRates?.month) || 1,
+                    amountDeductable: planRates?.shareinfo?.totbbnlshare || planRates?.totbbnlshare || planRates?.total || 0,
+                    
+                    // Customer data for reference
+                    customer: customerData
+                };
 
-            // =====================================================
-            // STEP 4: Refresh customer details again after payment
-            // =====================================================
-            console.log('🔵 [STEP 4] Refreshing customer details...');
-            try {
-                const [cableDetails, primaryDetails] = await Promise.all([
-                    getCableCustomerDetails(username),
-                    getPrimaryCustomerDetails(username)
-                ]);
-                console.log('🟢 Final Cable Customer Details:', cableDetails);
-                console.log('🟢 Final Primary Customer Details:', primaryDetails);
-                setCustomerDetails(cableDetails);
-                setPrimaryCustomerDetails(primaryDetails);
-            } catch (detailsError) {
-                console.warn('⚠️ Could not refresh customer details:', detailsError);
+                console.log('🔵 Navigating to FoFi Payment with data:', fofiPaymentData);
+                
+                // Navigate to FoFi Payment Review page
+                navigate('/fofi-payment', { state: fofiPaymentData });
+                return; // Exit the function after navigation
             }
-
-            // Reset form and navigate back to overview
-            setView('overview');
-            setDeviceValidated(false);
-            setMacAddress('');
-            setSerialNumber('');
-            setBoxId('');
-            setDeviceInfo(null);
-            setSelectedPlan(null);
 
         } catch (error) {
             console.error('❌ Upgrade registration error:', error);

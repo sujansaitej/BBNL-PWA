@@ -34,6 +34,64 @@ function getBasicAuthHeader() {
 }
 
 /**
+ * Generate FoFi Payment Order - Called when user clicks "PROCEED TO PAY"
+ * @param {Object} payload - Payment order details
+ * @param {string} payload.fofiboxid - FoFi Box ID
+ * @param {string} payload.planid - Plan ID
+ * @param {string} payload.priceid - Price ID
+ * @param {string} payload.servid - Service ID
+ * @param {string} payload.userid - User ID
+ * @param {string} payload.username - Login username
+ * @param {string} payload.paidamount - Amount to be paid
+ * @param {string} payload.transactionid - Transaction ID
+ * @param {string} payload.paytype - Payment type (upgrade/new)
+ * @returns {Promise<Object>} Response containing order generation status
+ */
+export async function generateFofiOrder(payload) {
+    const url = `${getBaseUrl()}ServiceApis/cabletv/generateorder`;
+    const headers = getHeadersJson();
+
+    // Build the complete payload with defaults
+    const orderPayload = {
+        bankname: payload.bankname || "",
+        banktxnid: payload.banktxnid || "",
+        fofiboxid: payload.fofiboxid || "",
+        gateway: payload.gateway || "",
+        gatewaytxnid: payload.gatewaytxnid || "",
+        orderedbytype: payload.orderedbytype || "crmapp",
+        paidamount: String(payload.paidamount || "0"),
+        paymentmode: payload.paymentmode || "offline",
+        payresponse: payload.payresponse || "",
+        paytype: payload.paytype || "upgrade",
+        planid: String(payload.planid || ""),
+        priceid: String(payload.priceid || "99"),
+        servid: String(payload.servid || "3"),
+        transactionid: payload.transactionid || "",
+        txnstatus: payload.txnstatus || "success",
+        userid: payload.userid || "",
+        username: payload.username || "",
+        voipnumber: payload.voipnumber || ""
+    };
+
+    console.log('🔵 [generateFofiOrder] Calling API:', url);
+    console.log('🔵 [generateFofiOrder] Payload:', orderPayload);
+
+    const resp = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(orderPayload),
+    });
+
+    if (!resp.ok) {
+        throw new Error(`Failed to generate FoFi order: HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    console.log('🟢 [generateFofiOrder] Response:', data);
+    return data;
+}
+
+/**
  * Get special internet plans for FoFi Box
  * @param {Object} payload - { logUname: string, isKiranastore: string }
  * @returns {Promise<Object>} Response containing special internet plans
