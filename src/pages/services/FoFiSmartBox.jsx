@@ -1139,69 +1139,84 @@ function FoFiSmartBox() {
                                 </div>
                             ) : (
                                 // EXISTING USER - Has FoFi service
-                                <div className="flex-1 flex flex-col py-4">
-                                    {/* Active Status Banner */}
-                                    <div className="bg-green-50 dark:bg-green-900/20 border-l-4 border-green-500 rounded-lg p-4 mb-6">
-                                        <div className="flex items-start gap-3">
-                                            <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                                            </svg>
-                                            <div>
-                                                <p className="text-sm font-semibold text-green-800 dark:text-green-300">FoFi Service Active</p>
-                                                <p className="text-xs text-green-700 dark:text-green-400 mt-1">Your FoFi Smart Box subscription is currently active.</p>
-                                            </div>
+                                <>
+                                    {/* FoFi Box ID Section - Matching Internet ID style exactly */}
+                                    <div className="space-y-3">
+                                        <h3 className="text-indigo-600 font-semibold text-lg flex items-center gap-2">
+                                            <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
+                                            FoFi Box ID
+                                        </h3>
+                                        <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-gray-800 px-4 py-3 rounded-xl border border-indigo-200 dark:border-gray-700">
+                                            <p className="text-indigo-600 font-semibold text-base">{fofiServiceDetails?.boxId || 'N/A'}</p>
                                         </div>
                                     </div>
 
-                                    {/* Service Details Card */}
-                                    {fofiServiceDetails && (
-                                        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5 mb-6">
-                                            <div className="flex items-center gap-2 mb-4">
-                                                <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
-                                                <h3 className="text-indigo-600 dark:text-indigo-400 font-semibold text-lg">Current Plan Details</h3>
+                                    {/* Current Plan (Read-Only) Section - Matching Internet style exactly */}
+                                    <div className="space-y-3">
+                                        <h3 className="text-indigo-600 font-semibold text-lg flex items-center gap-2">
+                                            <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
+                                            Current Plan (Read-Only)
+                                        </h3>
+                                        <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 border border-gray-100 dark:border-gray-700">
+                                            <div className="flex items-start gap-4">
+                                                {/* Globe Icon - Clean outlined style matching Internet */}
+                                                <div className="flex-shrink-0">
+                                                    <svg className="w-16 h-16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                                        {/* Outer circle */}
+                                                        <circle cx="12" cy="12" r="10" className="text-gray-700" />
+                                                        {/* Vertical ellipse (meridian) */}
+                                                        <ellipse cx="12" cy="12" rx="4" ry="10" className="text-gray-700" />
+                                                        {/* Horizontal lines (parallels) */}
+                                                        <path d="M2 12h20" className="text-gray-700" />
+                                                        <path d="M4 7h16" className="text-gray-700" />
+                                                        <path d="M4 17h16" className="text-gray-700" />
+                                                    </svg>
+                                                </div>
+
+                                                {/* Plan Info - Matching Internet style */}
+                                                <div className="flex-1 space-y-2 text-sm">
+                                                    <div className="flex">
+                                                        <span className="w-28 text-gray-700 dark:text-gray-300">Service Name</span>
+                                                        <span className="text-gray-700 dark:text-gray-300">:   FoFi Smart Box</span>
+                                                    </div>
+                                                    <div className="flex">
+                                                        <span className="w-28 text-gray-700 dark:text-gray-300">Plan Name</span>
+                                                        <span className="text-gray-700 dark:text-gray-300">:   {fofiServiceDetails?.planName || 'N/A'}</span>
+                                                    </div>
+                                                    <div className="flex items-start">
+                                                        <span className="w-28 text-gray-700 dark:text-gray-300">Expiry Date</span>
+                                                        <span className="text-gray-700 dark:text-gray-300">:</span>
+                                                        <span className="flex flex-col ml-2 text-gray-700 dark:text-gray-300">
+                                                            <span>{fofiServiceDetails?.expiryDate || 'N/A'}</span>
+                                                        </span>
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <div className="space-y-3">
-                                                <div className="flex items-center">
-                                                    <span className="w-36 text-gray-600 dark:text-gray-400 text-sm">Plan</span>
-                                                    <span className="text-gray-800 dark:text-white font-medium text-sm">{fofiServiceDetails.planName || 'N/A'}</span>
-                                                </div>
-                                                <div className="flex items-center">
-                                                    <span className="w-36 text-gray-600 dark:text-gray-400 text-sm">Box ID</span>
-                                                    <span className="text-gray-800 dark:text-white font-medium text-sm">{fofiServiceDetails.boxId || 'N/A'}</span>
-                                                </div>
-                                                <div className="flex items-center">
-                                                    <span className="w-36 text-gray-600 dark:text-gray-400 text-sm">MAC Address</span>
-                                                    <span className="text-gray-800 dark:text-white font-medium text-sm">{fofiServiceDetails.macAddress || 'N/A'}</span>
-                                                </div>
-                                                <div className="flex items-center">
-                                                    <span className="w-36 text-gray-600 dark:text-gray-400 text-sm">Expiry Date</span>
-                                                    <span className="text-gray-800 dark:text-white font-medium text-sm">{fofiServiceDetails.expiryDate || 'N/A'}</span>
-                                                </div>
-                                                <div className="flex items-center">
-                                                    <span className="w-36 text-gray-600 dark:text-gray-400 text-sm">Status</span>
-                                                    <span className="inline-flex items-center gap-1.5">
-                                                        <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                                                        <span className="text-green-600 dark:text-green-400 font-medium text-sm">{fofiServiceDetails.status || 'Active'}</span>
-                                                    </span>
-                                                </div>
+
+                                            {/* PAY BILL Button - Matching Internet style */}
+                                            <div className="space-y-3 mt-4">
+                                                <button
+                                                    onClick={() => {
+                                                        // Navigate to payment page for existing user renewal
+                                                        const op_id = customerDetails?.body?.op_id || customerData?.op_id;
+                                                        navigate('/payment', {
+                                                            state: {
+                                                                customer: customerData,
+                                                                servicekey: 'fofi',
+                                                                userid: customerData?.username || customerData?.customer_id,
+                                                                op_id: op_id,
+                                                                cableDetails: customerDetails
+                                                            }
+                                                        });
+                                                    }}
+                                                    className="w-full bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-semibold py-3 px-4 rounded-lg transition-all duration-200 text-sm shadow-md hover:shadow-lg"
+                                                >
+                                                    Upgrade Plan
+                                                </button>
                                             </div>
                                         </div>
-                                    )}
-
-                                    {/* Upgrade Button */}
-                                    <div className="flex justify-center mt-4">
-                                        <button
-                                            onClick={handleUpgradeClick}
-                                            disabled={upgradePlansLoading}
-                                            className="bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-semibold py-3 px-12 rounded-full text-sm uppercase tracking-wide transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                                        >
-                                            {upgradePlansLoading ? 'Loading...' : 'UPGRADE PLAN'}
-                                        </button>
                                     </div>
-                                    {upgradePlansError && (
-                                        <p className="text-red-500 text-sm mt-3 text-center">{upgradePlansError}</p>
-                                    )}
-                                </div>
+                                </>
                             )}
                 </div>
 
