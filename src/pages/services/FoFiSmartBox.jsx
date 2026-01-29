@@ -19,6 +19,8 @@ import {
     verifyFoFiPayment,
     validateBeforeFofiBoxReg,
     getFofiUpgradePlans,
+    upgradeRegistration,
+    getFofiPaymentInfo,
 } from "../../services/fofiApis";
 import { getCableCustomerDetails, getPrimaryCustomerDetails, getMyPlanDetails, getCustKYCPreview, getUserAssignedItems } from "../../services/generalApis";
 
@@ -609,6 +611,8 @@ function FoFiSmartBox() {
     };
 
     // MAC fetch handler with backend integration using validateFoFiAsset API
+    // API: fofi/fofiapis/validateAsset
+    // Request: { mac_addr: "", serialno: "", userid: "superadmin", boxid: "BBNL-ANDBOX-00000933" }
     const handleFetchMAC = async () => {
         try {
             setValidationError('');
@@ -621,29 +625,35 @@ function FoFiSmartBox() {
             }
 
             const user = JSON.parse(localStorage.getItem('user'));
-            const userid = user?.username || customerData?.username || 'superadmin';
+            const userid = user?.username || 'superadmin';
+            const customerUsername = customerData?.username || '';
+
+            console.log('🔵 [GET MAC ID] Calling validateAsset API...');
+            console.log('🔵 [GET MAC ID] Box ID:', boxId);
+            console.log('🔵 [GET MAC ID] User ID:', userid);
 
             const response = await validateFoFiAsset({
                 mac_addr: "",
-                serialno: serialNumber || "",
+                serialno: "",
                 userid: userid,
-                boxid: boxId
+                boxid: boxId.trim()
             });
 
-            console.log('🟢 Validate Asset Response:', response);
-            console.log('🟢 Response Body:', response?.body);
-            console.log('🟢 Response Status:', response?.status);
+            console.log('🟢 [GET MAC ID] Validate Asset Response:', response);
+            console.log('🟢 [GET MAC ID] Response Body:', response?.body);
+            console.log('🟢 [GET MAC ID] Response Status:', response?.status);
 
             if (response?.status?.err_code === 0) {
                 let extractedMac = '';
                 let extractedSerial = '';
 
-                // Try to get MAC from response body first
+                // Try to get MAC and Serial from response body first
                 if (response?.body) {
                     // Handle both array and object responses
                     const bodyData = Array.isArray(response.body) ? response.body[0] : response.body;
                     extractedMac = bodyData?.mac_addr || bodyData?.macAddress || bodyData?.mac || '';
-                    extractedSerial = bodyData?.serial_number || bodyData?.serialNumber || bodyData?.serial || '';
+                    extractedSerial = bodyData?.serial_number || bodyData?.serialNumber || bodyData?.serialno || bodyData?.serial || '';
+                    console.log('🔵 [GET MAC ID] Body data:', bodyData);
                 }
 
                 // If MAC not in body, try to extract from success message
@@ -652,7 +662,7 @@ function FoFiSmartBox() {
                     const macMatch = response.status.err_msg.match(/\(([0-9A-Fa-f:]{17})\)/);
                     if (macMatch && macMatch[1]) {
                         extractedMac = macMatch[1];
-                        console.log('✅ Extracted MAC from message:', extractedMac);
+                        console.log('✅ [GET MAC ID] Extracted MAC from message:', extractedMac);
                     }
                 }
 
@@ -662,33 +672,34 @@ function FoFiSmartBox() {
                     return;
                 }
 
-                // Device is available
+                // Device is available - set all device info
                 setMacAddress(extractedMac);
-                setSerialNumber(extractedSerial || serialNumber);
+                setSerialNumber(extractedSerial);
                 setDeviceInfo({
                     macAddress: extractedMac,
-                    serialNumber: extractedSerial || serialNumber,
-                    boxId: boxId
+                    serialNumber: extractedSerial,
+                    boxId: boxId.trim()
                 });
                 setDeviceValidated(true);
                 setShowValidationSuccess(true);
                 setValidationMethod('manual');
 
-                console.log('✅ Device validated successfully');
-                console.log('✅ MAC Address:', extractedMac);
-                console.log('✅ Serial Number:', extractedSerial || serialNumber);
+                console.log('✅ [GET MAC ID] Device validated successfully');
+                console.log('✅ [GET MAC ID] MAC Address:', extractedMac);
+                console.log('✅ [GET MAC ID] Serial Number:', extractedSerial);
+                console.log('✅ [GET MAC ID] Box ID:', boxId.trim());
             } else {
                 setValidationError(response?.status?.err_msg || 'Device not found or invalid Box ID');
             }
         } catch (error) {
-            console.error('MAC fetch error:', error);
+            console.error('❌ [GET MAC ID] Error:', error);
             setValidationError('Failed to validate device. Please check the Box ID and try again.');
         } finally {
             setIsLoading(false);
         }
     };
 
-    // Link FoFi Box handler
+    // Link FoFi Box handler - Uses upgradeRegistration API for fresh/new user registration
     const handleLinkFoFiBox = async () => {
         try {
             setIsLoading(true);
@@ -717,59 +728,114 @@ function FoFiSmartBox() {
             const loginuname = user?.username || 'superadmin';
             const username = customerData?.username || loginuname;
 
-            // Extract plan_id properly - API expects string format
-            // Priority: Use selected plan's srvid, or customer's internet plan ID as fallback
-            const planId = String(selectedPlan.srvid || selectedPlan.planid || selectedPlan.plan_id || selectedPlan.id);
+            // Extract plan details
+            const planId = String(selectedPlan.srvid || selectedPlan.planid || selectedPlan.plan_id || selectedPlan.id || '');
+            const priceId = String(selectedPlan.serv_rates?.priceid || selectedPlan.priceid || selectedPlan.price_id || '99');
+            const servId = String(selectedPlan.servid || selectedPlan.serv_id || '3'); // Default to 3 for FoFi
             
             console.log('🔵 Selected Plan Object:', selectedPlan);
             console.log('🔵 All plan fields:', Object.keys(selectedPlan));
-            console.log('🔵 Extracted Plan ID for API:', planId);
-            console.log('🔵 Customer Internet Plan ID:', customerInternetPlanId);
+            console.log('🔵 Plan ID:', planId, 'Price ID:', priceId, 'Service ID:', servId);
 
-            const linkPayload = {
-                fofiboxid: deviceInfo.boxId,
+            // =====================================================
+            // STEP 1: Call upgradeRegistration API
+            // =====================================================
+            const upgradePayload = {
+                fofiboxid: deviceInfo.boxId || boxId,
                 fofimac: macAddress,
-                fofiserailnumber: deviceInfo.serialNumber,
+                fofiserailnumber: deviceInfo.serialNumber || serialNumber || '',
                 loginuname: loginuname,
-                plan_id: planId,
                 services: ["ott"],
                 username: username
             };
 
-            console.log('🔵 Link FoFi Box Payload:', JSON.stringify(linkPayload, null, 2));
+            console.log('🔵 [STEP 1] Calling upgradeRegistration API...');
+            console.log('🔵 Upgrade Payload:', JSON.stringify(upgradePayload, null, 2));
 
-            // Call linkFoFiBox API first
-            const linkResponse = await linkFoFiBox(linkPayload);
+            const upgradeResponse = await upgradeRegistration(upgradePayload);
+            console.log('🟢 Upgrade Registration Response:', upgradeResponse);
 
-            console.log('🟢 Link FoFi Box Response:', linkResponse);
-
-            if (linkResponse?.status?.err_code === 0) {
-                // Success - now fetch customer details (optional, don't fail if these fail)
-                try {
-                    const cableDetails = await getCableCustomerDetails(username);
-                    const primaryDetails = await getPrimaryCustomerDetails(username);
-                    console.log('🟢 Cable Customer Details:', cableDetails);
-                    console.log('🟢 Primary Customer Details:', primaryDetails);
-                    setCustomerDetails(cableDetails);
-                    setPrimaryCustomerDetails(primaryDetails);
-                } catch (detailsError) {
-                    console.warn('⚠️ Could not fetch customer details:', detailsError);
-                }
-
-                alert('FoFi Box linked successfully!');
-                setView('overview');
-                // Refresh device details
-                setDeviceValidated(false);
-                setMacAddress('');
-                setSerialNumber('');
-                setBoxId('');
-                setDeviceInfo(null);
-            } else {
-                setValidationError(linkResponse?.status?.err_msg || 'Failed to link FoFi box');
+            if (upgradeResponse?.status?.err_code !== 0) {
+                setValidationError(upgradeResponse?.status?.err_msg || 'Failed to register upgrade');
+                setIsLoading(false);
+                return;
             }
+
+            // =====================================================
+            // STEP 2: Call cblCustDet and primaryCustdet APIs
+            // =====================================================
+            console.log('🔵 [STEP 2] Fetching customer details...');
+            try {
+                const [cableDetails, primaryDetails] = await Promise.all([
+                    getCableCustomerDetails(username),
+                    getPrimaryCustomerDetails(username)
+                ]);
+                console.log('🟢 Cable Customer Details:', cableDetails);
+                console.log('🟢 Primary Customer Details:', primaryDetails);
+                setCustomerDetails(cableDetails);
+                setPrimaryCustomerDetails(primaryDetails);
+            } catch (detailsError) {
+                console.warn('⚠️ Could not fetch customer details:', detailsError);
+            }
+
+            // =====================================================
+            // STEP 3: Call paymentinfo/fofi API
+            // =====================================================
+            const paymentPayload = {
+                fofi_box_id: deviceInfo.boxId || boxId,
+                planid: planId,
+                priceid: priceId,
+                servapptype: "crmapp",
+                servid: servId,
+                userid: username,
+                username: loginuname,
+                voipnumber: ""
+            };
+
+            console.log('🔵 [STEP 3] Calling getFofiPaymentInfo API...');
+            console.log('🔵 Payment Payload:', JSON.stringify(paymentPayload, null, 2));
+
+            const paymentResponse = await getFofiPaymentInfo(paymentPayload);
+            console.log('🟢 Payment Info Response:', paymentResponse);
+
+            if (paymentResponse?.status?.err_code !== 0) {
+                // Payment info API failed, but registration was successful
+                console.warn('⚠️ Payment info API failed, but registration succeeded');
+                alert('FoFi Box registered successfully! Payment info could not be retrieved.');
+            } else {
+                // Both APIs succeeded
+                alert('FoFi Box registered successfully!');
+            }
+
+            // =====================================================
+            // STEP 4: Refresh customer details again after payment
+            // =====================================================
+            console.log('🔵 [STEP 4] Refreshing customer details...');
+            try {
+                const [cableDetails, primaryDetails] = await Promise.all([
+                    getCableCustomerDetails(username),
+                    getPrimaryCustomerDetails(username)
+                ]);
+                console.log('🟢 Final Cable Customer Details:', cableDetails);
+                console.log('🟢 Final Primary Customer Details:', primaryDetails);
+                setCustomerDetails(cableDetails);
+                setPrimaryCustomerDetails(primaryDetails);
+            } catch (detailsError) {
+                console.warn('⚠️ Could not refresh customer details:', detailsError);
+            }
+
+            // Reset form and navigate back to overview
+            setView('overview');
+            setDeviceValidated(false);
+            setMacAddress('');
+            setSerialNumber('');
+            setBoxId('');
+            setDeviceInfo(null);
+            setSelectedPlan(null);
+
         } catch (error) {
-            console.error('Link FoFi box error:', error);
-            setValidationError('Failed to link FoFi box. Please try again.');
+            console.error('❌ Upgrade registration error:', error);
+            setValidationError('Failed to register FoFi box. Please try again.');
         } finally {
             setIsLoading(false);
         }

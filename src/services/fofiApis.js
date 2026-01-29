@@ -111,6 +111,60 @@ export async function getFofiUpgradePlans(payload) {
 }
 
 /**
+ * Upgrade Registration - Submit FoFi upgrade registration for new users
+ * @param {Object} payload - { fofiboxid: string, fofimac: string, fofiserailnumber: string, loginuname: string, services: array, username: string }
+ * @returns {Promise<Object>} Response containing upgrade registration status
+ */
+export async function upgradeRegistration(payload) {
+    const url = `${getBaseUrl()}ServiceApis/upgradeRegistration`;
+    const headers = getHeadersJson();
+
+    console.log('🔵 [upgradeRegistration] Calling API:', url);
+    console.log('🔵 [upgradeRegistration] Payload:', payload);
+
+    const resp = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+    });
+
+    if (!resp.ok) {
+        throw new Error(`Failed to submit upgrade registration: HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    console.log('🟢 [upgradeRegistration] Response:', data);
+    return data;
+}
+
+/**
+ * FoFi Payment Info - Get payment info after upgrade registration
+ * @param {Object} payload - { fofi_box_id: string, planid: string, priceid: string, servapptype: string, servid: string, userid: string, username: string, voipnumber: string }
+ * @returns {Promise<Object>} Response containing payment information
+ */
+export async function getFofiPaymentInfo(payload) {
+    const url = `${getBaseUrl()}service/paymentinfo/fofi`;
+    const headers = getHeadersJson();
+
+    console.log('🔵 [getFofiPaymentInfo] Calling API:', url);
+    console.log('🔵 [getFofiPaymentInfo] Payload:', payload);
+
+    const resp = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+    });
+
+    if (!resp.ok) {
+        throw new Error(`Failed to get FoFi payment info: HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    console.log('🟢 [getFofiPaymentInfo] Response:', data);
+    return data;
+}
+
+/**
  * Validate FoFi Asset (Get MAC ID)
  * @param {Object} payload - { mac_addr: string, serialno: string, userid: string, boxid: string }
  * @returns {Promise<Object>} Response containing validated asset details with MAC address
@@ -118,6 +172,9 @@ export async function getFofiUpgradePlans(payload) {
 export async function validateFoFiAsset(payload) {
     const url = `${getBaseUrl()}fofi/fofiapis/validateAsset`;
     const headers = getBasicAuthHeader();
+
+    console.log('🔵 [validateFoFiAsset] Calling API:', url);
+    console.log('🔵 [validateFoFiAsset] Payload:', payload);
 
     const resp = await fetch(url, {
         method: "POST",
