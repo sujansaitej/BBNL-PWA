@@ -1041,6 +1041,13 @@ function FoFiSmartBox() {
             isOverviewLoading: isOverviewLoading
         });
 
+        // Show fullScreen loader while loading
+        if (isOverviewLoading) {
+            return (
+                <Loader fullScreen showHeader headerTitle="Customer OverView" text="Loading customer overview..." />
+            );
+        }
+
         return (
             <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
                 {/* Header - Matching Internet module exactly */}
@@ -1054,18 +1061,10 @@ function FoFiSmartBox() {
                 </header>
 
                 <div className="flex-1 max-w-2xl mx-auto w-full px-4 py-4 space-y-4 pb-24">
-                    {/* Loading State */}
-                    {isOverviewLoading ? (
-                        <div className="flex flex-col items-center justify-center py-20">
-                            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600 mb-4"></div>
-                            <p className="text-gray-500 text-sm">Loading customer details...</p>
-                        </div>
-                    ) : (
-                        <>
-                            {/* User Details - Matching Internet module */}
-                            <div className="space-y-3">
-                                <h3 className="text-indigo-600 font-semibold text-lg flex items-center gap-2">
-                                    <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
+                    {/* User Details - Matching Internet module */}
+                    <div className="space-y-3">
+                        <h3 className="text-indigo-600 font-semibold text-lg flex items-center gap-2">
+                            <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
                                     User Details
                                 </h3>
                                 <div className="space-y-1 text-sm">
@@ -1204,8 +1203,6 @@ function FoFiSmartBox() {
                                     )}
                                 </div>
                             )}
-                        </>
-                    )}
                 </div>
 
                 <BottomNav />
@@ -1363,7 +1360,7 @@ function FoFiSmartBox() {
                                     </motion.div>
 
                                     <p className="text-gray-700 dark:text-gray-300 text-center text-base leading-relaxed mb-6">
-                                        This plan has ₹0 price. Please select another plan to continue.
+                                       Plan Rate is Missing.Please Contact Admin to Update the Plan Rate.
                                     </p>
 
                                     {/* Action Button */}

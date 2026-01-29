@@ -176,6 +176,13 @@ export default function FofiPayment() {
     }
   };
 
+  // Show fullScreen loader while loading
+  if (loading) {
+    return (
+      <Loader fullScreen showHeader headerTitle="Review" text="Loading payment details..." />
+    );
+  }
+
   return (
     <Layout hideHeader={true} hideBottomNav={true}>
       {/* Blue Gradient Header - Matching existing UI */}
@@ -189,56 +196,53 @@ export default function FofiPayment() {
       </div>
 
       <div className="bg-gray-50 min-h-screen px-4 py-4">
-        {loading ? (
-          <Loader size={10} color="teal" text="Loading payment details..." className="py-10" />
-        ) : (
-          <div className="space-y-3">
-            {/* Payment Details Heading */}
-            <div className="text-center">
-              <h3 className="text-base font-medium text-teal-500 mb-1">Payment Details</h3>
-              <p className="text-sm font-semibold text-indigo-600">
-                Wallet Balance : ₹{formatToDecimals(walletBalance)}
-              </p>
-            </div>
+        <div className="space-y-3">
+          {/* Payment Details Heading */}
+          <div className="text-center">
+            <h3 className="text-base font-medium text-indigo-600 mb-1">Payment Details</h3>
+            <p className="text-sm font-semibold text-purple-600">
+              Wallet Balance : ₹{formatToDecimals(walletBalance)}
+            </p>
+          </div>
 
-            {/* Payment Details Card with Indigo Left Border */}
-            <div className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 border-l-4 border-indigo-600">
-              <div className="px-4 py-3">
-                {paymentDetails && Object.entries(paymentDetails).map(([key, value], index) => (
-                  <div
-                    key={key}
-                    className="flex items-start py-1.5"
-                  >
-                    <span className={`text-sm w-36 flex-shrink-0 ${key === 'Total Amount' ? 'text-indigo-600 font-semibold' : 'text-gray-600'}`}>
-                      {key}
-                    </span>
-                    <span className="text-sm text-gray-600 mx-2">:</span>
-                    <span className={`text-sm ${key === 'Total Amount'
-                      ? 'text-indigo-600 font-semibold'
-                      : 'text-gray-800'
-                      }`}>
-                      {key === "Plan Name" ? value : `₹${formatToDecimals(value)}`}
+          {/* Payment Details Card with Purple Left Border */}
+          <div className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 border-l-4 border-purple-600">
+            <div className="px-4 py-3">
+              {paymentDetails && Object.entries(paymentDetails).map(([key, value], index) => (
+                <div
+                  key={key}
+                  className="flex items-start py-1.5"
+                >
+                  <span className={`text-sm w-36 flex-shrink-0 ${key === 'Total Amount' ? 'text-purple-600 font-semibold' : 'text-gray-600'}`}>
+                    {key}
+                  </span>
+                  <span className="text-sm text-gray-600 mx-2">:</span>
+                  <span className={`text-sm ${key === 'Total Amount'
+                    ? 'text-purple-600 font-semibold'
+                    : 'text-gray-800'
+                    }`}>
+                    {key === "Plan Name" ? value : `₹${formatToDecimals(value)}`}
                     </span>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* More Details Card with Indigo Left Border */}
-            <div className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 border-l-4 border-indigo-600">
+            {/* More Details Card with Purple Left Border */}
+            <div className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 border-l-4 border-purple-600">
               <div className="px-4 py-3">
-                <h3 className="text-sm font-medium text-indigo-600 mb-2">More Details</h3>
+                <h3 className="text-sm font-medium text-purple-600 mb-2">More Details</h3>
                 {moreDetails && Object.entries(moreDetails).map(([key, value], index) => (
                   <div
                     key={key}
                     className="flex items-start py-1.5"
                   >
-                    <span className={`text-sm w-36 flex-shrink-0 ${key === 'Amount Deductable' ? 'text-indigo-600 font-semibold' : 'text-gray-600'}`}>
+                    <span className={`text-sm w-36 flex-shrink-0 ${key === 'Amount Deductable' ? 'text-purple-600 font-semibold' : 'text-gray-600'}`}>
                       {key}
                     </span>
                     <span className="text-sm text-gray-600 mx-2">:</span>
                     <span className={`text-sm ${key === 'Amount Deductable'
-                      ? 'text-indigo-600 font-semibold'
+                      ? 'text-purple-600 font-semibold'
                       : 'text-gray-800'
                       }`}>
                       ₹{formatToDecimals(value)}
@@ -248,18 +252,17 @@ export default function FofiPayment() {
               </div>
             </div>
 
-            {/* Proceed to Pay Button */}
-            <div className="pt-6 flex justify-center">
-              <button
-                onClick={handleProceedToPay}
-                disabled={submitting}
-                className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold text-sm py-3 px-16 rounded-lg shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wider transition-all duration-200"
-              >
-                {submitting ? 'Processing...' : 'PROCEED TO PAY'}
-              </button>
-            </div>
+          {/* Proceed to Pay Button */}
+          <div className="pt-6 flex justify-center">
+            <button
+              onClick={handleProceedToPay}
+              disabled={submitting}
+              className="bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-semibold text-sm py-3 px-16 rounded-full shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wider transition-all duration-200"
+            >
+              {submitting ? 'Processing...' : 'PROCEED TO PAY'}
+            </button>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Beautiful Alert Component */}
