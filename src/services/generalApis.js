@@ -251,8 +251,14 @@ export async function getPrimaryCustomerDetails(userid) {
  * @returns {Promise<Object>} Response containing plan details
  */
 export async function getMyPlanDetails(params) {
-  const url = `${getBaseUrl()}ServiceApis/getMyPlanDetails`;
-  const headers = getHeadersJson();
+  // Add timestamp to URL to prevent caching
+  const timestamp = Date.now();
+  const url = `${getBaseUrl()}ServiceApis/getMyPlanDetails?_t=${timestamp}`;
+  const headers = {
+    ...getHeadersJson(),
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Pragma': 'no-cache'
+  };
 
   const payload = {
     fofiboxid: params.fofiboxid || "",
@@ -260,6 +266,9 @@ export async function getMyPlanDetails(params) {
     userid: params.userid,
     voipnumber: params.voipnumber || ""
   };
+
+  console.log('🔵 [getMyPlanDetails] Request URL:', url);
+  console.log('🔵 [getMyPlanDetails] Payload:', payload);
 
   const resp = await fetch(url, {
     method: "POST",
@@ -272,6 +281,7 @@ export async function getMyPlanDetails(params) {
   }
 
   const data = await resp.json();
+  console.log('🟢 [getMyPlanDetails] Full Response:', JSON.stringify(data, null, 2));
   return data;
 }
 

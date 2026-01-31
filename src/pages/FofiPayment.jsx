@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { formatToDecimals } from "../services/helpers";
 import { Button, Loader, Alert } from "@/components/ui";
 import { generateFofiOrder } from "../services/fofiApis";
-import { getCableCustomerDetails, getPrimaryCustomerDetails } from "../services/generalApis";
+import { getCableCustomerDetails, getPrimaryCustomerDetails, getWalBal } from "../services/generalApis";
 
 // Generate unique transaction ID
 function generateTransactionId() {
@@ -31,22 +31,29 @@ export default function FofiPayment() {
   // Wallet balance
   const [walletBalance, setWalletBalance] = useState(paymentData?.walletBalance || 0);
 
-  // Payment details
-  const [paymentDetails, setPaymentDetails] = useState({
-    "Plan Name": paymentData?.planName || "N/A",
-    "Plan Rate": paymentData?.planRate || 0,
-    "CGST": paymentData?.cgst || 0,
-    "SGST": paymentData?.sgst || 0,
-    "Other Charges": paymentData?.otherCharges || 0,
-    "Balance Amount": paymentData?.balanceAmount || 0,
-    "Total Amount": paymentData?.totalAmount || 0
-  });
+  // Payment details - use paymentDetails object if available, fallback to direct fields
+  const [paymentDetails, setPaymentDetails] = useState(
+    paymentData?.paymentDetails || {
+      "Plan Name": paymentData?.planName || "N/A",
+      "Plan Rate": paymentData?.planRate || 0,
+      "CGST": paymentData?.cgst || 0,
+      "SGST": paymentData?.sgst || 0,
+      "Other Charges": paymentData?.otherCharges || 0,
+      "Balance Amount": paymentData?.balanceAmount || 0,
+      "Total Amount": paymentData?.totalAmount || 0
+    }
+  );
 
-  // More details (share info)
-  const [moreDetails, setMoreDetails] = useState({
-    "Operator Share": paymentData?.operatorShare || 0,
-    "Amount Deductable": paymentData?.amountDeductable || 0
-  });
+  // More details (share info) - use moreDetails object if available
+  const [moreDetails, setMoreDetails] = useState(
+    paymentData?.moreDetails || {
+      "Operator Share": paymentData?.operatorShare || 0,
+      "BBNL Share": 0,
+      "Software Charges": 0,
+      "TDS": 0,
+      "Amount Deductable": paymentData?.amountDeductable || 0
+    }
+  );
 
   // Additional data needed for payment
   const [paymentPayload, setPaymentPayload] = useState({
@@ -69,6 +76,8 @@ export default function FofiPayment() {
     }
 
     console.log('🟢 FoFi Payment Page - Received data:', paymentData);
+    console.log('🟢 paymentData.paymentDetails:', paymentData.paymentDetails);
+    console.log('🟢 paymentData.moreDetails:', paymentData.moreDetails);
 
     // Update states with payment data
     if (paymentData.walletBalance !== undefined) {
@@ -77,16 +86,52 @@ export default function FofiPayment() {
 
     // Set payment details if provided
     if (paymentData.paymentDetails) {
+      console.log('🟢 Setting paymentDetails:', paymentData.paymentDetails);
       setPaymentDetails(paymentData.paymentDetails);
     }
 
     // Set more details if provided
     if (paymentData.moreDetails) {
+      console.log('🟢 Setting moreDetails:', paymentData.moreDetails);
       setMoreDetails(paymentData.moreDetails);
     }
 
+    // Fetch wallet balance from API
+    fetchWalletBalance();
+
     setLoading(false);
   }, [paymentData, navigate]);
+
+  // Fetch wallet balance from API
+  const fetchWalletBalance = async () => {
+    try {
+      const user = JSON.parse(localStorage.getItem('user'));
+      const loginuname = user?.username || paymentData?.loginuname;
+      
+      if (!loginuname) {
+        console.warn('⚠️ No username found for wallet balance');
+        return;
+      }
+
+      const payload = {
+        loginuname: loginuname,
+        servicekey: 'fofi' // FoFi service key
+      };
+      
+      console.log('🔵 Fetching wallet balance for:', loginuname);
+      const data = await getWalBal(payload);
+      
+      if (data?.status?.err_code === 0) {
+        const balance = data?.body?.wallet_balance || 0;
+        console.log('🟢 Wallet balance fetched:', balance);
+        setWalletBalance(balance);
+      } else {
+        console.warn('⚠️ Failed to fetch wallet balance:', data?.status?.err_msg);
+      }
+    } catch (err) {
+      console.error('❌ Error fetching wallet balance:', err);
+    }
+  };
 
   // Handle proceed to pay
   const handleProceedToPay = async () => {
@@ -94,17 +139,25 @@ export default function FofiPayment() {
     
     try {
       console.log('🔵 Processing FoFi Payment...');
+      console.log('🔵 Payment Data:', paymentData);
       
       const user = JSON.parse(localStorage.getItem('user'));
       const loginuname = user?.username || paymentData?.loginuname || 'superadmin';
       
-      // Generate transaction ID
-      const transactionId = generateTransactionId();
+      // Use transaction ID from payment info API if available, otherwise generate new
+      const transactionId = paymentData?.transactionid || generateTransactionId();
       
-      // Get the amount to be paid (Amount Deductable)
-      const paidAmount = paymentData?.amountDeductable || moreDetails["Amount Deductable"] || paymentDetails["Total Amount"] || 0;
+      // Get the amount to be paid - use Total Amount (total_amt from API)
+      // Priority: totalAmount > paymentDetails["Total Amount"] > operatorShare
+      const paidAmount = paymentData?.totalAmount || 
+                         paymentDetails?.["Total Amount"] || 
+                         paymentData?.operatorShare || 
+                         0;
       
-      // Build the order payload
+      console.log('🔵 Paid Amount:', paidAmount);
+      console.log('🔵 Transaction ID:', transactionId);
+      
+      // Build the order payload matching the exact API structure
       const orderPayload = {
         bankname: "",
         banktxnid: "",
@@ -115,10 +168,10 @@ export default function FofiPayment() {
         paidamount: String(paidAmount),
         paymentmode: "offline",
         payresponse: "",
-        paytype: "upgrade",
-        planid: paymentData?.planid || "",
-        priceid: paymentData?.priceid || "99",
-        servid: paymentData?.servid || "3",
+        paytype: paymentData?.paytype || "upgrade",
+        planid: String(paymentData?.planid || ""),
+        priceid: String(paymentData?.priceid || "99"),
+        servid: String(paymentData?.servid || "3"),
         transactionid: transactionId,
         txnstatus: "success",
         userid: paymentData?.userid || "",
@@ -126,10 +179,10 @@ export default function FofiPayment() {
         voipnumber: ""
       };
 
-      console.log('🔵 [STEP 1] Calling generateFofiOrder API...');
+      console.log('🔵 [STEP 1] Calling generateorder API...');
       console.log('🔵 Order Payload:', JSON.stringify(orderPayload, null, 2));
       
-      // STEP 1: Call generateorder API
+      // STEP 1: Call generateorder API (ServiceApis/cabletv/generateorder)
       const orderResponse = await generateFofiOrder(orderPayload);
       console.log('🟢 Generate Order Response:', orderResponse);
       
@@ -138,29 +191,83 @@ export default function FofiPayment() {
         throw new Error(orderResponse?.status?.err_msg || orderResponse?.result || 'Failed to generate order');
       }
       
-      // STEP 2: Call cblCustDet API
+      // STEP 2: Call cblCustDet API (GeneralApi/cblCustDet)
       console.log('🔵 [STEP 2] Calling cblCustDet API...');
       const cableDetailsResponse = await getCableCustomerDetails(paymentData?.userid);
       console.log('🟢 Cable Customer Details Response:', cableDetailsResponse);
       
-      // STEP 3: Call primaryCustdet API
+      // STEP 3: Call primaryCustdet API (cabletvapis/primaryCustdet)
       console.log('🔵 [STEP 3] Calling primaryCustdet API...');
       const primaryDetailsResponse = await getPrimaryCustomerDetails(paymentData?.userid);
       console.log('🟢 Primary Customer Details Response:', primaryDetailsResponse);
       
       // All APIs succeeded
       console.log('✅ All payment APIs completed successfully');
-      
+
+      // Save payment to localStorage for immediate display in PaymentHistory
+      // (since the API may not immediately reflect the new payment)
+      try {
+        const now = new Date();
+        const paymentRecord = {
+          cid: paymentData?.userid || paymentData?.customer?.customer_id,
+          name: paymentData?.customer?.name || '',
+          mobile: paymentData?.customer?.mobile || '',
+          total_amt: paidAmount,
+          paid_amt: paidAmount,
+          payment_date: `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}-${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`,
+          pymt_mode: 'offline',
+          pymt_type: paymentData?.paytype || 'upgrade',
+          plan_name: paymentDetails?.["Plan Name"] || paymentData?.planName || 'FoFi Plan',
+          plan_rate: paymentDetails?.["Plan Rate"] || paymentData?.planRate || paidAmount,
+          subtaxes: [
+            { key: 'CGST', perc: 9, value: paymentDetails?.["CGST"] || 0 },
+            { key: 'SGST', perc: 9, value: paymentDetails?.["SGST"] || 0 }
+          ],
+          discount: 0,
+          other_charges: paymentDetails?.["Other Charges"] || 0,
+          subtotal: paidAmount,
+          balance_amt: 0,
+          orderid: transactionId,
+          timestamp: Date.now()
+        };
+
+        // Get existing payments from localStorage
+        const existingPaymentsJson = localStorage.getItem('fofi_recent_payments');
+        const existingPayments = existingPaymentsJson ? JSON.parse(existingPaymentsJson) : [];
+
+        // Add new payment at the beginning
+        existingPayments.unshift(paymentRecord);
+
+        // Keep only last 10 payments and those less than 24 hours old
+        const cutoffTime = Date.now() - (24 * 60 * 60 * 1000);
+        const filteredPayments = existingPayments
+          .filter(p => p.timestamp > cutoffTime)
+          .slice(0, 10);
+
+        localStorage.setItem('fofi_recent_payments', JSON.stringify(filteredPayments));
+        console.log('✅ Payment saved to localStorage for immediate display');
+      } catch (storageErr) {
+        console.warn('⚠️ Failed to save payment to localStorage:', storageErr);
+      }
+
       setAlertConfig({
         type: 'success',
         title: 'Payment Successful!',
-        message: 'Your FoFi SmartBox has been activated successfully.'
+        message: 'Your FoFi SmartBox plan has been upgraded successfully.'
       });
       setAlertOpen(true);
-      
-      // Navigate to customers page after success
+
+      // Navigate back to FoFi SmartBox page after success to show updated plan
+      // Pass customer data and a refresh flag
       setTimeout(() => {
-        navigate('/customers');
+        const customerId = paymentData?.customer?.customer_id || paymentData?.userid;
+        navigate(`/customer/${customerId}/service/fofi-smart-box`, {
+          state: {
+            customer: paymentData?.customer,
+            refreshData: true,  // Flag to force refresh plan details
+            paymentSuccess: true  // Indicate payment was successful
+          }
+        });
       }, 2000);
       
     } catch (err) {

@@ -74,7 +74,8 @@ export async function generateFofiOrder(payload) {
     };
 
     console.log('🔵 [generateFofiOrder] Calling API:', url);
-    console.log('🔵 [generateFofiOrder] Payload:', orderPayload);
+    console.log('🔵 [generateFofiOrder] Full Payload:', JSON.stringify(orderPayload, null, 2));
+    console.log('🔵 [generateFofiOrder] Key Fields - planid:', orderPayload.planid, 'priceid:', orderPayload.priceid, 'fofiboxid:', orderPayload.fofiboxid);
 
     const resp = await fetch(url, {
         method: "POST",
@@ -87,7 +88,8 @@ export async function generateFofiOrder(payload) {
     }
 
     const data = await resp.json();
-    console.log('🟢 [generateFofiOrder] Response:', data);
+    console.log('🟢 [generateFofiOrder] Full Response:', JSON.stringify(data, null, 2));
+    console.log('🟢 [generateFofiOrder] Status:', data?.status || data?.error, 'Result:', data?.result || data?.body);
     return data;
 }
 

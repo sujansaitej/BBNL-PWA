@@ -15,11 +15,25 @@ import { formatCustomerId } from "../services/helpers";
 import BottomNav from "../components/BottomNav";
 import { Loader } from "@/components/ui";
 
+// Helper function to parse date strings like "30-01-2026 16:32:54" to Date object
+const parsePaymentDate = (dateStr) => {
+  if (!dateStr) return new Date(0);
+  // Handle format: "DD-MM-YYYY HH:MM:SS"
+  const parts = dateStr.match(/(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/);
+  if (parts) {
+    const [, day, month, year, hour, min, sec] = parts;
+    return new Date(year, month - 1, day, hour, min, sec);
+  }
+  // Fallback: try standard Date parsing
+  return new Date(dateStr);
+};
+
 export default function PaymentHistory() {
   const location = useLocation();
   const navigate = useNavigate();
   const customerData = location.state?.customer;
   const cableDetails = location.state?.cableDetails;
+  const serviceType = location.state?.serviceType; // 'fofi' or 'internet' or undefined
 
   const [orderHistory, setOrderHistory] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -32,23 +46,83 @@ export default function PaymentHistory() {
       try {
         const apiopid = cableDetails?.body?.op_id || customerData?.op_id;
         const cid = customerData?.customer_id;
-        console.log("Fetching order history for:", { apiopid, cid });
-        const data = await getOrderHistory({ apiopid, cid });
-        console.log("Order history response:", data);
+        console.log("🔵 [PaymentHistory] Fetching order history for:", { apiopid, cid, serviceType });
 
-        if (!data.body || data.body === null) {
-          const errorMsg = data.status?.err_msg || "No payment history found for this customer";
-          setError(errorMsg);
-          setOrderHistory({ body: [] });
-        } else if (data.status?.err_code !== 0 && data.status?.err_code !== '0') {
-          const errorMsg = data.status?.err_msg || "Failed to fetch payment history";
-          setError(errorMsg);
+        let allOrders = [];
+
+        // First, check for recent payments stored in localStorage (for payments not yet synced to API)
+        if (serviceType === 'fofi') {
+          try {
+            const recentPaymentsJson = localStorage.getItem('fofi_recent_payments');
+            if (recentPaymentsJson) {
+              const recentPayments = JSON.parse(recentPaymentsJson);
+              // Filter payments for this customer and not older than 24 hours
+              const now = Date.now();
+              const validPayments = recentPayments.filter(p =>
+                p.cid === cid && (now - p.timestamp) < 24 * 60 * 60 * 1000
+              );
+              if (validPayments.length > 0) {
+                console.log("🟢 [PaymentHistory] Found recent local payments:", validPayments.length);
+                allOrders = [...allOrders, ...validPayments.map(p => ({ ...p, _source: 'localStorage' }))];
+              }
+            }
+          } catch (localErr) {
+            console.warn("⚠️ [PaymentHistory] Failed to read local payments:", localErr.message);
+          }
+        }
+
+        // Fetch payment history from custpayhistory API
+        try {
+          const custPayData = await getOrderHistory({ apiopid, cid });
+          console.log("🟢 [PaymentHistory] custpayhistory response:", custPayData);
+
+          if (custPayData?.status?.err_code === 0 && custPayData?.body && Array.isArray(custPayData.body)) {
+            allOrders = [...allOrders, ...custPayData.body];
+            console.log("🟢 [PaymentHistory] Orders from custpayhistory:", custPayData.body.length);
+          } else if (custPayData?.body && Array.isArray(custPayData.body)) {
+            // API returned data even without explicit success code
+            allOrders = [...allOrders, ...custPayData.body];
+            console.log("🟢 [PaymentHistory] Orders from custpayhistory (no status):", custPayData.body.length);
+          } else {
+            console.warn("⚠️ [PaymentHistory] custpayhistory API returned no data or error:", custPayData?.status?.err_msg);
+          }
+        } catch (apiErr) {
+          console.error("❌ [PaymentHistory] custpayhistory API error:", apiErr.message);
+        }
+
+        console.log("🔵 [PaymentHistory] Total orders:", allOrders.length);
+
+        // Note: custpayhistory API returns ALL payments for a customer
+        // We show all payments regardless of service type since the API doesn't filter by service
+
+        // Remove duplicates based on payment_date and total_amt
+        const uniqueOrders = [];
+        const seen = new Set();
+        for (const order of allOrders) {
+          const key = `${order.payment_date}_${order.total_amt}_${order.plan_name}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            uniqueOrders.push(order);
+          }
+        }
+
+        // Sort by payment date (newest first)
+        uniqueOrders.sort((a, b) => {
+          const dateA = parsePaymentDate(a.payment_date);
+          const dateB = parsePaymentDate(b.payment_date);
+          return dateB - dateA;
+        });
+
+        console.log("🟢 [PaymentHistory] Final orders:", uniqueOrders.length);
+
+        if (uniqueOrders.length === 0) {
+          setError("No payment history found for this customer");
           setOrderHistory({ body: [] });
         } else {
-          setOrderHistory(data);
+          setOrderHistory({ body: uniqueOrders, status: { err_code: 0 } });
         }
       } catch (err) {
-        console.error("Failed to fetch order history:", err);
+        console.error("❌ [PaymentHistory] Failed to fetch order history:", err);
         setError("Failed to fetch order history. Please try again.");
       } finally {
         setLoading(false);
@@ -58,7 +132,7 @@ export default function PaymentHistory() {
     if (customerData) {
       fetchOrderHistory();
     }
-  }, [customerData, cableDetails]);
+  }, [customerData, cableDetails, serviceType]);
 
   const orders = orderHistory?.body || [];
 
@@ -165,18 +239,22 @@ export default function PaymentHistory() {
 
                 {/* Card Body */}
                 <div className="p-4 space-y-3">
-                  {/* Amount - Highlighted */}
-                  <div className="flex items-center justify-between bg-purple-50 rounded-xl p-3">
-                    <div className="flex items-center gap-2">
-                      <BanknotesIcon className="w-5 h-5 text-purple-600" />
-                      <span className="text-gray-600 text-sm">Amount Paid</span>
+                  {/* Plan Info - Highlighted */}
+                  <div className="bg-indigo-50 rounded-xl p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <DocumentTextIcon className="w-5 h-5 text-indigo-500" />
+                        <span className="text-sm font-semibold text-indigo-700">
+                          {order.plan_name || "N/A"}
+                        </span>
+                      </div>
+                      <span className="text-sm font-medium text-indigo-600">
+                        ₹{formatAmount(order.plan_rate)} /month
+                      </span>
                     </div>
-                    <span className="text-xl font-bold text-purple-600">
-                      ₹{formatAmount(order.total_amt || order.paid_amt)}
-                    </span>
                   </div>
 
-                  {/* Details Grid */}
+                  {/* Customer Details Grid */}
                   <div className="grid grid-cols-2 gap-3">
                     {/* Customer Name */}
                     <div className="bg-gray-50 rounded-xl p-3">
@@ -211,28 +289,86 @@ export default function PaymentHistory() {
                       </p>
                     </div>
 
-                    {/* Payment Date */}
+                    {/* Payment Type */}
                     <div className="bg-gray-50 rounded-xl p-3">
                       <div className="flex items-center gap-1.5 mb-1">
-                        <CalendarDaysIcon className="w-3.5 h-3.5 text-gray-400" />
-                        <span className="text-xs text-gray-500">Date</span>
+                        <CreditCardIcon className="w-3.5 h-3.5 text-gray-400" />
+                        <span className="text-xs text-gray-500">Payment Type</span>
                       </div>
-                      <p className="text-sm font-medium text-gray-800">
-                        {formatDate(order.payment_date)}
+                      <p className="text-sm font-medium text-gray-800 capitalize">
+                        {order.pymt_type || "N/A"}
                       </p>
                     </div>
                   </div>
 
-                  {/* Plan Info */}
-                  <div className="bg-indigo-50 rounded-xl p-3">
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <DocumentTextIcon className="w-3.5 h-3.5 text-indigo-500" />
-                      <span className="text-xs text-indigo-600">Plan</span>
+                  {/* Payment Breakdown */}
+                  <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+                    <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Payment Breakdown</p>
+
+                    {/* Plan Rate */}
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Plan Rate</span>
+                      <span className="text-gray-800 font-medium">₹{formatAmount(order.plan_rate)}</span>
                     </div>
-                    <p className="text-sm font-semibold text-indigo-700">
-                      {order.plan_name || "N/A"}
-                    </p>
+
+                    {/* Taxes */}
+                    {order.subtaxes && order.subtaxes.length > 0 && order.subtaxes.map((tax, taxIdx) => (
+                      <div key={taxIdx} className="flex justify-between text-sm">
+                        <span className="text-gray-600">{tax.key} ({tax.perc}%)</span>
+                        <span className="text-gray-800 font-medium">₹{formatAmount(tax.value)}</span>
+                      </div>
+                    ))}
+
+                    {/* Discount */}
+                    {order.discount > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-green-600">Discount</span>
+                        <span className="text-green-600 font-medium">-₹{formatAmount(order.discount)}</span>
+                      </div>
+                    )}
+
+                    {/* Other Charges */}
+                    {order.other_charges > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Other Charges</span>
+                        <span className="text-gray-800 font-medium">₹{formatAmount(order.other_charges)}</span>
+                      </div>
+                    )}
+
+                    {/* Subtotal */}
+                    <div className="flex justify-between text-sm pt-2 border-t border-gray-200">
+                      <span className="text-gray-600">Subtotal</span>
+                      <span className="text-gray-800 font-medium">₹{formatAmount(order.subtotal)}</span>
+                    </div>
                   </div>
+
+                  {/* Total Amount - Highlighted */}
+                  <div className="flex items-center justify-between bg-purple-50 rounded-xl p-3">
+                    <div className="flex items-center gap-2">
+                      <BanknotesIcon className="w-5 h-5 text-purple-600" />
+                      <span className="text-gray-600 text-sm font-medium">Total Paid</span>
+                    </div>
+                    <span className="text-xl font-bold text-purple-600">
+                      ₹{formatAmount(order.paid_amt || order.total_amt)}
+                    </span>
+                  </div>
+
+                  {/* Balance Amount (if any) */}
+                  {order.balance_amt > 0 && (
+                    <div className="flex items-center justify-between bg-orange-50 rounded-xl p-3">
+                      <span className="text-orange-600 text-sm font-medium">Balance Due</span>
+                      <span className="text-lg font-bold text-orange-600">
+                        ₹{formatAmount(order.balance_amt)}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* GST Number (if available) */}
+                  {order.gstno && (
+                    <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-100">
+                      <span>GST No: <span className="font-medium text-gray-700">{order.gstno}</span></span>
+                    </div>
+                  )}
 
                   {/* Customer ID */}
                   <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-100">
