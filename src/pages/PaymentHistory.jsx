@@ -72,8 +72,14 @@ export default function PaymentHistory() {
         }
 
         // Fetch payment history from custpayhistory API
+        // Pass servicekey: 'fofi' for FoFi Box orders to get proper order history
         try {
-          const custPayData = await getOrderHistory({ apiopid, cid });
+          const apiParams = { apiopid, cid };
+          if (serviceType === 'fofi') {
+            apiParams.servicekey = 'fofi';
+          }
+          console.log("🔵 [PaymentHistory] API params:", apiParams);
+          const custPayData = await getOrderHistory(apiParams);
           console.log("🟢 [PaymentHistory] custpayhistory response:", custPayData);
 
           if (custPayData?.status?.err_code === 0 && custPayData?.body && Array.isArray(custPayData.body)) {

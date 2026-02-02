@@ -15,9 +15,9 @@ function getBaseUrl() {
  *   password: c1f377afbaa874acbb6b61f66957710a
  *   apptype: employee
  *   Content-Type: application/x-www-form-urlencoded
- * Body: apiopid=BBNL_OP49&cid=iptvuser
+ * Body: apiopid=BBNL_OP49&cid=iptvuser&servicekey=fofi
  */
-export async function getOrderHistory({ apiopid, cid }) {
+export async function getOrderHistory({ apiopid, cid, servicekey }) {
   const url = `${getBaseUrl()}apis/custpayhistory`;
 
   // Headers matching client documentation exactly
@@ -29,12 +29,17 @@ export async function getOrderHistory({ apiopid, cid }) {
     'Content-Type': 'application/x-www-form-urlencoded',
   };
 
-  // Body: form-urlencoded with apiopid and cid
-  const body = new URLSearchParams({ apiopid, cid }).toString();
+  // Body: form-urlencoded with apiopid, cid, and optional servicekey
+  const bodyParams = { apiopid, cid };
+  if (servicekey) {
+    bodyParams.servicekey = servicekey;
+  }
+  const body = new URLSearchParams(bodyParams).toString();
 
   console.log('🔵 [custpayhistory] URL:', url);
   console.log('🔵 [custpayhistory] Headers:', headers);
   console.log('🔵 [custpayhistory] Body:', body);
+  console.log('🔵 [custpayhistory] ServiceKey:', servicekey || 'not specified');
 
   const resp = await fetch(url, {
     method: 'POST',
