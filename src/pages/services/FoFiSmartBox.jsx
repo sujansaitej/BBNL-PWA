@@ -34,6 +34,7 @@ function FoFiSmartBox() {
     const internetId = location.state?.internetId;
     const refreshData = location.state?.refreshData; // Flag to force refresh after payment
     const paymentSuccess = location.state?.paymentSuccess; // Flag to show success message
+    const isNewRegistration = location.state?.isNewRegistration; // Flag to indicate new registration vs upgrade
 
     // Use mock data ONLY for service details (new feature)
     const mockServiceData = mockCustomerServices[customerData?.customer_id];
@@ -82,7 +83,11 @@ function FoFiSmartBox() {
     // Show success toast if coming back from successful payment
     useEffect(() => {
         if (paymentSuccess) {
-            setSuccessMessage('Plan upgraded successfully! Your new plan is now active.');
+            if (isNewRegistration) {
+                setSuccessMessage('FoFi-Box Registration Successful! Plan has been activated.');
+            } else {
+                setSuccessMessage('Plan upgraded successfully! Your new plan is now active.');
+            }
             setShowSuccessToast(true);
             // Auto-hide toast after 5 seconds
             const timer = setTimeout(() => {
@@ -90,7 +95,7 @@ function FoFiSmartBox() {
             }, 5000);
             return () => clearTimeout(timer);
         }
-    }, [paymentSuccess]);
+    }, [paymentSuccess, isNewRegistration]);
 
     // =====================================================
     // FETCH CUSTOMER OVERVIEW DATA ON COMPONENT MOUNT
@@ -537,17 +542,72 @@ function FoFiSmartBox() {
                     console.log('⚠️ [UPGRADE] No FoFi/OTT plans found in response');
                 }
 
-                // IMPORTANT: Use ONLY fofi_plans for payment flow
-                // fofi_plans contain the correct planid that the payment API expects
-                // DO NOT use internet_plans or other service plans as they have servid instead of planid
+                // PLAN DISPLAY LOGIC:
+                // - NEW USERS: Display ONLY fofi_plans (FoFi-box specific plans)
+                // - EXISTING USERS: Display ALL plans from the API (all available plan arrays)
                 let plans = [];
                 let plansSource = 'none';
 
-                // Use ONLY fofi_plans - these have the correct planid for payment API
-                if (fofiPlansArray.length > 0) {
-                    plans = fofiPlansArray;
-                    plansSource = 'fofi_plans';
-                    console.log('✅ [UPGRADE] Using fofi_plans ONLY for payment (contains correct planid)');
+                if (hasFofiService) {
+                    // EXISTING USER - Show ALL FoFi/OTT compatible plans from the API
+                    // Note: Only fofi_plans and ott_plans work with the paymentinfo/fofi API
+                    // internet_plans and cable_plans use different payment flows
+                    console.log('✅ [UPGRADE] Existing user - loading ALL FoFi/OTT plans');
+
+                    // Collect all FoFi-compatible plan arrays with unique keys
+                    const allPlans = [];
+                    const seenPlanKeys = new Set(); // Track seen plans to avoid duplicates
+
+                    // Helper to add plans with unique key and source tracking
+                    const addPlansWithSource = (planArray, source) => {
+                        planArray.forEach((plan, idx) => {
+                            const planId = plan.planid || plan.servid || plan.srvid || plan.id || idx;
+                            const planName = plan.planname || plan.serv_name || plan.plan_name || '';
+                            const uniqueKey = `${source}_${planId}_${planName}`;
+
+                            // Skip if we've already seen this plan (deduplicate)
+                            if (!seenPlanKeys.has(uniqueKey)) {
+                                seenPlanKeys.add(uniqueKey);
+                                allPlans.push({
+                                    ...plan,
+                                    _source: source,
+                                    _uniqueKey: uniqueKey
+                                });
+                            }
+                        });
+                    };
+
+                    // Add fofi_plans (primary - contains correct planid for payment API)
+                    if (fofiPlansArray.length > 0) {
+                        addPlansWithSource(fofiPlansArray, 'fofi');
+                        console.log('✅ [UPGRADE] Added fofi_plans:', fofiPlansArray.length);
+                    }
+
+                    // Add ott_plans (if different from fofi_plans - also compatible with FoFi payment API)
+                    const ottPlans = plansResponse?.body?.ott_plans || [];
+                    if (ottPlans.length > 0 && ottPlans !== fofiPlansArray) {
+                        addPlansWithSource(ottPlans, 'ott');
+                        console.log('✅ [UPGRADE] Added ott_plans:', ottPlans.length);
+                    }
+
+                    // Note: internet_plans and cable_plans are NOT added as they use different payment APIs
+                    // If needed in future, they should use their respective payment endpoints
+
+                    plans = allPlans;
+                    plansSource = 'fofi_ott_plans (existing user)';
+                    console.log('✅ [UPGRADE] Total FoFi/OTT plans for existing user (after dedup):', plans.length);
+                } else {
+                    // NEW USER - Show ONLY fofi_plans (FoFi-box specific plans)
+                    console.log('✅ [UPGRADE] New user - loading only FoFi-box plans');
+                    if (fofiPlansArray.length > 0) {
+                        plans = fofiPlansArray.map((plan, idx) => ({
+                            ...plan,
+                            _source: 'fofi',
+                            _uniqueKey: `fofi_${plan.planid || plan.srvid || idx}_${plan.planname || ''}`
+                        }));
+                        plansSource = 'fofi_plans (new user)';
+                        console.log('✅ [UPGRADE] Using fofi_plans ONLY for new user (contains correct planid)');
+                    }
                 }
                 
                 console.log('✅ [UPGRADE] Using plans from:', plansSource);
@@ -616,43 +676,52 @@ function FoFiSmartBox() {
         setFilteredUpgradePlans(filtered);
     };
 
-    // Select an upgrade plan (using fofi_plans ONLY)
+    // Select an upgrade plan (supports both fofi_plans and internet_plans)
     const handleUpgradePlanSelect = async (plan) => {
-        console.log('🔵 [UPGRADE] FoFi Plan selected:', plan);
+        console.log('🔵 [UPGRADE] Plan selected:', plan);
         console.log('🔵 [UPGRADE] Plan keys:', Object.keys(plan));
-        // fofi_plans use planid - NOT servid
-        console.log('🔵 [UPGRADE] plan.planid:', plan.planid, '(this is the correct ID for payment API)');
-        
-        // Validate planid exists (required for payment API)
-        if (!plan.planid && !plan.srvid) {
-            console.error('❌ [UPGRADE] No planid found in selected fofi_plan! This plan cannot be used for payment.');
+        console.log('🔵 [UPGRADE] Plan source:', plan._source);
+
+        // Get plan ID - supports both planid (fofi_plans) and servid (internet_plans)
+        const planIdentifier = plan.planid || plan.servid || plan.srvid || plan.id;
+        console.log('🔵 [UPGRADE] Plan ID:', planIdentifier, '(planid:', plan.planid, ', servid:', plan.servid, ')');
+
+        // Validate that some ID exists (required for payment API)
+        if (!planIdentifier) {
+            console.error('❌ [UPGRADE] No plan ID found! This plan cannot be used for payment.');
             alert('Error: This plan does not have a valid Plan ID. Please select another plan.');
             return;
         }
-        
-        // Get the plan price from fofi_plans structure (planrate)
-        const planPrice = plan.planrate || plan.price || plan.amount || 0;
+
+        // Get the plan price - supports both fofi_plans (planrate) and internet_plans (serv_rates.prices)
+        let planPrice = plan.planrate || plan.price || plan.amount || 0;
+
+        // For internet_plans, extract price from serv_rates
+        if (!planPrice && plan.serv_rates?.prices?.length > 0) {
+            planPrice = plan.serv_rates.prices[0];
+        }
+
         const numericPrice = parseFloat(String(planPrice).replace(/[^0-9.]/g, '')) || 0;
-        
-        console.log('🔵 [UPGRADE] Plan price (planrate):', planPrice, 'Numeric:', numericPrice);
-        
+
+        console.log('🔵 [UPGRADE] Plan price:', planPrice, 'Numeric:', numericPrice);
+
         // Check if price is 0 or free plan
         if (numericPrice === 0 || String(planPrice).toLowerCase() === 'free') {
             console.log('⚠️ [UPGRADE] Zero price plan selected - showing popup');
             setShowZeroPricePopup(true);
             return;
         }
-        
+
         setSelectedPlan(plan);
-        
+
         // Check if this is an existing FoFi user (has service already)
         if (hasFofiService && fofiServiceDetails) {
             // EXISTING USER - Show subscription confirmation screen with auto-detected Box ID
             console.log('🔵 [UPGRADE] Existing user - showing subscription confirmation screen...');
-            console.log('🔵 [UPGRADE] FoFi Plan selected:', plan?.planname);
-            console.log('🔵 [UPGRADE] Plan ID (planid):', plan?.planid);
+            console.log('🔵 [UPGRADE] Plan Name:', plan?.planname || plan?.serv_name);
+            console.log('🔵 [UPGRADE] Plan ID:', planIdentifier);
             console.log('🔵 [UPGRADE] Box ID:', fofiServiceDetails.boxId);
-            
+
             // Navigate to subscription confirmation view
             setView('subscription-confirm');
         } else {
@@ -737,37 +806,53 @@ function FoFiSmartBox() {
             console.log('🔴🔴🔴 DEBUG: fofiServiceDetails:', fofiServiceDetails);
             console.log('🔴🔴🔴 DEBUG: planName:', planName);
 
-            // IMPORTANT: Use ONLY planid from fofi_plans for payment API
-            // fofi_plans have planid (like "55") which is the correct ID for payment
-            // DO NOT use servid/srvid - those are from internet_plans and won't work
+            // PLAN ID EXTRACTION:
+            // - fofi_plans: use planid
+            // - internet_plans: use servid
+            // Both are valid for the payment API
 
             let planId = '';
 
-            // Get planid directly from fofi_plans (primary source)
+            // Get plan ID - supports both planid (fofi_plans) and servid (internet_plans)
             planId = String(
                 selectedPlan.planid ||
-                selectedPlan.plan_id ||
+                selectedPlan.servid ||
                 selectedPlan.srvid ||
+                selectedPlan.plan_id ||
+                selectedPlan.id ||
                 ''
             );
-            console.log('🔵 [SUBSCRIPTION] Using planid from fofi_plans:', planId);
+            console.log('🔵 [SUBSCRIPTION] Using plan ID:', planId, '(source:', selectedPlan._source || 'unknown', ')');
 
-            // Validate we have a planid
+            // Validate we have a plan ID
             if (!planId) {
-                console.error('❌ [SUBSCRIPTION] No planid found in fofi_plans! Selected plan:', selectedPlan);
-                alert('Error: Plan ID not found. Please select a valid FoFi plan.');
+                console.error('❌ [SUBSCRIPTION] No plan ID found! Selected plan:', selectedPlan);
+                alert('Error: Plan ID not found. Please select a valid plan.');
                 setIsLoading(false);
                 return;
             }
 
-            // Using fofi_plans structure ONLY:
-            // - priceid: direct from fofi_plans
-            // - planrate: direct from fofi_plans
-            const priceId = String(selectedPlan.priceid || selectedPlan.price_id || '99');
-            const planPrice = selectedPlan.planrate || selectedPlan.price || 0;
-            const servId = '3'; // FoFi/OTT service type
+            // Extract price ID and plan price - supports both plan structures
+            // fofi_plans: priceid, planrate
+            // internet_plans: serv_rates.priceid, serv_rates.prices[0]
+            const priceId = String(
+                selectedPlan.priceid ||
+                selectedPlan.price_id ||
+                servRates.priceid ||
+                servRates.price_id ||
+                '99'
+            );
 
-            console.log('🔵 [SUBSCRIPTION] FoFi Plan details - planId:', planId, 'priceId:', priceId, 'planPrice:', planPrice);
+            let planPrice = selectedPlan.planrate || selectedPlan.price || 0;
+            // For internet_plans, extract price from serv_rates
+            if (!planPrice && servRates.prices?.length > 0) {
+                planPrice = servRates.prices[0];
+            }
+
+            // Service ID for FoFi/OTT is ALWAYS '3' - this is the service type for FoFi payment API
+            const servId = '3';
+
+            console.log('🔵 [SUBSCRIPTION] Plan details - planId:', planId, 'priceId:', priceId, 'planPrice:', planPrice);
             console.log('🔵 [SUBSCRIPTION] Box details - boxId:', fofiBoxId, 'mac:', fofiMac, 'serial:', fofiSerial);
             
             // =====================================================
@@ -824,10 +909,10 @@ function FoFiSmartBox() {
                 username: loginuname,
                 voipnumber: ""
             };
-            
+
             console.log('🔵 [STEP 3] Calling getFofiPaymentInfo API...');
             console.log('🔵 Payment Payload:', JSON.stringify(paymentPayload, null, 2));
-            
+
             const paymentResponse = await getFofiPaymentInfo(paymentPayload);
             console.log('🟢 Payment Info Response:', paymentResponse);
             
@@ -1367,6 +1452,7 @@ function FoFiSmartBox() {
                     priceid: priceId,
                     servid: servId,
                     loginuname: loginuname,
+                    paytype: 'new_registration',
                     transactionid: paymentBody?.transactionid || '',
                     
                     // Wallet balance
@@ -1727,17 +1813,23 @@ function FoFiSmartBox() {
                                         </h3>
                                         <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 border border-gray-100 dark:border-gray-700">
                                             <div className="flex items-start gap-4">
-                                                {/* Globe Icon - Clean outlined style matching Internet */}
+                                                {/* FoFi Smart Box Logo - Hardcoded SVG */}
                                                 <div className="flex-shrink-0">
-                                                    <svg className="w-16 h-16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                                                        {/* Outer circle */}
-                                                        <circle cx="12" cy="12" r="10" className="text-gray-700" />
-                                                        {/* Vertical ellipse (meridian) */}
-                                                        <ellipse cx="12" cy="12" rx="4" ry="10" className="text-gray-700" />
-                                                        {/* Horizontal lines (parallels) */}
-                                                        <path d="M2 12h20" className="text-gray-700" />
-                                                        <path d="M4 7h16" className="text-gray-700" />
-                                                        <path d="M4 17h16" className="text-gray-700" />
+                                                    <svg className="w-16 h-16" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                        {/* Blue circle background */}
+                                                        <circle cx="50" cy="50" r="50" fill="url(#fofiGradient)" />
+                                                        {/* Top dome/arc */}
+                                                        <path d="M25 48 Q50 22, 75 48" stroke="white" strokeWidth="5" strokeLinecap="round" fill="none" />
+                                                        {/* Three horizontal wave lines */}
+                                                        <line x1="22" y1="55" x2="78" y2="55" stroke="white" strokeWidth="5" strokeLinecap="round" />
+                                                        <line x1="26" y1="66" x2="74" y2="66" stroke="white" strokeWidth="5" strokeLinecap="round" />
+                                                        <line x1="32" y1="77" x2="68" y2="77" stroke="white" strokeWidth="4" strokeLinecap="round" />
+                                                        <defs>
+                                                            <linearGradient id="fofiGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                                                <stop offset="0%" stopColor="#38BDF8" />
+                                                                <stop offset="100%" stopColor="#0284C7" />
+                                                            </linearGradient>
+                                                        </defs>
                                                     </svg>
                                                 </div>
 
@@ -1842,17 +1934,17 @@ function FoFiSmartBox() {
                     {!upgradePlansLoading && filteredUpgradePlans.length > 0 && (
                         <div className="space-y-3">
                             {filteredUpgradePlans.map((plan, index) => {
-                                // Using fofi_plans ONLY - contains planid for payment API
-                                // fofi_plans structure: planname, planrate, planid, priceid
+                                // Plan display - supports both fofi_plans and internet_plans
+                                // fofi_plans: planname, planrate, planid
+                                // internet_plans: serv_name, serv_rates, servid
                                 const planName = plan.planname || plan.serv_name || plan.plan_name || plan.name || 'Unknown Plan';
-                                const planPrice = plan.planrate || plan.price || plan.amount || '0';
-                                const planLabel = '';
-                                // Use planid from fofi_plans (required for payment API)
-                                const planId = plan.planid || plan.srvid || plan.plan_id || plan.id || index;
+                                const planPrice = plan.planrate || plan.serv_rates?.prices?.[0] || plan.price || plan.amount || '0';
+                                // Use _uniqueKey for React key to avoid duplicates
+                                const uniqueKey = plan._uniqueKey || `plan_${index}`;
 
                                 return (
                                     <div
-                                        key={planId}
+                                        key={uniqueKey}
                                         onClick={() => handleUpgradePlanSelect(plan)}
                                         className="relative flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 cursor-pointer hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-700 transition-all duration-200 overflow-hidden"
                                     >
@@ -1960,7 +2052,7 @@ function FoFiSmartBox() {
     // Shows Plan Type, Plan Name, auto-detected Box ID, and SUBMIT button
     // =====================================================
     if (view === 'subscription-confirm') {
-        const confirmPlanName = selectedPlan?.serv_name || selectedPlan?.planname || selectedPlan?.plan_name || 'N/A';
+        const confirmPlanName = selectedPlan?.planname || selectedPlan?.serv_name || selectedPlan?.plan_name || selectedPlan?.name || 'N/A';
         const confirmBoxId = fofiServiceDetails?.boxId || 'N/A';
         
         return (
@@ -2044,8 +2136,8 @@ function FoFiSmartBox() {
     // SERVICES SUBSCRIPTION VIEW - Device linking form (formerly link-fofi)
     // =====================================================
     // Get selected plan details for display
-    const selectedPlanName = selectedPlan?.serv_name || selectedPlan?.plan_name || selectedPlan?.name || 'N/A';
-    const selectedPlanPrice = selectedPlan?.serv_rates?.prices?.[0] || selectedPlan?.price || selectedPlan?.amount || selectedPlan?.rate || '0';
+    const selectedPlanName = selectedPlan?.planname || selectedPlan?.serv_name || selectedPlan?.plan_name || selectedPlan?.name || 'N/A';
+    const selectedPlanPrice = selectedPlan?.planrate || selectedPlan?.serv_rates?.prices?.[0] || selectedPlan?.price || selectedPlan?.amount || selectedPlan?.rate || '0';
     
     return (
         <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">

@@ -142,8 +142,104 @@ export default function PaymentHistory() {
 
   const orders = orderHistory?.body || [];
 
-  const handlePrint = (order) => {
-    window.print();
+  const handleDownload = (order) => {
+    // Generate properly structured billing receipt
+    const customerName = order.name || customerData?.name || "N/A";
+    const customerId = formatCustomerId(order.cid || customerData?.customer_id);
+    const mobile = order.mobile || customerData?.mobile || "N/A";
+
+    // Build billing structure
+    let receiptContent = `
+================================================================================
+                              PAYMENT RECEIPT
+================================================================================
+
+BBNL - Bangalore Broadband Network Limited
+${serviceType === 'fofi' ? 'FoFi Smart Box Service' : 'Internet Service'}
+--------------------------------------------------------------------------------
+
+CUSTOMER DETAILS
+--------------------------------------------------------------------------------
+Customer Name    : ${customerName}
+Customer ID      : ${customerId}
+Mobile Number    : ${mobile}
+${order.gstno ? `GST Number       : ${order.gstno}` : ''}
+
+PAYMENT DETAILS
+--------------------------------------------------------------------------------
+Payment Date     : ${order.payment_date || "N/A"}
+Payment Mode     : ${(order.pymt_mode || "N/A").toUpperCase()}
+Payment Type     : ${(order.pymt_type || "N/A").toUpperCase()}
+${order.orderid ? `Order ID         : ${order.orderid}` : ''}
+
+PLAN DETAILS
+--------------------------------------------------------------------------------
+Plan Name        : ${order.plan_name || "N/A"}
+Plan Rate        : Rs. ${formatAmount(order.plan_rate)}
+
+BILLING BREAKDOWN
+--------------------------------------------------------------------------------
+Base Amount                              Rs. ${formatAmount(order.plan_rate).padStart(10)}
+`;
+
+    // Add taxes if available
+    if (order.subtaxes && order.subtaxes.length > 0) {
+      order.subtaxes.forEach(tax => {
+        const taxLabel = `${tax.key} (${tax.perc}%)`;
+        receiptContent += `${taxLabel.padEnd(40)} Rs. ${formatAmount(tax.value).padStart(10)}\n`;
+      });
+    }
+
+    // Add discount if available
+    if (order.discount > 0) {
+      receiptContent += `Discount                                -Rs. ${formatAmount(order.discount).padStart(9)}\n`;
+    }
+
+    // Add other charges if available
+    if (order.other_charges > 0) {
+      receiptContent += `Other Charges                            Rs. ${formatAmount(order.other_charges).padStart(10)}\n`;
+    }
+
+    receiptContent += `--------------------------------------------------------------------------------
+Subtotal                                 Rs. ${formatAmount(order.subtotal).padStart(10)}
+================================================================================
+TOTAL PAID                               Rs. ${formatAmount(order.paid_amt || order.total_amt).padStart(10)}
+================================================================================
+`;
+
+    // Add balance if any
+    if (order.balance_amt > 0) {
+      receiptContent += `
+BALANCE DUE                              Rs. ${formatAmount(order.balance_amt).padStart(10)}
+--------------------------------------------------------------------------------
+`;
+    }
+
+    receiptContent += `
+--------------------------------------------------------------------------------
+Thank you for your payment!
+For support, contact BBNL Customer Care.
+--------------------------------------------------------------------------------
+Generated on: ${new Date().toLocaleString('en-IN')}
+================================================================================
+`;
+
+    // Create and download the file
+    const blob = new Blob([receiptContent], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+
+    // Create filename with date and customer ID
+    const dateStr = (order.payment_date || "").replace(/[:\s]/g, '-').replace(/\//g, '-');
+    const fileName = `BBNL_Receipt_${customerId}_${dateStr || Date.now()}.txt`;
+    link.download = fileName;
+
+    // Trigger download
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const formatDate = (dateStr) => {
@@ -183,14 +279,35 @@ export default function PaymentHistory() {
         <button onClick={() => navigate(-1)} className="p-1 mr-3">
           <ArrowLeftIcon className="h-6 w-6 text-white" />
         </button>
-        <h1 className="text-lg font-medium text-white">Payment History</h1>
+        <h1 className="text-lg font-medium text-white">
+          {serviceType === 'fofi' ? ' Payment History' : 'Payment History'}
+        </h1>
       </header>
 
       {/* Customer Info Banner */}
       <div className="bg-gradient-to-r from-indigo-500 to-blue-500 px-4 py-4">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
-            <UserIcon className="w-6 h-6 text-white" />
+          <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center overflow-hidden">
+            {serviceType === 'fofi' ? (
+              <svg className="w-10 h-10" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                {/* Blue circle background */}
+                <circle cx="50" cy="50" r="50" fill="url(#fofiGradientPH)" />
+                {/* Top dome/arc */}
+                <path d="M25 48 Q50 22, 75 48" stroke="white" strokeWidth="5" strokeLinecap="round" fill="none" />
+                {/* Three horizontal wave lines */}
+                <line x1="22" y1="55" x2="78" y2="55" stroke="white" strokeWidth="5" strokeLinecap="round" />
+                <line x1="26" y1="66" x2="74" y2="66" stroke="white" strokeWidth="5" strokeLinecap="round" />
+                <line x1="32" y1="77" x2="68" y2="77" stroke="white" strokeWidth="4" strokeLinecap="round" />
+                <defs>
+                  <linearGradient id="fofiGradientPH" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#38BDF8" />
+                    <stop offset="100%" stopColor="#0284C7" />
+                  </linearGradient>
+                </defs>
+              </svg>
+            ) : (
+              <UserIcon className="w-6 h-6 text-white" />
+            )}
           </div>
           <div className="flex-1">
             <h2 className="text-white font-semibold text-base">
@@ -199,6 +316,9 @@ export default function PaymentHistory() {
             <p className="text-white/80 text-sm">
               ID: {formatCustomerId(customerData.customer_id)}
             </p>
+            {serviceType === 'fofi' && (
+              <p className="text-white/70 text-xs mt-0.5">FoFi Smart Box</p>
+            )}
           </div>
         </div>
       </div>
@@ -236,8 +356,9 @@ export default function PaymentHistory() {
                     </div>
                   </div>
                   <button
-                    onClick={() => handlePrint(order)}
+                    onClick={() => handleDownload(order)}
                     className="w-10 h-10 bg-indigo-100 hover:bg-indigo-200 rounded-xl flex items-center justify-center transition-colors"
+                    title="Download Receipt"
                   >
                     <ArrowDownTrayIcon className="w-5 h-5 text-indigo-600" />
                   </button>
