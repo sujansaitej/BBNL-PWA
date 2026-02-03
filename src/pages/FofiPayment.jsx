@@ -261,11 +261,13 @@ export default function FofiPayment() {
       // Pass customer data and a refresh flag
       setTimeout(() => {
         const customerId = paymentData?.customer?.customer_id || paymentData?.userid;
+        const isNewRegistration = paymentData?.paytype === 'new_registration';
         navigate(`/customer/${customerId}/service/fofi-smart-box`, {
           state: {
             customer: paymentData?.customer,
             refreshData: true,  // Flag to force refresh plan details
-            paymentSuccess: true  // Indicate payment was successful
+            paymentSuccess: true,  // Indicate payment was successful
+            isNewRegistration: isNewRegistration  // Flag to indicate new registration vs upgrade
           }
         });
       }, 2000);
