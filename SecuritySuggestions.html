@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fo-Fi IPTV &mdash; Security Recommendations</title>
+<style>
+  :root {
+    --blue: #2563eb;
+    --blue-light: #eff6ff;
+    --blue-border: #bfdbfe;
+    --purple: #7c3aed;
+    --purple-light: #f5f3ff;
+    --purple-border: #ddd6fe;
+    --emerald: #059669;
+    --emerald-light: #ecfdf5;
+    --emerald-border: #a7f3d0;
+    --amber: #d97706;
+    --amber-light: #fffbeb;
+    --amber-border: #fde68a;
+    --rose: #e11d48;
+    --rose-light: #fff1f2;
+    --rose-border: #fecdd3;
+    --cyan: #0891b2;
+    --cyan-light: #ecfeff;
+    --cyan-border: #a5f3fc;
+    --slate-50: #f8fafc;
+    --slate-100: #f1f5f9;
+    --slate-200: #e2e8f0;
+    --slate-300: #cbd5e1;
+    --slate-400: #94a3b8;
+    --slate-500: #64748b;
+    --slate-600: #475569;
+    --slate-700: #334155;
+    --slate-800: #1e293b;
+    --slate-900: #0f172a;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: var(--slate-50);
+    color: var(--slate-800);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .container { max-width: 900px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+  /* ── Header ── */
+  .header {
+    background: linear-gradient(135deg, #1e40af 0%, #7c3aed 100%);
+    color: #fff;
+    padding: 3rem 2.5rem;
+    border-radius: 1.25rem;
+    margin-bottom: 2rem;
+    position: relative;
+    overflow: hidden;
+  }
+  .header::before {
+    content: '';
+    position: absolute;
+    top: -60%;
+    right: -15%;
+    width: 350px;
+    height: 350px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.06);
+  }
+  .header::after {
+    content: '';
+    position: absolute;
+    bottom: -40%;
+    left: -10%;
+    width: 250px;
+    height: 250px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.04);
+  }
+  .header h1 {
+    font-size: 1.6rem;
+    font-weight: 800;
+    position: relative;
+    z-index: 1;
+  }
+  .header p {
+    font-size: 0.9rem;
+    color: rgba(255,255,255,0.75);
+    margin-top: 0.5rem;
+    position: relative;
+    z-index: 1;
+  }
+  .header .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1.25rem;
+    position: relative;
+    z-index: 1;
+  }
+  .header .tag {
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.3rem 0.75rem;
+    border-radius: 9999px;
+    background: rgba(255,255,255,0.15);
+    backdrop-filter: blur(4px);
+    letter-spacing: 0.02em;
+  }
+
+  /* ── Category Sections ── */
+  .category {
+    margin-bottom: 2.5rem;
+  }
+  .category-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+  }
+  .category-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    flex-shrink: 0;
+  }
+  .category-title {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: var(--slate-900);
+  }
+  .category-subtitle {
+    font-size: 0.75rem;
+    color: var(--slate-400);
+    font-weight: 500;
+  }
+
+  /* ── Suggestion Cards ── */
+  .suggestions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .card {
+    background: #fff;
+    border-radius: 0.875rem;
+    border: 1px solid var(--slate-200);
+    overflow: hidden;
+    transition: box-shadow 0.2s;
+  }
+  .card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.04); }
+
+  .card-top {
+    padding: 1.1rem 1.25rem;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.875rem;
+  }
+  .card-num {
+    width: 28px;
+    height: 28px;
+    border-radius: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 800;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .card-content { flex: 1; }
+  .card-title {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--slate-900);
+    margin-bottom: 0.3rem;
+  }
+  .card-desc {
+    font-size: 0.8rem;
+    color: var(--slate-500);
+    line-height: 1.55;
+  }
+  .card-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.6rem;
+  }
+  .pill {
+    font-size: 0.6rem;
+    font-weight: 700;
+    padding: 0.2rem 0.55rem;
+    border-radius: 9999px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .pill-fe { background: var(--blue-light); color: var(--blue); }
+  .pill-be { background: var(--purple-light); color: var(--purple); }
+  .pill-infra { background: var(--amber-light); color: var(--amber); }
+
+  /* Colors per category */
+  .cat-auth .category-icon { background: var(--blue-light); color: var(--blue); }
+  .cat-auth .card { border-left: 3px solid var(--blue); }
+  .cat-auth .card-num { background: var(--blue-light); color: var(--blue); }
+
+  .cat-data .category-icon { background: var(--purple-light); color: var(--purple); }
+  .cat-data .card { border-left: 3px solid var(--purple); }
+  .cat-data .card-num { background: var(--purple-light); color: var(--purple); }
+
+  .cat-network .category-icon { background: var(--emerald-light); color: var(--emerald); }
+  .cat-network .card { border-left: 3px solid var(--emerald); }
+  .cat-network .card-num { background: var(--emerald-light); color: var(--emerald); }
+
+  .cat-app .category-icon { background: var(--amber-light); color: var(--amber); }
+  .cat-app .card { border-left: 3px solid var(--amber); }
+  .cat-app .card-num { background: var(--amber-light); color: var(--amber); }
+
+  .cat-stream .category-icon { background: var(--rose-light); color: var(--rose); }
+  .cat-stream .card { border-left: 3px solid var(--rose); }
+  .cat-stream .card-num { background: var(--rose-light); color: var(--rose); }
+
+  .cat-pwa .category-icon { background: var(--cyan-light); color: var(--cyan); }
+  .cat-pwa .card { border-left: 3px solid var(--cyan); }
+  .cat-pwa .card-num { background: var(--cyan-light); color: var(--cyan); }
+
+  /* ── Summary Grid ── */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 2.5rem;
+  }
+  .summary-card {
+    background: #fff;
+    border: 1px solid var(--slate-200);
+    border-radius: 0.875rem;
+    padding: 1.25rem;
+    text-align: center;
+  }
+  .summary-card .num {
+    font-size: 1.75rem;
+    font-weight: 800;
+    line-height: 1;
+  }
+  .summary-card .lbl {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 0.4rem;
+    color: var(--slate-500);
+  }
+
+  /* ── Priority Bar ── */
+  .priority-section { margin-bottom: 2.5rem; }
+  .priority-title {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: var(--slate-900);
+    margin-bottom: 1rem;
+  }
+  .priority-track {
+    display: flex;
+    gap: 0;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    margin-bottom: 1rem;
+  }
+  .priority-bar {
+    padding: 0.85rem 1rem;
+    text-align: center;
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+  }
+  .priority-bar.p1 { background: var(--rose); flex: 3; }
+  .priority-bar.p2 { background: var(--amber); flex: 4; }
+  .priority-bar.p3 { background: var(--emerald); flex: 3; }
+
+  .priority-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 1rem;
+  }
+  @media (max-width: 640px) { .priority-list { grid-template-columns: 1fr; } }
+  .priority-col {
+    background: #fff;
+    border-radius: 0.875rem;
+    border: 1px solid var(--slate-200);
+    overflow: hidden;
+  }
+  .priority-col-header {
+    padding: 0.75rem 1rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    border-bottom: 1px solid var(--slate-100);
+  }
+  .priority-col.p1 .priority-col-header { background: var(--rose-light); color: var(--rose); }
+  .priority-col.p2 .priority-col-header { background: var(--amber-light); color: var(--amber); }
+  .priority-col.p3 .priority-col-header { background: var(--emerald-light); color: var(--emerald); }
+  .priority-col ul {
+    list-style: none;
+    padding: 0.75rem 1rem;
+  }
+  .priority-col li {
+    font-size: 0.78rem;
+    color: var(--slate-600);
+    padding: 0.3rem 0;
+    border-bottom: 1px solid var(--slate-50);
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  .priority-col li:last-child { border-bottom: none; }
+  .priority-col li::before {
+    content: '→';
+    flex-shrink: 0;
+    font-weight: 700;
+    color: var(--slate-300);
+  }
+
+  /* ── Footer ── */
+  .footer {
+    text-align: center;
+    padding: 2rem;
+    font-size: 0.7rem;
+    color: var(--slate-400);
+    border-top: 1px solid var(--slate-200);
+    margin-top: 1rem;
+  }
+
+  @media print {
+    body { background: #fff; }
+    .container { max-width: 100%; padding: 0; }
+    .header { border-radius: 0; }
+    .card:hover { box-shadow: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- ════════ HEADER ════════ -->
+  <div class="header">
+    <h1>Security Recommendations</h1>
+    <p>Suggested security measures to protect the Fo-Fi IPTV FTA Progressive Web Application</p>
+    <div class="tags">
+      <span class="tag">Authentication</span>
+      <span class="tag">Data Protection</span>
+      <span class="tag">Network Security</span>
+      <span class="tag">Stream Protection</span>
+      <span class="tag">PWA Hardening</span>
+      <span class="tag">App Security</span>
+    </div>
+  </div>
+
+  <!-- ════════ SUMMARY ════════ -->
+  <div class="summary-grid">
+    <div class="summary-card">
+      <div class="num" style="color:var(--blue)">6</div>
+      <div class="lbl">Authentication</div>
+    </div>
+    <div class="summary-card">
+      <div class="num" style="color:var(--purple)">5</div>
+      <div class="lbl">Data Protection</div>
+    </div>
+    <div class="summary-card">
+      <div class="num" style="color:var(--emerald)">5</div>
+      <div class="lbl">Network &amp; API</div>
+    </div>
+    <div class="summary-card">
+      <div class="num" style="color:var(--amber)">4</div>
+      <div class="lbl">App Security</div>
+    </div>
+    <div class="summary-card">
+      <div class="num" style="color:var(--rose)">4</div>
+      <div class="lbl">Stream Protection</div>
+    </div>
+    <div class="summary-card">
+      <div class="num" style="color:var(--cyan)">4</div>
+      <div class="lbl">PWA Hardening</div>
+    </div>
+  </div>
+
+  <!-- ════════ 1. AUTHENTICATION ════════ -->
+  <div class="category cat-auth">
+    <div class="category-header">
+      <div class="category-icon">&#128274;</div>
+      <div>
+        <div class="category-title">Authentication &amp; Identity</div>
+        <div class="category-subtitle">Secure user login, sessions, and access control</div>
+      </div>
+    </div>
+    <div class="suggestions">
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">1</div>
+          <div class="card-content">
+            <div class="card-title">OTP-Based Authentication with Server Verification</div>
+            <div class="card-desc">Every OTP entered by the user should be verified against the backend. The server generates a time-limited OTP (valid for 2-3 minutes), sends it via SMS, and validates it when the user submits. Never accept OTP on the client side alone.</div>
+            <div class="card-badges"><span class="pill pill-be">Backend</span><span class="pill pill-fe">Frontend</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">2</div>
+          <div class="card-content">
+            <div class="card-title">JWT Token-Based Session Management</div>
+            <div class="card-desc">After successful OTP verification, the server should issue a signed JWT (JSON Web Token) with an expiration time. The client stores this token and sends it with every API request via the <code>Authorization: Bearer</code> header. This replaces sending the mobile number as an identifier.</div>
+            <div class="card-badges"><span class="pill pill-be">Backend</span><span class="pill pill-fe">Frontend</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">3</div>
+          <div class="card-content">
+            <div class="card-title">Token Refresh &amp; Auto-Expiry</div>
+            <div class="card-desc">Implement a refresh token mechanism. Access tokens should expire in 1-7 days. A long-lived refresh token (30 days) can silently renew the access token. On expiry, the user is redirected to the login screen. Provide a server endpoint to revoke tokens for account lockout.</div>
+            <div class="card-badges"><span class="pill pill-be">Backend</span><span class="pill pill-fe">Frontend</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">4</div>
+          <div class="card-content">
+            <div class="card-title">OTP Rate Limiting &amp; Brute-Force Protection</div>
+            <div class="card-desc">Limit OTP send requests to 3 per 10 minutes per phone number. Limit OTP verification attempts to 5 per code, then invalidate. After 10 failed attempts, temporarily block the number for 30 minutes. This prevents automated brute-force attacks.</div>
+            <div class="card-badges"><span class="pill pill-be">Backend</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">5</div>
+          <div class="card-content">
+            <div class="card-title">Device Binding &amp; Multi-Session Control</div>
+            <div class="card-desc">Optionally bind sessions to a device fingerprint (screen size + platform + timezone). Alert users when a new device logs in. Allow users to view active sessions and revoke them. Limit concurrent sessions to prevent credential sharing.</div>
+            <div class="card-badges"><span class="pill pill-be">Backend</span><span class="pill pill-fe">Frontend</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">6</div>
+          <div class="card-content">
+            <div class="card-title">Logout Functionality &amp; Session Cleanup</div>
+            <div class="card-desc">Provide a clear logout option that removes all local tokens, clears cached data, invalidates the session on the server, and redirects to the login screen. This is especially important on shared or public devices.</div>
+            <div class="card-badges"><span class="pill pill-fe">Frontend</span><span class="pill pill-be">Backend</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ════════ 2. DATA PROTECTION ════════ -->
+  <div class="category cat-data">
+    <div class="category-header">
+      <div class="category-icon">&#128737;</div>
+      <div>
+        <div class="category-title">Data Protection &amp; Privacy</div>
+        <div class="category-subtitle">Protect user data at rest, in transit, and in the browser</div>
+      </div>
+    </div>
+    <div class="suggestions">
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">1</div>
+          <div class="card-content">
+            <div class="card-title">Encrypt Sensitive Data in Browser Storage</div>
+            <div class="card-desc">Any data stored in localStorage or sessionStorage (tokens, user info) should be encrypted using AES-256 with a per-session key. This ensures that even if an attacker gains access to the storage, the data is not readable in plaintext.</div>
+            <div class="card-badges"><span class="pill pill-fe">Frontend</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">2</div>
+          <div class="card-content">
+            <div class="card-title">Minimize Stored Data</div>
+            <div class="card-desc">Store only the absolute minimum in the browser &mdash; ideally just a session token and its expiry. User profile data (name, phone) should be fetched from the server on demand rather than persisted locally. Less stored data means less risk.</div>
+            <div class="card-badges"><span class="pill pill-fe">Frontend</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">3</div>
+          <div class="card-content">
+            <div class="card-title">Remove Debug Logs from Production Builds</div>
+            <div class="card-desc">Configure the build tool to automatically strip all <code>console.log</code>, <code>console.group</code>, <code>console.table</code>, and <code>debugger</code> statements from the production bundle. This prevents API data, user information, and internal paths from appearing in the browser console.</div>
+            <div class="card-badges"><span class="pill pill-fe">Frontend</span><span class="pill pill-infra">Build Config</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">4</div>
+          <div class="card-content">
+            <div class="card-title">Server-Side IP Detection (No Third-Party Leaks)</div>
+            <div class="card-desc">Detect the user's IP address on the server using request headers (<code>X-Forwarded-For</code>) instead of calling a third-party service from the client. This avoids leaking every user's IP to external services and eliminates privacy concerns for international users (GDPR, etc.).</div>
+            <div class="card-badges"><span class="pill pill-be">Backend</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">5</div>
+          <div class="card-content">
+            <div class="card-title">User Consent for Data Collection</div>
+            <div class="card-desc">Before collecting device information (User-Agent, IP address), show a clear consent notice or include it in a privacy policy. For international users, this is a legal requirement under GDPR and similar regulations. Allow users to opt out of non-essential data collection.</div>
+            <div class="card-badges"><span class="pill pill-fe">Frontend</span><span class="pill pill-be">Backend</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ════════ 3. NETWORK & API ════════ -->
+  <div class="category cat-network">
+    <div class="category-header">
+      <div class="category-icon">&#127760;</div>
+      <div>
+        <div class="category-title">Network &amp; API Security</div>
+        <div class="category-subtitle">Protect data in transit and secure API endpoints</div>
+      </div>
+    </div>
+    <div class="suggestions">
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">1</div>
+          <div class="card-content">
+            <div class="card-title">HTTPS Everywhere with HSTS</div>
+            <div class="card-desc">Serve all content exclusively over HTTPS. Enable HTTP Strict Transport Security (HSTS) with a long max-age to prevent protocol downgrade attacks. Redirect all HTTP requests to HTTPS at the infrastructure level.</div>
+            <div class="card-badges"><span class="pill pill-infra">Infrastructure</span><span class="pill pill-be">Backend</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">2</div>
+          <div class="card-content">
+            <div class="card-title">Server-Side API Proxy (Keep Secrets Off the Client)</div>
+            <div class="card-desc">API authentication credentials (usernames, passwords, API keys) should never be included in the client-side JavaScript. Instead, route API calls through a server-side proxy that injects the credentials. The client only sends its JWT token.</div>
+            <div class="card-badges"><span class="pill pill-be">Backend</span><span class="pill pill-infra">Infrastructure</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">3</div>
+          <div class="card-content">
+            <div class="card-title">API Rate Limiting &amp; Throttling</div>
+            <div class="card-desc">Apply rate limits on all API endpoints: general requests (100/min per user), authentication (3 OTP sends per 10 min), and stream requests (10/min per user). Return HTTP 429 with a <code>Retry-After</code> header when limits are exceeded.</div>
+            <div class="card-badges"><span class="pill pill-be">Backend</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">4</div>
+          <div class="card-content">
+            <div class="card-title">Server-Side Input Validation</div>
+            <div class="card-desc">Validate all user inputs on the server, regardless of client-side checks. Sanitize names (strip HTML, limit length), validate phone numbers per country format, validate OTP format, and limit feedback length. Never trust data from the client alone.</div>
+            <div class="card-badges"><span class="pill pill-be">Backend</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">5</div>
+          <div class="card-content">
+            <div class="card-title">Hide Internal Infrastructure from Clients</div>
+            <div class="card-desc">Internal server IPs, database addresses, and backend domain names should never appear in client-facing code. Use relative URLs for assets, environment-specific configuration on the server side, and a reverse proxy to mask backend topology.</div>
+            <div class="card-badges"><span class="pill pill-be">Backend</span><span class="pill pill-fe">Frontend</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ════════ 4. APP SECURITY ════════ -->
+  <div class="category cat-app">
+    <div class="category-header">
+      <div class="category-icon">&#128296;</div>
+      <div>
+        <div class="category-title">Application Security</div>
+        <div class="category-subtitle">Harden the app against injection, XSS, and abuse</div>
+      </div>
+    </div>
+    <div class="suggestions">
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">1</div>
+          <div class="card-content">
+            <div class="card-title">Content Security Policy (CSP)</div>
+            <div class="card-desc">Add a strict Content Security Policy header that limits which domains can serve scripts, styles, images, and connections. This is the strongest defense against XSS &mdash; even if an attacker injects a script tag, the browser will refuse to execute it if the source is not whitelisted.</div>
+            <div class="card-badges"><span class="pill pill-fe">Frontend</span><span class="pill pill-infra">Infrastructure</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">2</div>
+          <div class="card-content">
+            <div class="card-title">Input Sanitization on All User Fields</div>
+            <div class="card-desc">Strip HTML tags from all text inputs (name, feedback, search) before submission. Limit field lengths. Encode special characters. Even though React escapes output by default, sanitizing inputs adds a defense layer for when data is used outside the React app (emails, admin panels, exports).</div>
+            <div class="card-badges"><span class="pill pill-fe">Frontend</span><span class="pill pill-be">Backend</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">3</div>
+          <div class="card-content">
+            <div class="card-title">Security Response Headers</div>
+            <div class="card-desc">Add these headers to all server responses:<br>
+              &bull; <code>X-Content-Type-Options: nosniff</code> &mdash; prevents MIME type sniffing<br>
+              &bull; <code>X-Frame-Options: DENY</code> &mdash; prevents clickjacking via iframes<br>
+              &bull; <code>Referrer-Policy: strict-origin-when-cross-origin</code> &mdash; limits referrer leaks<br>
+              &bull; <code>Permissions-Policy</code> &mdash; restrict camera, microphone, geolocation access
+            </div>
+            <div class="card-badges"><span class="pill pill-infra">Infrastructure</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">4</div>
+          <div class="card-content">
+            <div class="card-title">Dependency Auditing &amp; Supply Chain Safety</div>
+            <div class="card-desc">Regularly run <code>npm audit</code> to check for known vulnerabilities in dependencies. Use a lock file (<code>package-lock.json</code>) and verify its integrity. Consider using tools like Snyk or Socket to detect supply chain attacks in third-party packages.</div>
+            <div class="card-badges"><span class="pill pill-fe">Frontend</span><span class="pill pill-infra">Build Config</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ════════ 5. STREAM PROTECTION ════════ -->
+  <div class="category cat-stream">
+    <div class="category-header">
+      <div class="category-icon">&#128253;</div>
+      <div>
+        <div class="category-title">Stream &amp; Content Protection</div>
+        <div class="category-subtitle">Prevent unauthorized access to live TV streams</div>
+      </div>
+    </div>
+    <div class="suggestions">
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">1</div>
+          <div class="card-content">
+            <div class="card-title">Authenticated Stream Proxy</div>
+            <div class="card-desc">Require a valid session token (JWT or signed cookie) before proxying any stream request. Without authentication, the proxy should return 403 Forbidden. This prevents unauthorized users and external websites from accessing streams.</div>
+            <div class="card-badges"><span class="pill pill-fe">Frontend</span><span class="pill pill-be">Backend</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">2</div>
+          <div class="card-content">
+            <div class="card-title">Restrict CORS to App Domain Only</div>
+            <div class="card-desc">Replace wildcard <code>Access-Control-Allow-Origin: *</code> with the specific app domain(s). This ensures only the official app can request streams through the proxy, blocking any third-party websites from embedding or stealing streams.</div>
+            <div class="card-badges"><span class="pill pill-fe">Frontend</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">3</div>
+          <div class="card-content">
+            <div class="card-title">Time-Limited Stream Tokens</div>
+            <div class="card-desc">Instead of giving permanent stream URLs, generate time-limited signed URLs (valid for 5-10 minutes). Even if a URL is shared, it expires quickly. The client requests a fresh token from the server when the current one expires.</div>
+            <div class="card-badges"><span class="pill pill-be">Backend</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">4</div>
+          <div class="card-content">
+            <div class="card-title">Concurrent Stream Limiting</div>
+            <div class="card-desc">Limit each user to a maximum number of concurrent streams (e.g., 1-2 at a time). Track active streams on the server. When the limit is exceeded, deny new stream requests. This prevents credential sharing and bandwidth abuse.</div>
+            <div class="card-badges"><span class="pill pill-be">Backend</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ════════ 6. PWA HARDENING ════════ -->
+  <div class="category cat-pwa">
+    <div class="category-header">
+      <div class="category-icon">&#128241;</div>
+      <div>
+        <div class="category-title">PWA &amp; Offline Security</div>
+        <div class="category-subtitle">Secure the service worker, caching, and install behavior</div>
+      </div>
+    </div>
+    <div class="suggestions">
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">1</div>
+          <div class="card-content">
+            <div class="card-title">Selective Cache Policies</div>
+            <div class="card-desc">Cache static assets (JS, CSS, images) aggressively, but use <code>NetworkFirst</code> with short expiry for API responses. Never cache responses that contain user-specific data. Exclude authentication endpoints from caching entirely.</div>
+            <div class="card-badges"><span class="pill pill-fe">Frontend</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">2</div>
+          <div class="card-content">
+            <div class="card-title">Clear Cache on Logout</div>
+            <div class="card-desc">When a user logs out, clear all cached API responses, stored tokens, and service worker caches. Use <code>caches.keys()</code> to enumerate and delete all app caches. This prevents the next user on a shared device from seeing cached data.</div>
+            <div class="card-badges"><span class="pill pill-fe">Frontend</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">3</div>
+          <div class="card-content">
+            <div class="card-title">Service Worker Integrity Checks</div>
+            <div class="card-desc">Ensure the service worker only caches files from trusted origins. Use subresource integrity (SRI) hashes for critical scripts. Configure the service worker to skip waiting and claim clients immediately on update to ensure users always get the latest secure version.</div>
+            <div class="card-badges"><span class="pill pill-fe">Frontend</span><span class="pill pill-infra">Build Config</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-top">
+          <div class="card-num">4</div>
+          <div class="card-content">
+            <div class="card-title">Require Secure Context (HTTPS) for PWA Install</div>
+            <div class="card-desc">Ensure the PWA install prompt only appears when the app is served over HTTPS. Service workers already require a secure context, but explicitly checking in the install prompt logic adds an extra safeguard. Block app functionality if running on insecure HTTP.</div>
+            <div class="card-badges"><span class="pill pill-fe">Frontend</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ════════ PRIORITY ROADMAP ════════ -->
+  <div class="priority-section">
+    <div class="priority-title">Implementation Roadmap</div>
+
+    <div class="priority-track">
+      <div class="priority-bar p1">Phase 1 &mdash; Immediate</div>
+      <div class="priority-bar p2">Phase 2 &mdash; Before Launch</div>
+      <div class="priority-bar p3">Phase 3 &mdash; Hardening</div>
+    </div>
+
+    <div class="priority-list">
+      <div class="priority-col p1">
+        <div class="priority-col-header">Phase 1 &mdash; Immediate</div>
+        <ul>
+          <li>Server-side OTP verification</li>
+          <li>Server-side API proxy for secrets</li>
+          <li>Remove debug logs from prod</li>
+          <li>JWT token authentication</li>
+          <li>HTTPS enforcement</li>
+        </ul>
+      </div>
+      <div class="priority-col p2">
+        <div class="priority-col-header">Phase 2 &mdash; Before Launch</div>
+        <ul>
+          <li>Token refresh &amp; session expiry</li>
+          <li>Authenticated stream proxy</li>
+          <li>CORS restriction to app domain</li>
+          <li>Rate limiting on all endpoints</li>
+          <li>Hide internal infrastructure</li>
+          <li>Server-side IP detection</li>
+          <li>International phone support</li>
+        </ul>
+      </div>
+      <div class="priority-col p3">
+        <div class="priority-col-header">Phase 3 &mdash; Hardening</div>
+        <ul>
+          <li>Content Security Policy</li>
+          <li>Security response headers</li>
+          <li>Input sanitization everywhere</li>
+          <li>Encrypted browser storage</li>
+          <li>Selective PWA cache policies</li>
+          <li>Dependency auditing pipeline</li>
+          <li>Concurrent stream limiting</li>
+          <li>Time-limited stream tokens</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════ FOOTER ════════ -->
+  <div class="footer">
+    Fo-Fi IPTV FTA &bull; Security Recommendations &bull; February 2026
+  </div>
+
+</div>
+
+</body>
+</html>

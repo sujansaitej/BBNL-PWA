@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Smooth scroll globally */
+  html {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  /* Prevent iOS overscroll bounce */
+  body {
+    overscroll-behavior-y: none;
+  }
+
+  /* Safe area padding utility for notched phones */
+  .safe-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Ensure inputs are 16px+ to prevent iOS auto-zoom */
+  input, select, textarea {
+    font-size: 16px;
+  }
+}
+
+/* ── Shimmer / Skeleton Loading ── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 37%, #f3f4f6 63%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 8px;
+}
+
+.skeleton-dark {
+  background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.1) 37%, rgba(255,255,255,0.05) 63%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 8px;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.8); opacity: 1; }
+  50% { transform: scale(1.2); opacity: 0.4; }
+  100% { transform: scale(0.8); opacity: 1; }
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 1.5s ease-in-out infinite;
+}

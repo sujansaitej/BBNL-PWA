@@ -1,0 +1,9 @@
+Following are the path of the files shared.
+
+src/components/LivePlayer.jsx
+src/hooks/useShakaPlayer.js
+src/pages/customer/LiveTV.jsx
+
+You can find dependencies in package.json
+
+Remove the unnecessary codes which is not used in the files.

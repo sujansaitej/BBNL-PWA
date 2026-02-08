@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+
+    <!-- PWA Meta -->
+    <meta name="theme-color" content="#0000FF" />
+    <meta name="description" content="Watch free-to-air TV channels, live streams, and radio — anywhere, anytime." />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- iOS / Apple -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Fo-Fi" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png?v=3" />
+    <link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png?v=3" />
+
+    <!--
+      Favicon — order matters!
+      1. "shortcut icon" (Edge/IE legacy — checked FIRST by Edge)
+      2. PNG 192 (universal fallback)
+      3. SVG  (Chrome/Firefox modern)
+    -->
+    <link rel="shortcut icon" type="image/png" href="/icon-192.png?v=3" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png?v=3" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png?v=3" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg?v=3" />
+
+    <!-- Edge / Windows tile -->
+    <meta name="msapplication-TileColor" content="#0000FF" />
+    <meta name="msapplication-TileImage" content="/icon-512.png?v=3" />
+
+    <title>Fo-Fi</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

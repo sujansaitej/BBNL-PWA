@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#6D67FF" />
+  <title>IPTV FTA - Offline</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #3B82F6, #7C3AED);
+      color: white;
+      padding: 24px;
+    }
+    .card {
+      background: white;
+      border-radius: 20px;
+      padding: 40px 32px;
+      max-width: 360px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 25px 50px rgba(0,0,0,0.15);
+    }
+    .icon {
+      width: 64px; height: 64px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #EEF2FF, #E0E7FF);
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 20px;
+    }
+    .icon svg { width: 28px; height: 28px; color: #6366F1; }
+    h1 { font-size: 20px; font-weight: 700; color: #1F2937; margin-bottom: 8px; }
+    p { font-size: 14px; color: #9CA3AF; line-height: 1.6; margin-bottom: 24px; }
+    button {
+      background: linear-gradient(135deg, #3B82F6, #7C3AED);
+      color: white; border: none; border-radius: 12px;
+      padding: 14px 32px; font-size: 14px; font-weight: 600;
+      cursor: pointer; width: 100%;
+      transition: opacity 0.2s;
+    }
+    button:active { opacity: 0.8; transform: scale(0.98); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z" />
+      </svg>
+    </div>
+    <h1>You're Offline</h1>
+    <p>It looks like you've lost your internet connection. Please check your network and try again.</p>
+    <button onclick="window.location.reload()">Try Again</button>
+  </div>
+</body>
+</html>
