@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -12,7 +12,9 @@ import {
 import AppLayout from "../components/AppLayout";
 import { FeaturedSkeleton, ChannelListSkeleton } from "../components/Loader";
 import { getChannelList, getAdvertisements } from "../services/api";
-import { preloadShaka } from "../services/shakaLoader";
+import { preloadLogos } from "../services/logoCache";
+import useCachedLogo from "../hooks/useCachedLogo";
+import { getCachedAds, setCachedAds, preloadAdImages } from "../services/imageStore";
 
 function proxyImageUrl(url) {
   if (!url) return null;
@@ -33,29 +35,36 @@ function getNextAdIndex(page, totalAds) {
 }
 
 function AdBanner({ ad }) {
-  const [loaded, setLoaded] = useState(false);
+  const [ready, setReady] = useState(false);
   const src = proxyImageUrl(ad?.adpath);
-  if (!src) return null;
+
+  useEffect(() => {
+    if (!src) return;
+    setReady(false);
+    const img = new Image();
+    img.src = src;
+    img.decode()
+      .then(() => setReady(true))
+      .catch(() => {});
+  }, [src]);
+
+  if (!src || !ready) return null;
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.15 }}
+      transition={{ duration: 0.5 }}
       className="mb-4 rounded-xl overflow-hidden relative"
     >
       <div className="aspect-[16/7] bg-gray-50 overflow-hidden">
         <motion.img
           src={src}
           alt="Ad"
-          initial={{ opacity: 0, scale: 1.15 }}
-          animate={{ opacity: loaded ? 1 : 0, scale: loaded ? 1 : 1.15 }}
-          transition={{
-            opacity: { duration: 0.7 },
-            scale: { duration: AD_ZOOM_DURATION, ease: "easeOut" },
-          }}
+          initial={{ scale: 1.15 }}
+          animate={{ scale: 1 }}
+          transition={{ duration: AD_ZOOM_DURATION, ease: "easeOut" }}
           className="w-full h-full object-cover"
-          onLoad={() => setLoaded(true)}
           onError={(e) => { e.target.closest(".rounded-xl").style.display = "none"; }}
         />
       </div>
@@ -68,9 +77,9 @@ function AdBanner({ ad }) {
 
 // ── Featured Channel Card (large) ──
 function FeaturedCard({ channel, onPlay }) {
-  const [imgError, setImgError] = useState(false);
   const hasLogo = channel.chlogo && !channel.chlogo.includes("chnlnoimage");
   const imgSrc = proxyImageUrl(channel.chlogo);
+  const cachedSrc = useCachedLogo(hasLogo ? imgSrc : null);
 
   return (
     <motion.div
@@ -78,12 +87,11 @@ function FeaturedCard({ channel, onPlay }) {
       onClick={() => onPlay(channel)}
       className="relative rounded-2xl overflow-hidden cursor-pointer group bg-gradient-to-br from-gray-900 to-gray-800 aspect-video"
     >
-      {hasLogo && imgSrc && !imgError ? (
+      {cachedSrc ? (
         <img
-          src={imgSrc}
+          src={cachedSrc}
           alt={channel.chtitle}
           className="absolute inset-0 w-full h-full object-contain p-6"
-          onError={() => setImgError(true)}
         />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center">
@@ -126,9 +134,9 @@ function FeaturedCard({ channel, onPlay }) {
 
 // ── Channel List Item (compact row) ──
 function ChannelRow({ channel, index, onPlay }) {
-  const [imgError, setImgError] = useState(false);
   const hasLogo = channel.chlogo && !channel.chlogo.includes("chnlnoimage");
   const imgSrc = proxyImageUrl(channel.chlogo);
+  const cachedSrc = useCachedLogo(hasLogo ? imgSrc : null);
 
   return (
     <motion.div
@@ -148,12 +156,11 @@ function ChannelRow({ channel, index, onPlay }) {
 
       {/* Channel logo */}
       <div className="w-11 h-11 rounded-xl bg-gray-50 flex items-center justify-center flex-shrink-0 overflow-hidden">
-        {hasLogo && imgSrc && !imgError ? (
+        {cachedSrc ? (
           <img
-            src={imgSrc}
+            src={cachedSrc}
             alt={channel.chtitle}
             className="w-full h-full object-contain p-1"
-            onError={() => setImgError(true)}
           />
         ) : (
           <Tv className="w-5 h-5 text-gray-300" />
@@ -186,23 +193,31 @@ export default function LiveTvPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [ads, setAds] = useState([]);
-  const searchTimeout = useRef(null);
+
+  // Show cached ads instantly, refresh in background
+  const cachedAds = getCachedAds("livetv");
+  const [ads, setAds] = useState(cachedAds);
 
   useEffect(() => {
     if (!user.mobile) {
-      navigate("/", { replace: true });
+      navigate("/home", { replace: true });
       return;
     }
     fetchChannels();
-    preloadShaka();
-    // Fetch ads in background
+    // Preload cached ad images into browser memory
+    if (cachedAds.length > 0) preloadAdImages(cachedAds, proxyImageUrl);
+    // Fetch fresh ads in background, update cache
     getAdvertisements({ mobile: user.mobile, displayarea: "homepage", displaytype: "multiple" })
-      .then((data) => setAds(data?.body || []))
+      .then((data) => {
+        const adList = data?.body || [];
+        setAds(adList);
+        setCachedAds("livetv", adList);
+        preloadAdImages(adList, proxyImageUrl);
+      })
       .catch(() => {});
   }, []);
 
-  const fetchChannels = async (searchTerm = "") => {
+  const fetchChannels = async () => {
     setLoading(true);
     setError("");
 
@@ -210,10 +225,17 @@ export default function LiveTvPage() {
       const data = await getChannelList({
         mobile: user.mobile,
         langid: "subs",
-        search: searchTerm,
       });
 
       const chnls = data?.body?.[0]?.channels || [];
+
+      // Batch-preload all channel logos into memory cache
+      preloadLogos(
+        chnls
+          .map((ch) => proxyImageUrl(ch.chlogo))
+          .filter((u) => u && !u.includes("chnlnoimage"))
+      );
+
       setChannels(chnls);
     } catch (err) {
       setError(err.message || "Failed to load channels.");
@@ -222,16 +244,19 @@ export default function LiveTvPage() {
     }
   };
 
-  const handleSearch = (value) => {
-    setSearch(value);
-    if (searchTimeout.current) clearTimeout(searchTimeout.current);
-    searchTimeout.current = setTimeout(() => {
-      fetchChannels(value.trim());
-    }, 500);
-  };
+  // Client-side filter by channel name or channel number
+  const filteredChannels = search.trim()
+    ? channels.filter((ch) => {
+        const term = search.trim().toLowerCase();
+        const nameMatch = ch.chtitle?.toLowerCase().includes(term);
+        // Exact channel number match when the term is purely digits
+        const numMatch = /^\d+$/.test(term) && String(ch.chno || "") === term;
+        return nameMatch || numMatch;
+      })
+    : channels;
 
   const handlePlayChannel = (channel) => {
-    navigate("/player", { state: { channel } });
+    navigate("/player", { state: { channel, channels } });
   };
 
   // Split channels: first 2 as featured, rest as list
@@ -252,7 +277,7 @@ export default function LiveTvPage() {
               <p className="text-[11px] text-gray-400">
                 {loading
                   ? "Loading..."
-                  : `${channels.length} live channel${channels.length !== 1 ? "s" : ""}`}
+                  : `${filteredChannels.length} live channel${filteredChannels.length !== 1 ? "s" : ""}`}
               </p>
             </div>
           </div>
@@ -273,17 +298,14 @@ export default function LiveTvPage() {
             <Search className="w-4 h-4 text-gray-400 mr-2 flex-shrink-0" />
             <input
               type="text"
-              placeholder="Search live channels..."
+              placeholder="Search by name or channel number..."
               value={search}
-              onChange={(e) => handleSearch(e.target.value)}
+              onChange={(e) => setSearch(e.target.value)}
               className="w-full outline-none text-sm text-gray-700 bg-transparent placeholder-gray-400"
             />
             {search && (
               <button
-                onClick={() => {
-                  setSearch("");
-                  fetchChannels("");
-                }}
+                onClick={() => setSearch("")}
                 className="ml-2 flex-shrink-0"
               >
                 <X className="w-4 h-4 text-gray-400" />
@@ -312,7 +334,7 @@ export default function LiveTvPage() {
             </div>
             <p className="text-sm text-gray-600 mb-1 font-medium">{error}</p>
             <button
-              onClick={() => fetchChannels(search.trim())}
+              onClick={() => fetchChannels()}
               className="mt-3 text-sm text-red-600 font-semibold hover:underline"
             >
               Try again
@@ -321,7 +343,7 @@ export default function LiveTvPage() {
         )}
 
         {/* ───── Channels Content ───── */}
-        {!loading && !error && channels.length > 0 && (
+        {!loading && !error && filteredChannels.length > 0 && (
           <>
             {/* Featured Section */}
             {!search && featured.length > 0 && (
@@ -359,12 +381,12 @@ export default function LiveTvPage() {
                   </h3>
                 </div>
                 <span className="text-[11px] text-gray-400 font-medium">
-                  {search ? channels.length : remaining.length} channels
+                  {search ? filteredChannels.length : remaining.length} channels
                 </span>
               </div>
 
               <div className="space-y-2">
-                {(search ? channels : remaining).map((ch, idx) => {
+                {(search ? filteredChannels : remaining).map((ch, idx) => {
                   const items = [];
                   // Insert an ad every 10 channels in the list
                   if (ads.length > 0 && idx > 0 && idx % 10 === 0) {
@@ -389,7 +411,7 @@ export default function LiveTvPage() {
         )}
 
         {/* ───── Empty ───── */}
-        {!loading && !error && channels.length === 0 && (
+        {!loading && !error && filteredChannels.length === 0 && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -402,10 +424,7 @@ export default function LiveTvPage() {
             <p className="text-xs text-gray-400 mt-1">Try a different search</p>
             {search && (
               <button
-                onClick={() => {
-                  setSearch("");
-                  fetchChannels("");
-                }}
+                onClick={() => setSearch("")}
                 className="mt-3 text-sm text-red-600 font-semibold hover:underline"
               >
                 Clear search

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Settings, LogOut } from "lucide-react";
 import BottomNav from "./BottomNav";
 import InstallPrompt from "./InstallPrompt";
+import { getCachedLogo, cacheLogoFromUrl } from "../services/imageStore";
 
 export default function AppLayout({ children }) {
   const navigate = useNavigate();
@@ -10,6 +11,16 @@ export default function AppLayout({ children }) {
   const firstName = (user.name || "User").split(" ")[0];
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef(null);
+
+  // ── Cached app logo (base64 in localStorage) ──
+  const [logoSrc, setLogoSrc] = useState(() => getCachedLogo("logo-white") || "/logo-white.png");
+
+  useEffect(() => {
+    // If already cached, still refresh in background (silent update)
+    cacheLogoFromUrl("logo-white", "/logo-white.png").then((dataUrl) => {
+      if (dataUrl) setLogoSrc(dataUrl);
+    });
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -23,7 +34,8 @@ export default function AppLayout({ children }) {
 
   const handleLogout = () => {
     localStorage.clear();
-    navigate("/", { replace: true });
+    navigate("/home", { replace: true });
+    window.location.reload();
   };
 
   return (
@@ -32,7 +44,7 @@ export default function AppLayout({ children }) {
       <header className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-3 flex items-center justify-between shadow-lg sticky top-0 z-40 safe-top">
         <div className="flex items-center gap-2">
           <img
-            src="/logo-white.png"
+            src={logoSrc}
             alt="Fo-Fi"
             className="h-9 w-auto object-contain flex-shrink-0"
           />

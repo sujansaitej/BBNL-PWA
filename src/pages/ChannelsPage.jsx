@@ -12,7 +12,9 @@ import {
 import AppLayout from "../components/AppLayout";
 import { ChannelGridSkeleton } from "../components/Loader";
 import { getChannelList, getAdvertisements } from "../services/api";
-import { preloadShaka } from "../services/shakaLoader";
+import { preloadLogos } from "../services/logoCache";
+import useCachedLogo from "../hooks/useCachedLogo";
+import { getCachedAds, setCachedAds, preloadAdImages } from "../services/imageStore";
 
 const container = {
   hidden: { opacity: 0 },
@@ -46,29 +48,36 @@ function getNextAdIndex(langid, totalAds) {
 }
 
 function AdBanner({ ad }) {
-  const [loaded, setLoaded] = useState(false);
+  const [ready, setReady] = useState(false);
   const src = proxyImageUrl(ad?.adpath);
-  if (!src) return null;
+
+  useEffect(() => {
+    if (!src) return;
+    setReady(false);
+    const img = new Image();
+    img.src = src;
+    img.decode()
+      .then(() => setReady(true))
+      .catch(() => {});
+  }, [src]);
+
+  if (!src || !ready) return null;
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.15 }}
+      transition={{ duration: 0.5 }}
       className="mb-4 rounded-xl overflow-hidden relative"
     >
       <div className="aspect-[16/7] bg-gray-50 overflow-hidden">
         <motion.img
           src={src}
           alt="Ad"
-          initial={{ opacity: 0, scale: 1.15 }}
-          animate={{ opacity: loaded ? 1 : 0, scale: loaded ? 1 : 1.15 }}
-          transition={{
-            opacity: { duration: 0.7 },
-            scale: { duration: AD_ZOOM_DURATION, ease: "easeOut" },
-          }}
+          initial={{ scale: 1.15 }}
+          animate={{ scale: 1 }}
+          transition={{ duration: AD_ZOOM_DURATION, ease: "easeOut" }}
           className="w-full h-full object-cover"
-          onLoad={() => setLoaded(true)}
           onError={(e) => { e.target.closest(".rounded-xl").style.display = "none"; }}
         />
       </div>
@@ -80,22 +89,13 @@ function AdBanner({ ad }) {
 }
 
 function ChannelCard({ channel, onPlay }) {
-  const [imgError, setImgError] = useState(false);
   const hasLogo =
     channel.chlogo && !channel.chlogo.includes("chnlnoimage");
   const imgSrc = proxyImageUrl(channel.chlogo);
+  const cachedSrc = useCachedLogo(hasLogo ? imgSrc : null);
 
   const handlePlay = () => {
     if (channel.streamlink) {
-      console.log(
-        "%c▶️ [Channel] Play Stream",
-        "color: #22c55e; font-weight: bold; font-size: 13px;",
-        {
-          title: channel.chtitle,
-          chno: channel.chno,
-          stream: channel.streamlink,
-        }
-      );
       onPlay(channel);
     }
   };
@@ -109,12 +109,11 @@ function ChannelCard({ channel, onPlay }) {
     >
       {/* Channel Logo */}
       <div className="relative aspect-video bg-gray-50 flex items-center justify-center">
-        {hasLogo && imgSrc && !imgError ? (
+        {cachedSrc ? (
           <img
-            src={imgSrc}
+            src={cachedSrc}
             alt={channel.chtitle}
             className="w-full h-full object-contain p-3"
-            onError={() => setImgError(true)}
           />
         ) : (
           <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-100 to-cyan-100 flex items-center justify-center">
@@ -161,22 +160,31 @@ export default function ChannelsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [ads, setAds] = useState([]);
+
+  // Show cached ads instantly, refresh in background
+  const cachedAds = getCachedAds("channels");
+  const [ads, setAds] = useState(cachedAds);
 
   useEffect(() => {
     if (!user.mobile) {
-      navigate("/", { replace: true });
+      navigate("/home", { replace: true });
       return;
     }
     fetchChannels();
-    preloadShaka();
-    // Fetch ads in background
+    // Preload cached ad images into browser memory
+    if (cachedAds.length > 0) preloadAdImages(cachedAds, proxyImageUrl);
+    // Fetch fresh ads in background, update cache
     getAdvertisements({ mobile: user.mobile, displayarea: "homepage", displaytype: "multiple" })
-      .then((data) => setAds(data?.body || []))
+      .then((data) => {
+        const adList = data?.body || [];
+        setAds(adList);
+        setCachedAds("channels", adList);
+        preloadAdImages(adList, proxyImageUrl);
+      })
       .catch(() => {});
   }, [langid]);
 
-  const fetchChannels = async (searchTerm = "") => {
+  const fetchChannels = async () => {
     setLoading(true);
     setError("");
 
@@ -184,20 +192,13 @@ export default function ChannelsPage() {
       "%c🔵 [Channels] Fetch Channel List",
       "color: #3b82f6; font-weight: bold; font-size: 13px;"
     );
-    console.log(
-      "%c🔑 Sending Keys:",
-      "color: #8b5cf6; font-weight: bold;",
-      "mobile, grid, bcid, langid, search"
-    );
     console.log("%c📱 mobile:", "color: #6366f1; font-weight: bold;", user.mobile);
     console.log("%c🌐 langid:", "color: #6366f1; font-weight: bold;", langid);
-    console.log("%c🔍 search:", "color: #6366f1; font-weight: bold;", searchTerm || "(empty)");
 
     try {
       const data = await getChannelList({
         mobile: user.mobile,
         langid,
-        search: searchTerm,
       });
       console.log(
         "%c🟢 SUCCESS RESPONSE",
@@ -232,6 +233,13 @@ export default function ChannelsPage() {
       }
       console.groupEnd();
 
+      // Batch-preload all channel logos into memory cache
+      preloadLogos(
+        chnls
+          .map((ch) => proxyImageUrl(ch.chlogo))
+          .filter((u) => u && !u.includes("chnlnoimage"))
+      );
+
       setChannels(chnls);
     } catch (err) {
       console.log(
@@ -247,13 +255,23 @@ export default function ChannelsPage() {
   };
 
   const handlePlayChannel = (channel) => {
-    navigate("/player", { state: { channel } });
+    navigate("/player", { state: { channel, channels } });
   };
 
   const handleSearch = (e) => {
     e.preventDefault();
-    fetchChannels(search.trim());
   };
+
+  // Client-side filter by channel name or channel number
+  const filteredChannels = search.trim()
+    ? channels.filter((ch) => {
+        const term = search.trim().toLowerCase();
+        const nameMatch = ch.chtitle?.toLowerCase().includes(term);
+        // Exact channel number match when the term is purely digits
+        const numMatch = /^\d+$/.test(term) && String(ch.chno || "") === term;
+        return nameMatch || numMatch;
+      })
+    : channels;
 
   const pageTitle = langTitle ? `${langTitle} Channels` : "All Channels";
 
@@ -284,7 +302,7 @@ export default function ChannelsPage() {
             <p className="text-xs text-gray-400">
               {loading
                 ? "Loading..."
-                : `${channels.length} channel${channels.length !== 1 ? "s" : ""} available`}
+                : `${filteredChannels.length} channel${filteredChannels.length !== 1 ? "s" : ""} available`}
             </p>
           </div>
         </motion.div>
@@ -301,7 +319,7 @@ export default function ChannelsPage() {
             <Search className="w-4 h-4 text-gray-400 mr-2 flex-shrink-0" />
             <input
               type="text"
-              placeholder="Search channels..."
+              placeholder="Search by name or channel number..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full outline-none text-sm text-gray-700 bg-transparent placeholder-gray-400"
@@ -309,10 +327,7 @@ export default function ChannelsPage() {
             {search && (
               <button
                 type="button"
-                onClick={() => {
-                  setSearch("");
-                  fetchChannels("");
-                }}
+                onClick={() => setSearch("")}
                 className="text-xs text-gray-400 hover:text-gray-600 ml-2 flex-shrink-0"
               >
                 Clear
@@ -341,7 +356,7 @@ export default function ChannelsPage() {
             </div>
             <p className="text-sm text-gray-600 mb-1 font-medium">{error}</p>
             <button
-              onClick={() => fetchChannels(search.trim())}
+              onClick={() => fetchChannels()}
               className="mt-3 text-sm text-blue-600 font-semibold hover:underline"
             >
               Try again
@@ -350,14 +365,14 @@ export default function ChannelsPage() {
         )}
 
         {/* ───── Channel Grid with Inline Ads ───── */}
-        {!loading && !error && channels.length > 0 && (
+        {!loading && !error && filteredChannels.length > 0 && (
           <motion.div
             variants={container}
             initial="hidden"
             animate="show"
             className="grid grid-cols-2 gap-2.5 sm:gap-3"
           >
-            {channels.map((ch, idx) => (
+            {filteredChannels.map((ch, idx) => (
               <ChannelCard
                 key={ch.chid || idx}
                 channel={ch}
@@ -368,7 +383,7 @@ export default function ChannelsPage() {
         )}
 
         {/* ───── Empty State ───── */}
-        {!loading && !error && channels.length === 0 && (
+        {!loading && !error && filteredChannels.length === 0 && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -381,10 +396,7 @@ export default function ChannelsPage() {
             <p className="text-xs text-gray-400 mt-1">Try a different search or language</p>
             {search && (
               <button
-                onClick={() => {
-                  setSearch("");
-                  fetchChannels("");
-                }}
+                onClick={() => setSearch("")}
                 className="mt-3 text-sm text-blue-600 font-semibold hover:underline"
               >
                 Clear search

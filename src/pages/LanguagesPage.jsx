@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Languages, ChevronRight, Globe, AlertCircle } from "lucide-react";
+import { Languages, Globe, AlertCircle } from "lucide-react";
 import AppLayout from "../components/AppLayout";
 import { LanguageListSkeleton } from "../components/Loader";
 import { getLanguageList } from "../services/api";
@@ -27,7 +27,7 @@ function proxyImageUrl(url) {
   );
 }
 
-function LangItem({ lang, onClick }) {
+function LangCard({ lang, onClick }) {
   const [imgError, setImgError] = useState(false);
   const hasLogo =
     lang.langlogomob && !lang.langlogomob.includes("chnlnoimage");
@@ -36,37 +36,27 @@ function LangItem({ lang, onClick }) {
   return (
     <motion.div
       variants={item}
-      whileTap={{ scale: 0.99 }}
+      whileTap={{ scale: 0.95 }}
       onClick={onClick}
-      className="flex items-center gap-3 px-4 py-3.5 cursor-pointer hover:bg-gray-50 active:bg-gray-100 transition-colors min-h-[56px]"
+      className="flex flex-col items-center cursor-pointer group"
     >
-      {hasLogo && imgSrc && !imgError ? (
-        <img
-          src={imgSrc}
-          alt={lang.langtitle}
-          className="w-11 h-11 rounded-xl object-cover flex-shrink-0 bg-gray-100 shadow-sm"
-          onError={() => setImgError(true)}
-        />
-      ) : (
-        <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center flex-shrink-0">
-          <Globe className="w-5 h-5 text-emerald-600" />
-        </div>
-      )}
-
-      <div className="flex-1 min-w-0">
-        <h4 className="text-sm font-semibold text-gray-800">
-          {lang.langtitle}
-        </h4>
-        {lang.langdetails &&
-          lang.langdetails !== lang.langtitle &&
-          !lang.langdetails.includes("<") && (
-            <p className="text-[11px] text-gray-400 truncate">
-              {lang.langdetails}
-            </p>
-          )}
+      <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-md mb-2 bg-gray-100 flex items-center justify-center group-active:shadow-sm transition-shadow">
+        {hasLogo && imgSrc && !imgError ? (
+          <img
+            src={imgSrc}
+            alt={lang.langtitle}
+            className="w-full h-full object-cover"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center">
+            <Globe className="w-7 h-7 text-emerald-600" />
+          </div>
+        )}
       </div>
-
-      <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0" />
+      <span className="text-[11px] font-semibold text-gray-700 text-center leading-tight">
+        {lang.langtitle}
+      </span>
     </motion.div>
   );
 }
@@ -81,7 +71,7 @@ export default function LanguagesPage() {
 
   useEffect(() => {
     if (!user.mobile) {
-      navigate("/", { replace: true });
+      navigate("/home", { replace: true });
       return;
     }
     fetchLanguages();
@@ -172,10 +162,10 @@ export default function LanguagesPage() {
             variants={container}
             initial="hidden"
             animate="show"
-            className="bg-white rounded-2xl shadow-sm border border-gray-100 divide-y divide-gray-100 overflow-hidden"
+            className="grid grid-cols-4 gap-4"
           >
             {languages.map((lang, idx) => (
-              <LangItem
+              <LangCard
                 key={lang.langid || idx}
                 lang={lang}
                 onClick={() =>

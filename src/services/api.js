@@ -68,43 +68,6 @@ async function apiFetch(endpoint, options = {}) {
   return data;
 }
 
-export async function registerUser({ name, mobile }) {
-  try {
-    return await apiFetch("/addftauser", {
-      method: "POST",
-      body: JSON.stringify({ name, mobile }),
-    });
-  } catch (err) {
-    // "User already exists" → call sign-in endpoint to actually send the OTP
-    if (err.message?.toLowerCase().includes("already exists")) {
-      console.log("%c🟡 [API] User already exists — calling /ftausersignin to send OTP", "color: #eab308; font-weight: bold; font-size: 12px;");
-      return await signIn({ mobile });
-    }
-    throw err;
-  }
-}
-
-export function verifyOtp({ mobile, otp }) {
-  return apiFetch("/verifyftauserotp", {
-    method: "POST",
-    body: JSON.stringify({ mobile, otp }),
-  });
-}
-
-export function signIn({ mobile }) {
-  return apiFetch("/ftausersignin", {
-    method: "POST",
-    body: JSON.stringify({ mobile }),
-  });
-}
-
-export function resendOtp({ mobile }) {
-  return apiFetch("/ftauserresendotp", {
-    method: "POST",
-    body: JSON.stringify({ mobile }),
-  });
-}
-
 export function getLanguageList({ mobile }) {
   return apiFetch("/ftauserlanglist", {
     method: "POST",
@@ -128,7 +91,10 @@ export function getAdvertisements({ mobile, adclient = "fofi", srctype = "Image"
 
 export async function getPublicIP() {
   try {
-    const res = await fetch("https://api.ipify.org?format=json");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch("https://api.ipify.org?format=json", { signal: controller.signal });
+    clearTimeout(timeout);
     const data = await res.json();
     return data.ip;
   } catch {
