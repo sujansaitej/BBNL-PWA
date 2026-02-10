@@ -1,5 +1,5 @@
 
-import { XMarkIcon, GlobeAltIcon, Cog6ToothIcon, UsersIcon, BellAlertIcon, ArchiveBoxIcon, ChatBubbleOvalLeftEllipsisIcon, ArrowRightOnRectangleIcon, WifiIcon, FilmIcon, TicketIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, GlobeAltIcon, Cog6ToothIcon, UsersIcon, BellAlertIcon, ArchiveBoxIcon, ChatBubbleOvalLeftEllipsisIcon, ArrowRightOnRectangleIcon, WifiIcon, FilmIcon, TicketIcon, UserIcon, CurrencyRupeeIcon, ClipboardDocumentListIcon } from '@heroicons/react/24/outline';
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Modal } from "@/components/ui";
@@ -14,12 +14,13 @@ export default function Sidebar({ open, onClose }) {
   const lname  = user?.lastname ? user.lastname.charAt(0).toUpperCase() + user.lastname.slice(1) : '';
   const name   = fname || lname ? `${fname} ${lname}`.trim() : 'User';
   const mobile = user?.mobileno || 'N/A';
-  const photo  = user?.photo ? import.meta.env.VITE_API_BASE_URL + import.meta.env.VITE_API_APP_USER_IMG_PATH + user?.photo : import.meta.env.VITE_API_APP_DIR_PATH + import.meta.env.VITE_API_APP_DEFAULT_USER_IMG_PATH;
+  const photo  = (user?.photo && user?.photo !='path') ? import.meta.env.VITE_API_BASE_URL + import.meta.env.VITE_API_APP_USER_IMG_PATH + user?.photo : import.meta.env.VITE_API_APP_DIR_PATH + import.meta.env.VITE_API_APP_DEFAULT_USER_IMG_PATH;
 
   const logUname = JSON.parse(localStorage.getItem('user')).username;
   const [servkey, setServkey] = useState('');
   const [intWB, setIntWB] = useState(0);
   // const [fofiWB, setFofiWB] = useState(0);
+  const isCustomer = localStorage.getItem('loginType') === 'customer'? true : false;
   useEffect(() => {
     getWalBalance();
   }, []);
@@ -66,7 +67,7 @@ export default function Sidebar({ open, onClose }) {
           </div>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"><XMarkIcon className="h-6 w-6" /></button>
         </div>
-        
+        {!isCustomer &&
         <div className="bg-blue-600 text-white mt-1 p-4 shadow"> {/* rounded-xl mx-4 */}
           <h3 className="text-sm font-medium">Wallet Balance</h3>
           <p className="text-2xl font-semibold mt-1">{import.meta.env.VITE_API_APP_DEFAULT_CURRENCY_SYMBOL +' '+ intWB}</p>
@@ -104,7 +105,7 @@ export default function Sidebar({ open, onClose }) {
             </button>
           </div>
         </div>
-
+        }
         <div className="p-4">
           {/* <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Wallet Balance</p>
           <h3 className="text-2xl font-bold mb-4">₹ 2,562.50</h3>
@@ -115,13 +116,27 @@ export default function Sidebar({ open, onClose }) {
           </div> */}
           <p className="text-xs uppercase text-gray-500 dark:text-gray-400 mt-2 mb-2">Menu</p>
           <nav className="space-y-1">
-            <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="/customers"><UsersIcon className="h-5 w-5 text-blue bg-blue" /> All Users {/*<span className="ml-auto text-xs bg-purple-600 text-white rounded px-2">10</span>*/}</Link>
+            {!isCustomer ? (
+            <>
+            <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="/customers"><UsersIcon className="h-5 w-5 text-blue bg-blue" /> All Users {/*<span className="ml-auto text-xs bg-green-600 text-white rounded px-2">10</span>*/}</Link>
             <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="/customers?filter=expiring"><BellAlertIcon className="h-5 w-5" /> Today's Expiry {/*<span className="ml-auto text-xs bg-yellow-500 text-white rounded px-2">5</span>*/}</Link>
             <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="/tickets"><TicketIcon className="h-5 w-5" /> Tickets</Link>
             <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="#" onClick={comingsoon}><ArchiveBoxIcon className="h-5 w-5" /> Order History</Link>
             {/* <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="#" onClick={comingsoon}><Cog6ToothIcon className="h-5 w-5" /> Settings</Link> */}
             <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="/support"><ChatBubbleOvalLeftEllipsisIcon className="h-5 w-5" /> Support</Link>
             <a className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" href="" onClick={logout}><ArrowRightOnRectangleIcon className="h-5 w-5" /> Log out</a>
+            </>
+            ) : (
+            <>
+            <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="#" onClick={comingsoon}><UserIcon className="h-5 w-5 text-blue bg-blue" /> Profile {/*<span className="ml-auto text-xs bg-green-600 text-white rounded px-2">10</span>*/}</Link>
+            <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="#" onClick={comingsoon}><CurrencyRupeeIcon className="h-5 w-5" /> Renew {/*<span className="ml-auto text-xs bg-yellow-500 text-white rounded px-2">5</span>*/}</Link>
+            <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="#" onClick={comingsoon}><ClipboardDocumentListIcon className="h-5 w-5" /> Bills</Link>
+            <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="#" onClick={comingsoon}><TicketIcon className="h-5 w-5" /> Tickets</Link>
+            {/* <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="#" onClick={comingsoon}><Cog6ToothIcon className="h-5 w-5" /> Settings</Link> */}
+            <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="#" onClick={comingsoon}><ChatBubbleOvalLeftEllipsisIcon className="h-5 w-5" /> Support</Link>
+            <a className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" href="" onClick={logout}><ArrowRightOnRectangleIcon className="h-5 w-5" /> Log out</a>
+            </>
+            )}
           </nav>
           {/* <nav className="mt-6 space-y-1">
             {[
