@@ -25,6 +25,12 @@ import FofiPayment from "../pages/FofiPayment";
 // Customer component imports
 import CustomerDashboard from "../pages/customer/Dashboard";
 
+// IPTV Live TV imports
+import LiveTvPage from "../pages/iptv/LiveTvPage";
+import ChannelsPage from "../pages/iptv/ChannelsPage";
+import LanguagesPage from "../pages/iptv/LanguagesPage";
+import PlayerPage from "../pages/iptv/PlayerPage";
+
 export default function AppRoutes() {
   return (
     <Routes>
@@ -194,6 +200,40 @@ export default function AppRoutes() {
         element={
           <PrivateRoute>
             <FofiPayment />
+          </PrivateRoute>
+        }
+      />
+
+      {/* ── IPTV Live TV Routes ── */}
+      <Route
+        path="/cust/livetv"
+        element={
+          <PrivateRoute>
+            <LiveTvPage />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/cust/livetv/channels"
+        element={
+          <PrivateRoute>
+            <ChannelsPage />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/cust/livetv/languages"
+        element={
+          <PrivateRoute>
+            <LanguagesPage />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/cust/livetv/player"
+        element={
+          <PrivateRoute>
+            <PlayerPage />
           </PrivateRoute>
         }
       />
