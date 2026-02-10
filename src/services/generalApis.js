@@ -10,7 +10,7 @@ function getHeadersJson() {
     Authorization: import.meta.env.VITE_API_AUTH_KEY,
     username: import.meta.env.VITE_API_USERNAME,
     password: import.meta.env.VITE_API_PASSWORD,
-    appkeytype: import.meta.env.VITE_API_APP_USER_TYPE,
+    appkeytype: localStorage.getItem('loginType') == "franchisee" ? import.meta.env.VITE_API_APP_USER_TYPE : import.meta.env.VITE_API_APP_USER_TYPE_CUST,
     appversion: import.meta.env.VITE_API_APP_VERSION,
     "Content-Type": "application/json",
   };
@@ -21,7 +21,7 @@ function getHeadersForm() {
     Authorization: import.meta.env.VITE_API_AUTH_KEY,
     username: import.meta.env.VITE_API_USERNAME,
     password: import.meta.env.VITE_API_PASSWORD,
-    appkeytype: import.meta.env.VITE_API_APP_USER_TYPE,
+    appkeytype: localStorage.getItem('loginType') == "franchisee" ? import.meta.env.VITE_API_APP_USER_TYPE : import.meta.env.VITE_API_APP_USER_TYPE_CUST,
     appversion: import.meta.env.VITE_API_APP_VERSION,
   };
 }

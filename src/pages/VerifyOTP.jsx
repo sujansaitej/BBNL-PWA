@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useRef } from "react";
 import { OTPauth, resendOTP } from "../services/generalApis";
 import { useNavigate } from "react-router-dom";
+import { useDarkMode } from "../hooks/useDarkMode";
 
 export default function VerifyOtpPage() {
-  const navigate = useNavigate();
-  const logo = import.meta.env.VITE_API_APP_DIR_PATH + import.meta.env.VITE_API_APP_LOGO_BLACK;
+  const navigate   = useNavigate();
+  const isDarkMode = useDarkMode();
+  const logo = isDarkMode ? import.meta.env.VITE_API_APP_DIR_PATH + import.meta.env.VITE_API_APP_LOGO_WHITE
+                         : import.meta.env.VITE_API_APP_DIR_PATH + import.meta.env.VITE_API_APP_LOGO_BLACK;
   const [otp, setOtp] = useState(["", "", "", ""]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -97,26 +100,14 @@ export default function VerifyOtpPage() {
     setLoading(true);
     setError("");
     try {
-        const result = await OTPauth(username, otprefid, otpcode);
-        if(result?.status?.err_code == '1') {
-            triggerError((result?.status && result?.status?.err_msg ) || "Invalid OTP");
-        }else{
-            localStorage.removeItem("otprefid");
-            navigate("/");
-        }
-    //   const res = await fetch("/OTPauth", {
-    //     method: "POST",
-    //     headers: { "Content-Type": "application/json" },
-    //     body: JSON.stringify({ username, otprefid, otpcode }),
-    //   });
-    //   const data = await res.json();
-    //   if (!data || !data.success) {
-    //     triggerError((data && data.message) || "Invalid OTP");
-    //   } else {
-        // success: user-specified handling
-        // e.g. redirect:
-        // window.location.href = "/dashboard";
-    //   }
+      const result = await OTPauth(username, otprefid, otpcode);
+      if(result?.status?.err_code == '1') {
+          triggerError((result?.status && result?.status?.err_msg ) || "Invalid OTP");
+      }else{
+          localStorage.removeItem("otprefid");
+          localStorage.getItem('loginType') == "franchisee" ? navigate("/") : navigate("/cust/dashboard");
+          // navigate("/");
+      }
     } catch (err) {
       triggerError("Network error. Try again.");
     } finally {
