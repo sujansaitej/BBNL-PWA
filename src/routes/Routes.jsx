@@ -22,6 +22,9 @@ import PaymentHistory from "../pages/PaymentHistory";
 import UploadDocuments from "../pages/UploadDocuments";
 import FofiPayment from "../pages/FofiPayment";
 
+// Customer component imports
+import CustomerDashboard from "../pages/customer/Dashboard";
+
 export default function AppRoutes() {
   return (
     <Routes>
@@ -119,6 +122,14 @@ export default function AppRoutes() {
         element={
           <PrivateRoute>
             <TicketsMap />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/cust/dashboard"
+        element={
+          <PrivateRoute>
+            <CustomerDashboard />
           </PrivateRoute>
         }
       />

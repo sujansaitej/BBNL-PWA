@@ -7,6 +7,7 @@ export { default as FloatingInput } from "./FloatingInput";
 export { default as ConfirmDialog } from "./ConfirmDialog";
 export { default as TicketDialog } from "./TicketDialog";
 export { default as Modal } from "./Modal";
+export { default as UserToggle } from "./UserToggle";
 export { default as Alert } from "./Alert";
 export { default as ServiceSelectionModal } from "./ServiceSelectionModal";
 // export { default as Select } from "./Select";

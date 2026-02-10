@@ -6,6 +6,7 @@ import {
   EyeSlashIcon,
 } from "@heroicons/react/24/solid";
 import { Download, Smartphone, Info, ArrowRight, CheckCircle } from "lucide-react";
+import { UserToggle } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { useDarkMode } from "../hooks/useDarkMode";
@@ -20,6 +21,7 @@ export default function Login() {
   localStorage.setItem("pwaInstalledOnce", "false");
   const isLocal = import.meta.env.VITE_API_APP_ISLOCAL; // Set to true for local testing to bypass PWA install
 
+  const [loginType, setLoginType] = useState("franchisee"); // franchisee | customer
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -72,7 +74,8 @@ export default function Login() {
   const handleLogin = async (e) => {
     e.preventDefault();
     setError("");
-    localStorage.clear();
+    // localStorage.clear();
+    localStorage.removeItem('otprefid');
 
     if (!username || !password) {
       setError("Please enter the username and password.");
@@ -153,7 +156,7 @@ export default function Login() {
         <img src={logo} alt="Fo-Fi Logo" className="h-12" />
       </div>
       <div className="bg-white dark:bg-gray-900 shadow-xl rounded-2xl p-4 max-w-lg w-full text-center animate-fade-in">
-        <p className="mb-2 justify-center text-base">Welcome to our newly launched platform independent app. We appreciate your continued support as we enhance our services.</p>
+        <p className="mb-2 justify-center text-sm">Welcome to our newly launched platform independent app. We appreciate your continued support as we enhance our services.</p>
         <div className="flex justify-center mb-2">
           <Download className="h-10 w-10 text-blue-500 animate-bounce" />
         </div>
@@ -178,7 +181,7 @@ export default function Login() {
         <div className="bg-blue-50 dark:bg-gray-800 rounded-xl p-2 mb-2 text-left space-y-2">
           <div className="flex items-center space-x-2">
             {/* <Smartphone className="text-blue-500" /> */}
-            <AndroidIcon className="w-6 h-8 text-purple-600" />
+            <AndroidIcon className="w-6 h-8 text-green-600" />
             <p className="text-sm font-semibold text-blue-700 dark:text-blue-300 mt-2">
               Android Users:
             </p>
@@ -217,7 +220,7 @@ export default function Login() {
     return (
       <>
       <div className="text-sm bg-white dark:bg-gray-900 shadow-xl rounded-2xl p-8 max-w-md w-full text-center animate-fade-in">
-        <CheckCircle className="h-12 w-12 text-purple-500 mx-auto mb-3 animate-pulse" />
+        <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3 animate-pulse" />
         <h1 className="text-sm font-bold text-gray-800 dark:text-gray-100 mb-3">
           Thank You for Installing Fo-Fi CRM!
         </h1>
@@ -256,13 +259,45 @@ export default function Login() {
 
         {/* Error Message */}
         {error && (
-          <div className="mb-4 p-3 rounded-lg bg-red-100 text-red-700 text-sm">
+          <div className="mb-4 p-3 rounded-lg bg-red-100 text-red-700 text-sm text-xs">
             {error}
           </div>
         )}
 
         {/* Form */}
-        <form onSubmit={handleLogin} className="space-y-4">
+        {/* Login Type Toggle */}
+        <UserToggle loginType={loginType} setLoginType={setLoginType} />
+{/* <div className="flex items-center justify-center mb-6">
+  <div className="bg-gray-200 dark:bg-gray-800 rounded-full p-1 flex">
+    <button
+      onClick={() => setLoginType("franchisee")}
+      className={`px-4 py-1 rounded-full text-sm font-medium transition-all duration-300  ease-in-out ${
+        loginType === "franchisee"
+          ? "bg-blue-600 text-white"
+          : "text-gray-600 dark:text-gray-300"
+      }`}
+    >
+      Franchisee
+    </button>
+
+    <button
+      onClick={() => setLoginType("customer")}
+      className={`px-4 py-1 rounded-full text-sm font-medium transition-all duration-300 ease-in-out ${
+        loginType === "customer"
+          ? "bg-blue-600 text-white"
+          : "text-gray-600 dark:text-gray-300"
+      }`}
+    >
+      Customer
+    </button>
+  </div>
+</div> */}
+
+        <form onSubmit={handleLogin} className="space-y-4" autoComplete="off">
+          {/* Fake fields */}
+          <input type="text" name="_user" autoComplete="username" className="hidden" />
+          <input type="password" name="_Pass" autoComplete="new-password" className="hidden" />
+
           {/* Username */}
           <div className="relative">
             <UserIcon className="absolute left-3 top-3 h-5 w-5 text-gray-400 dark:text-white" />
@@ -271,6 +306,7 @@ export default function Login() {
               placeholder="Username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
+              autoComplete="off" 
               className="w-full pl-10 pr-4 py-3 rounded-lg border text-gray-900 dark:text-blue-500 border-gray-300 dark:border-gray-700 
                          focus:ring-2 focus:ring-blue-500 focus:outline-none dark:bg-gray-800 
                          shadow-sm"
@@ -285,6 +321,7 @@ export default function Login() {
               placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
               className="w-full pl-10 pr-10 py-3 rounded-lg border border-gray-300 dark:border-gray-700 
                          focus:ring-2 focus:ring-blue-500 focus:outline-none dark:bg-gray-800 
                          text-gray-900 dark:text-white shadow-sm"
