@@ -16,7 +16,8 @@ import {
 import AppLayout from "../components/AppLayout";
 import { AdCarouselSkeleton } from "../components/Loader";
 import { getAdvertisements, getAppVersion, getAppLock } from "../services/api";
-import { preloadShaka } from "../services/shakaLoader";
+import { getCachedAds, setCachedAds, preloadAdImages, getCachedLogo, cacheLogoFromUrl } from "../services/imageStore";
+
 
 function proxyImageUrl(url) {
   if (!url) return null;
@@ -33,16 +34,6 @@ function getGreeting() {
   return "Good Evening";
 }
 
-// Read cached ads instantly
-function getCachedAds() {
-  try {
-    const cached = localStorage.getItem("home_ads");
-    return cached ? JSON.parse(cached) : [];
-  } catch {
-    return [];
-  }
-}
-
 const stagger = {
   hidden: { opacity: 0 },
   show: { opacity: 1, transition: { staggerChildren: 0.06 } },
@@ -57,23 +48,23 @@ const fadeUp = {
 function AdCarousel({ ads }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [failedImages, setFailedImages] = useState(new Set());
-  const [loadedUrls, setLoadedUrls] = useState(new Set());
+  const [readyUrls, setReadyUrls] = useState({});
   const timerRef = useRef(null);
   const DURATION = 5000;
 
   // Filter out failed images
   const validAds = ads.filter((_, i) => !failedImages.has(i));
 
-  // Preload all ad images and track when each finishes loading
+  // Preload & fully decode each ad image before showing — no progressive rendering
   useEffect(() => {
     ads.forEach((ad) => {
       const src = proxyImageUrl(ad.adpath);
       if (!src) return;
       const img = new Image();
-      img.onload = () => {
-        setLoadedUrls((prev) => new Set(prev).add(src));
-      };
       img.src = src;
+      img.decode()
+        .then(() => setReadyUrls((prev) => ({ ...prev, [src]: src })))
+        .catch(() => {});
     });
   }, [ads]);
 
@@ -96,7 +87,7 @@ function AdCarousel({ ads }) {
   const safeIndex = activeIndex % validAds.length;
   const originalIndex = ads.indexOf(validAds[safeIndex]);
   const currentSrc = proxyImageUrl(validAds[safeIndex]?.adpath);
-  const isLoaded = loadedUrls.has(currentSrc);
+  const displaySrc = readyUrls[currentSrc];
 
   return (
     <motion.div
@@ -108,25 +99,24 @@ function AdCarousel({ ads }) {
       {/* Image */}
       <div className="relative aspect-[16/7] bg-gradient-to-br from-gray-100 to-gray-50 overflow-hidden">
         <AnimatePresence mode="wait">
-          <motion.img
-            key={safeIndex}
-            src={currentSrc}
-            alt={`Ad ${safeIndex + 1}`}
-            initial={{ opacity: 0, scale: 1.15 }}
-            animate={{ opacity: isLoaded ? 1 : 0, scale: isLoaded ? 1 : 1.15 }}
-            exit={{ opacity: 0 }}
-            transition={{
-              opacity: { duration: 0.7 },
-              scale: { duration: DURATION / 1000, ease: "easeOut" },
-            }}
-            className="absolute inset-0 w-full h-full object-cover"
-            onLoad={() => {
-              setLoadedUrls((prev) => new Set(prev).add(currentSrc));
-            }}
-            onError={() => {
-              setFailedImages((prev) => new Set(prev).add(originalIndex));
-            }}
-          />
+          {displaySrc && (
+            <motion.img
+              key={safeIndex}
+              src={displaySrc}
+              alt={`Ad ${safeIndex + 1}`}
+              initial={{ opacity: 0, scale: 1.15 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{
+                opacity: { duration: 0.7 },
+                scale: { duration: DURATION / 1000, ease: "easeOut" },
+              }}
+              className="absolute inset-0 w-full h-full object-cover"
+              onError={() => {
+                setFailedImages((prev) => new Set(prev).add(originalIndex));
+              }}
+            />
+          )}
         </AnimatePresence>
 
         {/* Bottom gradient for dots visibility */}
@@ -172,13 +162,22 @@ export default function Home() {
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem("user") || "{}");
 
-  const cachedAds = getCachedAds();
-  const [ads, setAds] = useState(cachedAds);
-  const [adsLoading, setAdsLoading] = useState(cachedAds.length === 0);
+  const homeCachedAds = getCachedAds("home");
+  const [ads, setAds] = useState(homeCachedAds);
+  const [adsLoading, setAdsLoading] = useState(homeCachedAds.length === 0);
 
   const [appLocked, setAppLocked] = useState(false);
   const [lockMsg, setLockMsg] = useState("");
   const [updateInfo, setUpdateInfo] = useState(null); // { version, message, link }
+
+  // ── Cached dark logo (base64 in localStorage) ──
+  const [darkLogoSrc, setDarkLogoSrc] = useState(() => getCachedLogo("logo-dark") || "/logo-dark.png");
+
+  useEffect(() => {
+    cacheLogoFromUrl("logo-dark", "/logo-dark.png").then((dataUrl) => {
+      if (dataUrl) setDarkLogoSrc(dataUrl);
+    });
+  }, []);
 
   const greeting = getGreeting();
   const firstName = (user.name || "User").split(" ")[0];
@@ -217,9 +216,6 @@ export default function Home() {
   ];
 
   // ── Check App Lock ──
-  // Preload Shaka Player module early so it's cached when user plays a channel
-  useEffect(() => { preloadShaka(); }, []);
-
   useEffect(() => {
     if (!user.mobile) return;
 
@@ -257,7 +253,8 @@ export default function Home() {
         console.log("%c🟢 Current version:", "color: #22c55e; font-weight: bold;", APP_VERSION);
         console.groupEnd();
 
-        if (body.appversion && body.appversion !== APP_VERSION) {
+        const dismissed = sessionStorage.getItem("update_dismissed");
+        if (body.appversion && body.appversion !== APP_VERSION && !dismissed) {
           setUpdateInfo({
             version: body.appversion,
             message: body.verchngmsg || "A new version is available!",
@@ -278,7 +275,7 @@ export default function Home() {
     if (!user.mobile) return;
 
     const fetchAds = async () => {
-      const hasCached = cachedAds.length > 0;
+      const hasCached = homeCachedAds.length > 0;
 
       console.group(
         `%c📢 [Ads] ${hasCached ? "Background refresh" : "Fetch"} Homepage Advertisements`,
@@ -293,7 +290,7 @@ export default function Home() {
         console.log(
           "%c⚡ Using %d cached ads while refreshing",
           "color: #22c55e; font-weight: bold;",
-          cachedAds.length
+          homeCachedAds.length
         );
       }
 
@@ -321,7 +318,8 @@ export default function Home() {
         console.groupEnd();
 
         setAds(adList);
-        localStorage.setItem("home_ads", JSON.stringify(adList));
+        setCachedAds("home", adList);
+        preloadAdImages(adList, proxyImageUrl);
       } catch (err) {
         console.log(
           "%c🔴 [Ads] Error:",
@@ -465,7 +463,7 @@ export default function Home() {
         {/* ───── App Version Footer ───── */}
         <div className="flex flex-col items-center py-2 gap-1">
           <img
-            src="/logo-dark.png"
+            src={darkLogoSrc}
             alt="Fo-Fi"
             className="h-8 w-auto object-contain opacity-20"
           />
@@ -516,7 +514,7 @@ export default function Home() {
               className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full relative"
             >
               <button
-                onClick={() => setUpdateInfo(null)}
+                onClick={() => { sessionStorage.setItem("update_dismissed", "1"); setUpdateInfo(null); }}
                 className="absolute top-3 right-3 w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors"
               >
                 <X className="w-4 h-4 text-gray-500" />
@@ -534,7 +532,7 @@ export default function Home() {
 
                 <div className="flex gap-3">
                   <button
-                    onClick={() => setUpdateInfo(null)}
+                    onClick={() => { sessionStorage.setItem("update_dismissed", "1"); setUpdateInfo(null); }}
                     className="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 active:bg-gray-100 transition-colors min-h-[44px]"
                   >
                     Later

@@ -25,7 +25,7 @@ export default function AppInfoPage() {
 
   useEffect(() => {
     if (!user.mobile) {
-      navigate("/", { replace: true });
+      navigate("/home", { replace: true });
       return;
     }
     fetchAppInfo();

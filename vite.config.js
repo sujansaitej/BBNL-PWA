@@ -104,6 +104,12 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    minify: "esbuild",
+  },
+  esbuild: {
+    drop: process.env.NODE_ENV === "production" ? ["console", "debugger"] : [],
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

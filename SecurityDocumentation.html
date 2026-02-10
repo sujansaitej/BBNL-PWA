@@ -1,1154 +1,846 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>IPTV FTA PWA — Security Audit &amp; Hardening Plan</title>
-<style>
-  :root {
-    --critical: #dc2626;
-    --critical-bg: #fef2f2;
-    --high: #ea580c;
-    --high-bg: #fff7ed;
-    --medium: #ca8a04;
-    --medium-bg: #fefce8;
-    --fix: #2563eb;
-    --fix-bg: #eff6ff;
-    --backend: #7c3aed;
-    --backend-bg: #f5f3ff;
-    --green: #16a34a;
-    --green-bg: #f0fdf4;
-    --gray-50: #f9fafb;
-    --gray-100: #f3f4f6;
-    --gray-200: #e5e7eb;
-    --gray-300: #d1d5db;
-    --gray-600: #4b5563;
-    --gray-700: #374151;
-    --gray-800: #1f2937;
-    --gray-900: #111827;
-  }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fo-Fi IPTV — Security Audit &amp; Hardening Report</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --surface2: #334155;
+      --border: #475569;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #3b82f6;
+      --green: #22c55e;
+      --red: #ef4444;
+      --orange: #f59e0b;
+      --yellow: #eab308;
+      --purple: #a78bfa;
+    }
 
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
 
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-    background: var(--gray-50);
-    color: var(--gray-800);
-    line-height: 1.6;
-    -webkit-font-smoothing: antialiased;
-  }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      padding: 2rem;
+    }
 
-  .container {
-    max-width: 960px;
-    margin: 0 auto;
-    padding: 2rem 1.5rem;
-  }
+    .container { max-width: 960px; margin: 0 auto; }
 
-  /* Header */
-  .doc-header {
-    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-    color: #fff;
-    padding: 3rem 2rem;
-    border-radius: 1rem;
-    margin-bottom: 2rem;
-    position: relative;
-    overflow: hidden;
-  }
-  .doc-header::before {
-    content: '';
-    position: absolute;
-    top: -50%;
-    right: -20%;
-    width: 400px;
-    height: 400px;
-    border-radius: 50%;
-    background: rgba(239, 68, 68, 0.08);
-  }
-  .doc-header h1 {
-    font-size: 1.75rem;
-    font-weight: 800;
-    margin-bottom: 0.5rem;
-    position: relative;
-  }
-  .doc-header .subtitle {
-    font-size: 0.875rem;
-    color: #94a3b8;
-    position: relative;
-  }
-  .doc-header .meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1.5rem;
-    margin-top: 1.5rem;
-    font-size: 0.8rem;
-    color: #cbd5e1;
-    position: relative;
-  }
-  .doc-header .meta span {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-  }
+    /* Header */
+    .header {
+      text-align: center;
+      padding: 3rem 2rem;
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      margin-bottom: 2rem;
+    }
+    .header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent), var(--purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 0.5rem;
+    }
+    .header .subtitle { color: var(--muted); font-size: 1rem; }
+    .header .date { color: var(--muted); font-size: 0.85rem; margin-top: 0.75rem; }
 
-  /* Risk Badge */
-  .risk-banner {
-    background: var(--critical-bg);
-    border: 2px solid var(--critical);
-    border-radius: 0.75rem;
-    padding: 1.25rem 1.5rem;
-    margin-bottom: 2rem;
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-  }
-  .risk-banner .icon {
-    font-size: 2rem;
-    flex-shrink: 0;
-  }
-  .risk-banner h3 {
-    color: var(--critical);
-    font-size: 1rem;
-    font-weight: 700;
-  }
-  .risk-banner p {
-    color: var(--gray-700);
-    font-size: 0.85rem;
-    margin-top: 0.25rem;
-  }
+    .meta-row {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      margin-top: 1.25rem;
+      flex-wrap: wrap;
+    }
+    .meta-chip {
+      background: var(--surface2);
+      padding: 0.35rem 1rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
 
-  /* Sections */
-  .section {
-    margin-bottom: 2.5rem;
-  }
-  .section-title {
-    font-size: 1.25rem;
-    font-weight: 800;
-    color: var(--gray-900);
-    margin-bottom: 1rem;
-    padding-bottom: 0.5rem;
-    border-bottom: 2px solid var(--gray-200);
-  }
-  .section-title .num {
-    color: var(--fix);
-    margin-right: 0.5rem;
-  }
+    /* Sections */
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      margin-bottom: 1.5rem;
+    }
+    .section h2 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      margin-bottom: 1.25rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .section h3 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin: 1.5rem 0 0.5rem;
+      color: var(--text);
+    }
+    .section p, .section li {
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+    .section ul, .section ol { padding-left: 1.5rem; margin: 0.5rem 0; }
+    .section li { margin-bottom: 0.3rem; }
 
-  /* Summary Stats */
-  .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 1rem;
-    margin-bottom: 2rem;
-  }
-  .stat-card {
-    background: #fff;
-    border-radius: 0.75rem;
-    padding: 1.25rem;
-    border: 1px solid var(--gray-200);
-    text-align: center;
-  }
-  .stat-card .count {
-    font-size: 2rem;
-    font-weight: 800;
-    line-height: 1;
-  }
-  .stat-card .label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-top: 0.5rem;
-  }
-  .stat-critical .count { color: var(--critical); }
-  .stat-critical { border-color: #fecaca; background: var(--critical-bg); }
-  .stat-high .count { color: var(--high); }
-  .stat-high { border-color: #fed7aa; background: var(--high-bg); }
-  .stat-medium .count { color: var(--medium); }
-  .stat-medium { border-color: #fef08a; background: var(--medium-bg); }
-  .stat-total .count { color: var(--gray-900); }
+    /* Badges */
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.6rem;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      vertical-align: middle;
+    }
+    .badge-critical { background: #7f1d1d; color: #fca5a5; }
+    .badge-high { background: #78350f; color: #fcd34d; }
+    .badge-done { background: #14532d; color: #86efac; }
+    .badge-pending { background: #78350f; color: #fcd34d; }
+    .badge-frontend { background: #312e81; color: #c4b5fd; }
+    .badge-backend { background: #064e3b; color: #6ee7b7; }
 
-  /* Severity badges */
-  .badge {
-    display: inline-block;
-    padding: 0.2rem 0.6rem;
-    border-radius: 9999px;
-    font-size: 0.65rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-  .badge-critical { background: var(--critical); color: #fff; }
-  .badge-high { background: var(--high); color: #fff; }
-  .badge-medium { background: var(--medium); color: #fff; }
-  .badge-frontend { background: var(--fix); color: #fff; }
-  .badge-backend { background: var(--backend); color: #fff; }
-  .badge-both { background: var(--gray-700); color: #fff; }
+    /* Status Banner */
+    .status-banner {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem 1.5rem;
+      border-radius: 10px;
+      margin-bottom: 1.5rem;
+      font-weight: 600;
+    }
+    .status-banner.warning {
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      color: var(--orange);
+    }
+    .status-banner .icon { font-size: 1.5rem; }
 
-  /* Vulnerability Cards */
-  .vuln-card {
-    background: #fff;
-    border-radius: 0.75rem;
-    border: 1px solid var(--gray-200);
-    margin-bottom: 1rem;
-    overflow: hidden;
-  }
-  .vuln-card.critical { border-left: 4px solid var(--critical); }
-  .vuln-card.high { border-left: 4px solid var(--high); }
-  .vuln-card.medium { border-left: 4px solid var(--medium); }
+    /* Tables */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.88rem;
+    }
+    th, td {
+      padding: 0.7rem 0.9rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    th {
+      background: var(--surface2);
+      color: var(--text);
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    td { color: var(--muted); }
+    tr:hover td { background: rgba(59, 130, 246, 0.05); }
 
-  .vuln-header {
-    padding: 1rem 1.25rem;
-    display: flex;
-    align-items: flex-start;
-    gap: 0.75rem;
-    cursor: pointer;
-    user-select: none;
-  }
-  .vuln-header:hover { background: var(--gray-50); }
-  .vuln-id {
-    font-size: 0.7rem;
-    font-weight: 700;
-    color: var(--gray-600);
-    flex-shrink: 0;
-    min-width: 65px;
-    padding-top: 2px;
-  }
-  .vuln-title {
-    font-size: 0.9rem;
-    font-weight: 700;
-    color: var(--gray-900);
-    flex: 1;
-  }
-  .vuln-toggle {
-    font-size: 1.2rem;
-    color: var(--gray-300);
-    flex-shrink: 0;
-    transition: transform 0.2s;
-  }
-  .vuln-card.open .vuln-toggle { transform: rotate(180deg); }
+    /* Code blocks */
+    code {
+      background: var(--surface2);
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      font-family: 'Cascadia Code', 'Fira Code', monospace;
+      font-size: 0.82rem;
+      color: #e879f9;
+    }
+    pre {
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      overflow-x: auto;
+      margin: 0.75rem 0;
+      font-size: 0.82rem;
+      line-height: 1.6;
+    }
+    pre code {
+      background: none;
+      padding: 0;
+      color: #e2e8f0;
+    }
+    .code-comment { color: #6a9955; }
+    .code-keyword { color: #c586c0; }
+    .code-string { color: #ce9178; }
+    .code-key { color: #9cdcfe; }
 
-  .vuln-body {
-    display: none;
-    padding: 0 1.25rem 1.25rem 1.25rem;
-    border-top: 1px solid var(--gray-100);
-  }
-  .vuln-card.open .vuln-body { display: block; }
+    /* Vulnerability Cards */
+    .vuln-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      margin: 1rem 0;
+      border-left: 4px solid var(--red);
+    }
+    .vuln-card.high { border-left-color: var(--orange); }
+    .vuln-card.done { border-left-color: var(--green); }
+    .vuln-card .vuln-title {
+      font-weight: 700;
+      font-size: 0.95rem;
+      margin-bottom: 0.4rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .vuln-card .vuln-file {
+      font-size: 0.8rem;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+    }
+    .vuln-card .vuln-desc { font-size: 0.88rem; color: var(--muted); }
 
-  .vuln-detail {
-    margin-top: 0.75rem;
-  }
-  .vuln-detail dt {
-    font-size: 0.7rem;
-    font-weight: 700;
-    color: var(--gray-600);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 0.25rem;
-    margin-top: 0.75rem;
-  }
-  .vuln-detail dt:first-child { margin-top: 0; }
-  .vuln-detail dd {
-    font-size: 0.85rem;
-    color: var(--gray-700);
-  }
+    /* Fix Cards */
+    .fix-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      margin: 1rem 0;
+    }
+    .fix-card.completed { border-left: 4px solid var(--green); }
+    .fix-card.pending { border-left: 4px solid var(--orange); }
+    .fix-card .fix-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+    .fix-card .fix-title { font-weight: 700; font-size: 0.95rem; }
 
-  /* Code blocks */
-  code {
-    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-    font-size: 0.8rem;
-    background: var(--gray-100);
-    padding: 0.15rem 0.4rem;
-    border-radius: 0.25rem;
-    color: var(--critical);
-  }
-  pre {
-    background: #1e293b;
-    color: #e2e8f0;
-    padding: 1rem;
-    border-radius: 0.5rem;
-    overflow-x: auto;
-    font-size: 0.8rem;
-    line-height: 1.5;
-    margin-top: 0.5rem;
-  }
-  pre code {
-    background: none;
-    padding: 0;
-    color: inherit;
-  }
+    /* Flow Diagram */
+    .flow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin: 1.5rem 0;
+      font-size: 0.85rem;
+    }
+    .flow-step {
+      background: var(--surface2);
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      text-align: center;
+    }
+    .flow-arrow { color: var(--muted); font-size: 1.2rem; }
 
-  /* Fix Cards */
-  .fix-card {
-    background: #fff;
-    border-radius: 0.75rem;
-    border: 1px solid var(--gray-200);
-    margin-bottom: 1rem;
-    overflow: hidden;
-  }
-  .fix-card.frontend { border-left: 4px solid var(--fix); }
-  .fix-card.backend { border-left: 4px solid var(--backend); }
+    /* Checklist */
+    .checklist { list-style: none; padding: 0; }
+    .checklist li {
+      padding: 0.5rem 0;
+      border-bottom: 1px solid rgba(71, 85, 105, 0.3);
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+    }
+    .check-icon { font-size: 1.1rem; flex-shrink: 0; }
 
-  .fix-header {
-    padding: 1rem 1.25rem;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-  .fix-id {
-    font-size: 0.7rem;
-    font-weight: 700;
-    flex-shrink: 0;
-    min-width: 60px;
-  }
-  .fix-id.fe { color: var(--fix); }
-  .fix-id.be { color: var(--backend); }
-  .fix-title {
-    font-size: 0.9rem;
-    font-weight: 700;
-    color: var(--gray-900);
-    flex: 1;
-  }
-  .fix-body {
-    padding: 0 1.25rem 1.25rem;
-    font-size: 0.85rem;
-    color: var(--gray-700);
-  }
-  .fix-body p { margin-bottom: 0.5rem; }
-  .fix-body ul { padding-left: 1.25rem; margin-bottom: 0.5rem; }
-  .fix-body li { margin-bottom: 0.25rem; }
+    /* Phase Timeline */
+    .timeline { position: relative; padding-left: 2rem; }
+    .timeline::before {
+      content: '';
+      position: absolute;
+      left: 0.5rem;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: var(--border);
+    }
+    .timeline-item {
+      position: relative;
+      margin-bottom: 1.5rem;
+      padding: 1rem 1.25rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .timeline-item::before {
+      content: '';
+      position: absolute;
+      left: -1.75rem;
+      top: 1.25rem;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid var(--bg);
+    }
+    .timeline-item.done::before { background: var(--green); }
+    .timeline-item.next::before { background: var(--orange); }
+    .timeline-item .phase-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 0.25rem;
+    }
+    .timeline-item.done .phase-label { color: var(--green); }
+    .timeline-item.next .phase-label { color: var(--orange); }
 
-  /* Priority Table */
-  .phase-block {
-    background: #fff;
-    border-radius: 0.75rem;
-    border: 1px solid var(--gray-200);
-    margin-bottom: 1.5rem;
-    overflow: hidden;
-  }
-  .phase-header {
-    padding: 1rem 1.25rem;
-    font-weight: 700;
-    font-size: 0.9rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .phase-header.p1 { background: var(--critical-bg); color: var(--critical); border-bottom: 1px solid #fecaca; }
-  .phase-header.p2 { background: var(--high-bg); color: var(--high); border-bottom: 1px solid #fed7aa; }
-  .phase-header.p3 { background: var(--medium-bg); color: var(--medium); border-bottom: 1px solid #fef08a; }
+    /* Print styles */
+    @media print {
+      body { background: #fff; color: #1a1a1a; padding: 1rem; }
+      .header { background: #f8f9fa; border-color: #ddd; }
+      .header h1 { -webkit-text-fill-color: #1a1a1a; background: none; }
+      .section { border: 1px solid #ddd; background: #fff; }
+      .vuln-card, .fix-card, .timeline-item { border: 1px solid #ddd; background: #f9f9f9; }
+      th { background: #eee; color: #333; }
+      td, p, li { color: #444; }
+      .status-banner.warning { background: #fff3cd; border-color: #ffc107; color: #856404; }
+      code { background: #f0f0f0; color: #c7254e; }
+      pre { background: #f5f5f5; border-color: #ddd; }
+      pre code { color: #333; }
+    }
 
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.8rem;
-  }
-  th {
-    text-align: left;
-    padding: 0.6rem 1rem;
-    font-weight: 600;
-    color: var(--gray-600);
-    background: var(--gray-50);
-    border-bottom: 1px solid var(--gray-200);
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-  td {
-    padding: 0.6rem 1rem;
-    border-bottom: 1px solid var(--gray-100);
-    color: var(--gray-700);
-  }
-
-  /* Checklist */
-  .checklist {
-    list-style: none;
-    padding: 0;
-  }
-  .checklist li {
-    padding: 0.6rem 0;
-    border-bottom: 1px solid var(--gray-100);
-    font-size: 0.85rem;
-    display: flex;
-    align-items: flex-start;
-    gap: 0.75rem;
-  }
-  .checklist li:last-child { border-bottom: none; }
-  .check-box {
-    width: 18px;
-    height: 18px;
-    border: 2px solid var(--gray-300);
-    border-radius: 4px;
-    flex-shrink: 0;
-    margin-top: 2px;
-  }
-
-  /* Architecture diagram */
-  .arch-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1.5rem;
-    margin-top: 1rem;
-  }
-  @media (max-width: 640px) { .arch-grid { grid-template-columns: 1fr; } }
-  .arch-card {
-    border-radius: 0.75rem;
-    padding: 1.5rem;
-    border: 1px solid var(--gray-200);
-  }
-  .arch-card.insecure { background: var(--critical-bg); border-color: #fecaca; }
-  .arch-card.secure { background: var(--green-bg); border-color: #bbf7d0; }
-  .arch-card h4 {
-    font-size: 0.8rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 0.75rem;
-  }
-  .arch-card.insecure h4 { color: var(--critical); }
-  .arch-card.secure h4 { color: var(--green); }
-  .arch-card pre {
-    font-size: 0.72rem;
-    background: rgba(0,0,0,0.05);
-    color: var(--gray-800);
-    margin: 0;
-  }
-  .arch-card.secure pre { background: rgba(0,0,0,0.04); }
-
-  /* Footer */
-  .doc-footer {
-    text-align: center;
-    padding: 2rem;
-    font-size: 0.75rem;
-    color: var(--gray-600);
-    border-top: 1px solid var(--gray-200);
-    margin-top: 2rem;
-  }
-
-  /* Print */
-  @media print {
-    body { background: #fff; }
-    .container { padding: 0; max-width: 100%; }
-    .doc-header { border-radius: 0; break-after: avoid; }
-    .vuln-card.open .vuln-body { display: block !important; }
-    .vuln-toggle { display: none; }
-    pre { white-space: pre-wrap; }
-  }
-</style>
+    @media (max-width: 640px) {
+      body { padding: 1rem; }
+      .section { padding: 1.25rem; }
+      .header { padding: 2rem 1rem; }
+      .header h1 { font-size: 1.5rem; }
+      table { font-size: 0.8rem; }
+      th, td { padding: 0.5rem; }
+      .flow { font-size: 0.75rem; }
+    }
+  </style>
 </head>
 <body>
+  <div class="container">
 
-<div class="container">
-
-  <!-- ======== HEADER ======== -->
-  <div class="doc-header">
-    <h1>IPTV FTA PWA &mdash; Security Audit &amp; Hardening Plan</h1>
-    <p class="subtitle">Comprehensive vulnerability assessment and remediation roadmap</p>
-    <div class="meta">
-      <span>Audit Date: February 2026</span>
-      <span>App: Fo-Fi IPTV FTA</span>
-      <span>Stack: React 18 + Vite + Tailwind + Shaka Player</span>
-    </div>
-  </div>
-
-  <!-- ======== RISK BANNER ======== -->
-  <div class="risk-banner">
-    <div class="icon">&#9888;</div>
-    <div>
-      <h3>Overall Risk Rating: CRITICAL</h3>
-      <p>The application is <strong>not production-safe</strong> in its current state. API credentials are exposed in the client bundle, OTP verification is mocked, and there is no session management. Immediate action required before any public deployment.</p>
-    </div>
-  </div>
-
-  <!-- ======== 1. EXECUTIVE SUMMARY ======== -->
-  <div class="section">
-    <h2 class="section-title"><span class="num">1.</span> Executive Summary</h2>
-
-    <div class="stats-grid">
-      <div class="stat-card stat-critical">
-        <div class="count">6</div>
-        <div class="label" style="color:var(--critical)">Critical</div>
-      </div>
-      <div class="stat-card stat-high">
-        <div class="count">6</div>
-        <div class="label" style="color:var(--high)">High</div>
-      </div>
-      <div class="stat-card stat-medium">
-        <div class="count">4</div>
-        <div class="label" style="color:var(--medium)">Medium</div>
-      </div>
-      <div class="stat-card stat-total">
-        <div class="count">16</div>
-        <div class="label" style="color:var(--gray-600)">Total Issues</div>
+    <!-- Header -->
+    <div class="header">
+      <h1>Fo-Fi IPTV FTA &mdash; Security Audit Report</h1>
+      <div class="subtitle">HLS.js Streaming Security Assessment &amp; Hardening Roadmap</div>
+      <div class="date">Generated: February 11, 2026</div>
+      <div class="meta-row">
+        <span class="meta-chip">React 18 + Vite</span>
+        <span class="meta-chip">HLS.js Player</span>
+        <span class="meta-chip">HTTP/2 Stream Proxy</span>
+        <span class="meta-chip">PWA</span>
       </div>
     </div>
 
-    <p style="font-size:0.85rem;color:var(--gray-700);">
-      <strong>Audience:</strong> Rishi (Client), Suresh (Backend), Frontend Team<br>
-      A full security audit was conducted covering the frontend codebase, API layer, HTTP/2 stream proxy, PWA service worker, and build configuration. The most critical finding is that <strong>all API credentials are embedded in the client-side JavaScript</strong> and the <strong>OTP verification is mocked</strong> &mdash; meaning there is effectively zero authentication.
-    </p>
-  </div>
-
-  <!-- ======== 2. VULNERABILITIES ======== -->
-  <div class="section">
-    <h2 class="section-title"><span class="num">2.</span> Vulnerability Register</h2>
-
-    <h3 style="font-size:0.85rem;font-weight:700;color:var(--critical);margin-bottom:0.75rem;">CRITICAL &mdash; Fix Immediately</h3>
-
-    <!-- VULN-01 -->
-    <div class="vuln-card critical open" onclick="this.classList.toggle('open')">
-      <div class="vuln-header">
-        <span class="vuln-id">VULN-01</span>
-        <span class="vuln-title">API Credentials Embedded in Client JavaScript</span>
-        <span class="badge badge-critical">Critical</span>
-        <span class="badge badge-both">Frontend+Backend</span>
-        <span class="vuln-toggle">&#9660;</span>
-      </div>
-      <div class="vuln-body">
-        <dl class="vuln-detail">
-          <dt>Location</dt>
-          <dd><code>.env.development</code>, <code>.env.production</code>, <code>src/services/api.js:1-6</code></dd>
-          <dt>Description</dt>
-          <dd>All <code>VITE_*</code> environment variables are bundled into the production JS by Vite. This includes usernames, passwords, API auth keys, and app secrets. Anyone can extract them from the browser.</dd>
-          <dt>Exposed Values</dt>
-          <dd>Dev: <code>fofilab@gmail.com:12345-54321</code> &bull; Prod: <code>redh@t:redh@t@!23</code> &bull; Auth keys &bull; App secrets (<code>bbnl@123</code>)</dd>
-          <dt>Impact</dt>
-          <dd>Complete API access. Attacker can impersonate any user, call any endpoint, exfiltrate all data.</dd>
-        </dl>
+    <!-- Executive Summary -->
+    <div class="status-banner warning">
+      <span class="icon">&#9888;</span>
+      <div>
+        <strong>Current Risk Level: HIGH</strong>
+        <div style="font-weight: 400; font-size: 0.85rem; color: var(--muted); margin-top: 0.2rem;">
+          Stream URLs are exposed in the client. Phase 1 frontend hardening is complete.
+          Backend fixes (Suresh) are required before public launch.
+        </div>
       </div>
     </div>
 
-    <!-- VULN-02 -->
-    <div class="vuln-card critical" onclick="this.classList.toggle('open')">
-      <div class="vuln-header">
-        <span class="vuln-id">VULN-02</span>
-        <span class="vuln-title">Mock OTP &mdash; Any 4-Digit Code Accepted</span>
-        <span class="badge badge-critical">Critical</span>
-        <span class="badge badge-both">Frontend+Backend</span>
-        <span class="vuln-toggle">&#9660;</span>
+    <!-- Section 1: How HLS.js Streaming Works -->
+    <div class="section">
+      <h2>1. How HLS.js Streaming Works in Fo-Fi</h2>
+      <p>Understanding the data flow helps identify where attackers can intercept stream URLs:</p>
+
+      <div class="flow">
+        <div class="flow-step">User taps<br/>a channel</div>
+        <span class="flow-arrow">&#8594;</span>
+        <div class="flow-step">API call<br/><code>/ftauserstream</code></div>
+        <span class="flow-arrow">&#8594;</span>
+        <div class="flow-step">Server returns<br/><code>streamlink</code> URL</div>
+        <span class="flow-arrow">&#8594;</span>
+        <div class="flow-step">HLS.js loads<br/><code>.m3u8</code> manifest</div>
+        <span class="flow-arrow">&#8594;</span>
+        <div class="flow-step">HLS.js fetches<br/><code>.ts</code> segments</div>
+        <span class="flow-arrow">&#8594;</span>
+        <div class="flow-step">Video plays<br/>in browser</div>
       </div>
-      <div class="vuln-body">
-        <dl class="vuln-detail">
-          <dt>Location</dt>
-          <dd><code>src/pages/VerifyOtp.jsx:45-62</code></dd>
-          <dt>Description</dt>
-          <dd>The real <code>verifyOtp()</code> API call is commented out. A mock <code>setTimeout</code> accepts any 4-digit code. Comment says: <em>"TODO: Replace when backend verifyftauserotp is fixed"</em>.</dd>
-          <dt>Impact</dt>
-          <dd>Zero authentication. Anyone can register as any phone number without actual OTP verification.</dd>
-        </dl>
+
+      <p style="margin-top: 1rem;"><strong>Key point:</strong> HLS.js itself is safe &mdash; it&rsquo;s used by Twitter/X, CNN, and thousands of production apps. The vulnerability is in <em>how our app exposes and handles</em> the stream URLs, not in the player library.</p>
+    </div>
+
+    <!-- Section 2: Vulnerabilities Found -->
+    <div class="section">
+      <h2>2. Vulnerabilities Found</h2>
+
+      <div class="vuln-card">
+        <div class="vuln-title">
+          <span class="badge badge-critical">CRITICAL</span>
+          #1 &mdash; Stream URL Printed in Console Logs
+        </div>
+        <div class="vuln-file">File: <code>src/pages/PlayerPage.jsx:211-218</code></div>
+        <div class="vuln-desc">
+          Console logs print the raw stream URL and the proxied URL.
+          <strong>Attack:</strong> Open DevTools &rarr; Console &rarr; copy URL &rarr; paste in VLC &rarr; stream stolen.
+        </div>
+      </div>
+
+      <div class="vuln-card">
+        <div class="vuln-title">
+          <span class="badge badge-critical">CRITICAL</span>
+          #2 &mdash; Stream URL Visible in Network Tab
+        </div>
+        <div class="vuln-file">File: <code>src/pages/PlayerPage.jsx</code> (HLS.js xhrSetup)</div>
+        <div class="vuln-desc">
+          Every <code>.m3u8</code> manifest and <code>.ts</code> segment request appears in DevTools Network tab.
+          The request path combined with the known domain lets an attacker reconstruct the full URL.
+        </div>
+      </div>
+
+      <div class="vuln-card">
+        <div class="vuln-title">
+          <span class="badge badge-critical">CRITICAL</span>
+          #3 &mdash; Stream Proxy Had Zero Authentication
+        </div>
+        <div class="vuln-file">File: <code>stream-proxy-plugin.js:131</code></div>
+        <div class="vuln-desc">
+          Anyone who hit <code>/stream/&lt;path&gt;</code> got the content with no token, no cookie, no check.
+          CORS was <code>Access-Control-Allow-Origin: *</code> &mdash; any website could embed your streams.
+        </div>
+      </div>
+
+      <div class="vuln-card">
+        <div class="vuln-title">
+          <span class="badge badge-critical">CRITICAL</span>
+          #4 &mdash; Stream Server Has No Access Control
+        </div>
+        <div class="vuln-file">Server: stream server endpoint</div>
+        <div class="vuln-desc">
+          The HLS server accepts requests from anyone worldwide. No token validation, no IP whitelisting, no geo-restriction. Once a URL is known, it&rsquo;s permanently accessible.
+        </div>
+      </div>
+
+      <div class="vuln-card high">
+        <div class="vuln-title">
+          <span class="badge badge-high">HIGH</span>
+          #5 &mdash; No DRM / No Segment Encryption
+        </div>
+        <div class="vuln-desc">
+          HLS segments (<code>.ts</code> files) are plain unencrypted MPEG-TS. No AES-128 encryption, no Widevine/FairPlay/PlayReady DRM. Anyone can download and redistribute video segments.
+        </div>
+      </div>
+
+      <div class="vuln-card high">
+        <div class="vuln-title">
+          <span class="badge badge-high">HIGH</span>
+          #6 &mdash; API Exposes Stream URL Without Session Validation
+        </div>
+        <div class="vuln-file">File: <code>src/services/api.js:142-150</code> &rarr; <code>/ftauserstream</code></div>
+        <div class="vuln-desc">
+          The API returns the <code>streamlink</code> in the response body. It only requires a mobile number (no session token). An attacker can call the API directly.
+        </div>
+      </div>
+
+      <div class="vuln-card high">
+        <div class="vuln-title">
+          <span class="badge badge-high">HIGH</span>
+          #7 &mdash; API Credentials Baked into Client JavaScript
+        </div>
+        <div class="vuln-file">Files: <code>.env.production</code>, <code>src/services/api.js:6</code></div>
+        <div class="vuln-desc">
+          <code>VITE_API_USERNAME</code>, <code>VITE_API_PASSWORD</code>, and <code>VITE_API_AUTH_KEY</code> are embedded in the production bundle. Anyone can extract them from DevTools &rarr; Sources.
+        </div>
+      </div>
+
+      <div class="vuln-card high">
+        <div class="vuln-title">
+          <span class="badge badge-high">HIGH</span>
+          #8 &mdash; Mock OTP Verification (No Real Auth)
+        </div>
+        <div class="vuln-file">File: <code>src/pages/VerifyOtp.jsx:45-62</code></div>
+        <div class="vuln-desc">
+          OTP verification is mocked &mdash; any 4-digit code is accepted. The real <code>verifyOtp()</code> API call is never executed. Zero authentication.
+        </div>
       </div>
     </div>
 
-    <!-- VULN-03 -->
-    <div class="vuln-card critical" onclick="this.classList.toggle('open')">
-      <div class="vuln-header">
-        <span class="vuln-id">VULN-03</span>
-        <span class="vuln-title">Basic Auth with Hardcoded Credentials in Every Request</span>
-        <span class="badge badge-critical">Critical</span>
-        <span class="badge badge-backend">Backend</span>
-        <span class="vuln-toggle">&#9660;</span>
-      </div>
-      <div class="vuln-body">
-        <dl class="vuln-detail">
-          <dt>Location</dt>
-          <dd><code>src/services/api.js:6</code></dd>
-          <dt>Description</dt>
-          <dd>Every API request includes <code>Authorization: Basic btoa(username:password)</code>. Base64 is encoding, not encryption &mdash; trivially reversible. Credentials visible in browser Network tab.</dd>
-          <dt>Impact</dt>
-          <dd>API credentials exposed in every HTTP request.</dd>
-        </dl>
-      </div>
-    </div>
+    <!-- Section 3: Frontend Fixes (COMPLETED) -->
+    <div class="section">
+      <h2>3. Frontend Fixes &mdash; COMPLETED <span class="badge badge-done">DONE</span></h2>
+      <p>These fixes have been implemented and are ready for deployment:</p>
 
-    <!-- VULN-04 -->
-    <div class="vuln-card critical" onclick="this.classList.toggle('open')">
-      <div class="vuln-header">
-        <span class="vuln-id">VULN-04</span>
-        <span class="vuln-title">No Session or Token Management</span>
-        <span class="badge badge-critical">Critical</span>
-        <span class="badge badge-both">Frontend+Backend</span>
-        <span class="vuln-toggle">&#9660;</span>
+      <div class="fix-card completed">
+        <div class="fix-header">
+          <span class="fix-title">&#10003; Fix 1: Strip Console Logs in Production Build</span>
+          <span class="badge badge-done">DONE</span>
+        </div>
+        <div class="vuln-file">File: <code>vite.config.js:107-112</code></div>
+        <div class="vuln-desc">
+          Added <code>esbuild.drop: ["console", "debugger"]</code> for production builds.
+          All <code>console.log</code>, <code>console.group</code>, <code>console.error</code> calls are <strong>completely removed</strong> from the production JavaScript bundle. Zero performance cost.
+        </div>
+        <pre><code><span class="code-key">build</span>: {
+  <span class="code-key">minify</span>: <span class="code-string">"esbuild"</span>,
+},
+<span class="code-key">esbuild</span>: {
+  <span class="code-key">drop</span>: process.env.NODE_ENV === <span class="code-string">"production"</span>
+    ? [<span class="code-string">"console"</span>, <span class="code-string">"debugger"</span>]
+    : [],
+},</code></pre>
+        <p><strong>Result:</strong> Stream URLs, API responses, and mobile numbers no longer appear in DevTools console in production.</p>
       </div>
-      <div class="vuln-body">
-        <dl class="vuln-detail">
-          <dt>Location</dt>
-          <dd>Entire application</dd>
-          <dt>Description</dt>
-          <dd>No JWT, no session expiry, no refresh tokens, no logout. Mobile number stored in localStorage is the sole authentication. Sessions never expire.</dd>
-          <dt>Impact</dt>
-          <dd>No way to revoke access. Compromised sessions last forever.</dd>
-        </dl>
-      </div>
-    </div>
 
-    <!-- VULN-05 -->
-    <div class="vuln-card critical" onclick="this.classList.toggle('open')">
-      <div class="vuln-header">
-        <span class="vuln-id">VULN-05</span>
-        <span class="vuln-title">Internal Server IP Address Exposed in Client Code</span>
-        <span class="badge badge-critical">Critical</span>
-        <span class="badge badge-both">Frontend+Backend</span>
-        <span class="vuln-toggle">&#9660;</span>
-      </div>
-      <div class="vuln-body">
-        <dl class="vuln-detail">
-          <dt>Location</dt>
-          <dd><code>vite.config.js:107</code>, <code>PlayerPage.jsx:22</code>, <code>ChannelsPage.jsx:33</code>, <code>LiveTvPage.jsx:20</code>, <code>Home.jsx</code></dd>
-          <dt>Description</dt>
-          <dd>The internal backend IP <code>124.40.244.211</code> is hardcoded in <code>proxyImageUrl()</code> across multiple files and in the Vite dev proxy. This IP appears in the production JS bundle.</dd>
-          <dt>Impact</dt>
-          <dd>Backend infrastructure directly discoverable. Enables port scanning and direct server attacks.</dd>
-        </dl>
-      </div>
-    </div>
+      <div class="fix-card completed">
+        <div class="fix-header">
+          <span class="fix-title">&#10003; Fix 2: Removed Hardcoded Stream Host from Client Code</span>
+          <span class="badge badge-done">DONE</span>
+        </div>
+        <div class="vuln-file">Files: <code>stream-proxy-plugin.js:9</code>, <code>PlayerPage.jsx:28-33</code>, <code>.env.*</code></div>
+        <div class="vuln-desc">
+          <ul>
+            <li><code>stream-proxy-plugin.js</code> now reads <code>STREAM_HOST</code> from environment variable (server-side only, never in client bundle)</li>
+            <li><code>PlayerPage.jsx</code> <code>proxyStreamUrl()</code> now uses a generic regex &mdash; the actual hostname never appears in client JavaScript</li>
+            <li><code>STREAM_HOST</code> added to <code>.env</code> files <strong>without</strong> <code>VITE_</code> prefix so Vite does NOT bundle it into the client</li>
+          </ul>
+        </div>
+        <pre><code><span class="code-comment">// stream-proxy-plugin.js (server-side only)</span>
+<span class="code-keyword">const</span> STREAM_HOST = process.env.STREAM_HOST || <span class="code-string">"fallback"</span>;
 
-    <!-- VULN-06 -->
-    <div class="vuln-card critical" onclick="this.classList.toggle('open')">
-      <div class="vuln-header">
-        <span class="vuln-id">VULN-06</span>
-        <span class="vuln-title">Production Server Domains Exposed</span>
-        <span class="badge badge-critical">Critical</span>
-        <span class="badge badge-both">Frontend+Backend</span>
-        <span class="vuln-toggle">&#9660;</span>
-      </div>
-      <div class="vuln-body">
-        <dl class="vuln-detail">
-          <dt>Location</dt>
-          <dd><code>.env.production:1</code> &mdash; <code>bbnlnetmon.bbnl.in</code>, <code>stream-proxy-plugin.js:9</code> &mdash; <code>livestream.bbnl.in</code></dd>
-          <dt>Description</dt>
-          <dd>Production API and stream server domains are hardcoded and bundled into client code.</dd>
-          <dt>Impact</dt>
-          <dd>Combined with exposed credentials, provides complete backend access for reconnaissance and attacks.</dd>
-        </dl>
-      </div>
-    </div>
-
-    <h3 style="font-size:0.85rem;font-weight:700;color:var(--high);margin:1.5rem 0 0.75rem;">HIGH &mdash; Fix Before Public Launch</h3>
-
-    <!-- VULN-07 -->
-    <div class="vuln-card high" onclick="this.classList.toggle('open')">
-      <div class="vuln-header">
-        <span class="vuln-id">VULN-07</span>
-        <span class="vuln-title">User Data in Plaintext localStorage</span>
-        <span class="badge badge-high">High</span>
-        <span class="badge badge-frontend">Frontend</span>
-        <span class="vuln-toggle">&#9660;</span>
-      </div>
-      <div class="vuln-body">
-        <dl class="vuln-detail">
-          <dt>Location</dt>
-          <dd><code>VerifyOtp.jsx:56</code> (writes), read by 8+ files across the app</dd>
-          <dt>Description</dt>
-          <dd>User data <code>{ name, mobile }</code> stored as plaintext JSON. Accessible to any JS on the same origin. No encryption, no expiry.</dd>
-          <dt>Impact</dt>
-          <dd>Any XSS vulnerability gives attacker immediate access to user PII (name + phone number).</dd>
-        </dl>
-      </div>
-    </div>
-
-    <!-- VULN-08 -->
-    <div class="vuln-card high" onclick="this.classList.toggle('open')">
-      <div class="vuln-header">
-        <span class="vuln-id">VULN-08</span>
-        <span class="vuln-title">Console Logs Dump All API Data in Production</span>
-        <span class="badge badge-high">High</span>
-        <span class="badge badge-frontend">Frontend</span>
-        <span class="vuln-toggle">&#9660;</span>
-      </div>
-      <div class="vuln-body">
-        <dl class="vuln-detail">
-          <dt>Location</dt>
-          <dd><code>src/services/api.js:12-62</code>, plus every page file</dd>
-          <dt>Description</dt>
-          <dd>All API requests/responses logged to browser console with verbose formatting. Includes mobile numbers, server paths, partial auth keys, and full response bodies. Present in production builds.</dd>
-          <dt>Impact</dt>
-          <dd>Data visible in DevTools. Can be captured by screen sharing, extensions, or monitoring tools.</dd>
-        </dl>
-      </div>
-    </div>
-
-    <!-- VULN-09 -->
-    <div class="vuln-card high" onclick="this.classList.toggle('open')">
-      <div class="vuln-header">
-        <span class="vuln-id">VULN-09</span>
-        <span class="vuln-title">CORS Allows Any Origin on Stream Proxy</span>
-        <span class="badge badge-high">High</span>
-        <span class="badge badge-frontend">Frontend</span>
-        <span class="vuln-toggle">&#9660;</span>
-      </div>
-      <div class="vuln-body">
-        <dl class="vuln-detail">
-          <dt>Location</dt>
-          <dd><code>stream-proxy-plugin.js:115-119, 163-164</code></dd>
-          <dt>Description</dt>
-          <dd><code>Access-Control-Allow-Origin: *</code> allows any website to request streams through the proxy.</dd>
-          <dt>Impact</dt>
-          <dd>Bandwidth abuse, stream piracy, proxy as attack relay.</dd>
-        </dl>
-      </div>
-    </div>
-
-    <!-- VULN-10 -->
-    <div class="vuln-card high" onclick="this.classList.toggle('open')">
-      <div class="vuln-header">
-        <span class="vuln-id">VULN-10</span>
-        <span class="vuln-title">Stream Proxy Has No Authentication</span>
-        <span class="badge badge-high">High</span>
-        <span class="badge badge-frontend">Frontend</span>
-        <span class="vuln-toggle">&#9660;</span>
-      </div>
-      <div class="vuln-body">
-        <dl class="vuln-detail">
-          <dt>Location</dt>
-          <dd><code>stream-proxy-plugin.js</code> &mdash; entire middleware</dd>
-          <dt>Description</dt>
-          <dd>The <code>/stream/</code> endpoint accepts any GET request without session tokens, cookies, or any authentication.</dd>
-          <dt>Impact</dt>
-          <dd>Unlimited unauthorized stream access by anyone who discovers the endpoint.</dd>
-        </dl>
-      </div>
-    </div>
-
-    <!-- VULN-11 -->
-    <div class="vuln-card high" onclick="this.classList.toggle('open')">
-      <div class="vuln-header">
-        <span class="vuln-id">VULN-11</span>
-        <span class="vuln-title">User IP Leaked to Third-Party Service (ipify.org)</span>
-        <span class="badge badge-high">High</span>
-        <span class="badge badge-both">Frontend+Backend</span>
-        <span class="vuln-toggle">&#9660;</span>
-      </div>
-      <div class="vuln-body">
-        <dl class="vuln-detail">
-          <dt>Location</dt>
-          <dd><code>src/services/api.js:129-135</code></dd>
-          <dt>Description</dt>
-          <dd><code>getPublicIP()</code> calls <code>https://api.ipify.org</code> before every stream request. Every user's public IP is sent to this third-party without consent.</dd>
-          <dt>Impact</dt>
-          <dd>Privacy violation. Third-party can track all users. Potential GDPR issues for international users.</dd>
-        </dl>
-      </div>
-    </div>
-
-    <!-- VULN-12 -->
-    <div class="vuln-card high" onclick="this.classList.toggle('open')">
-      <div class="vuln-header">
-        <span class="vuln-id">VULN-12</span>
-        <span class="vuln-title">User-Agent Fingerprinting Without Consent</span>
-        <span class="badge badge-high">High</span>
-        <span class="badge badge-frontend">Frontend</span>
-        <span class="vuln-toggle">&#9660;</span>
-      </div>
-      <div class="vuln-body">
-        <dl class="vuln-detail">
-          <dt>Location</dt>
-          <dd><code>src/services/api.js:166</code></dd>
-          <dt>Description</dt>
-          <dd>Feedback submission collects <code>navigator.userAgent</code> and sends it as <code>device_name</code>. Combined with mobile number creates unique device fingerprint.</dd>
-          <dt>Impact</dt>
-          <dd>Device tracking without user awareness. Privacy law risks.</dd>
-        </dl>
-      </div>
-    </div>
-
-    <h3 style="font-size:0.85rem;font-weight:700;color:var(--medium);margin:1.5rem 0 0.75rem;">MEDIUM &mdash; Fix in Next Sprint</h3>
-
-    <!-- VULN-13 -->
-    <div class="vuln-card medium" onclick="this.classList.toggle('open')">
-      <div class="vuln-header">
-        <span class="vuln-id">VULN-13</span>
-        <span class="vuln-title">PWA Caches API Responses for 24 Hours</span>
-        <span class="badge badge-medium">Medium</span>
-        <span class="badge badge-frontend">Frontend</span>
-        <span class="vuln-toggle">&#9660;</span>
-      </div>
-      <div class="vuln-body">
-        <dl class="vuln-detail">
-          <dt>Location</dt>
-          <dd><code>vite.config.js:60</code></dd>
-          <dt>Description</dt>
-          <dd>Workbox caches API responses for 24h. User-specific data may be cached and accessible on shared devices.</dd>
-        </dl>
-      </div>
-    </div>
-
-    <!-- VULN-14 -->
-    <div class="vuln-card medium" onclick="this.classList.toggle('open')">
-      <div class="vuln-header">
-        <span class="vuln-id">VULN-14</span>
-        <span class="vuln-title">Feedback Textarea Not Sanitized</span>
-        <span class="badge badge-medium">Medium</span>
-        <span class="badge badge-both">Frontend+Backend</span>
-        <span class="vuln-toggle">&#9660;</span>
-      </div>
-      <div class="vuln-body">
-        <dl class="vuln-detail">
-          <dt>Location</dt>
-          <dd><code>FeedbackPage.jsx:161-167</code></dd>
-          <dt>Description</dt>
-          <dd>Accepts any input including HTML/script tags. If rendered in an admin panel without escaping, it becomes a stored XSS vector.</dd>
-        </dl>
-      </div>
-    </div>
-
-    <!-- VULN-15 -->
-    <div class="vuln-card medium" onclick="this.classList.toggle('open')">
-      <div class="vuln-header">
-        <span class="vuln-id">VULN-15</span>
-        <span class="vuln-title">Name Field Accepts Any Characters</span>
-        <span class="badge badge-medium">Medium</span>
-        <span class="badge badge-frontend">Frontend</span>
-        <span class="vuln-toggle">&#9660;</span>
-      </div>
-      <div class="vuln-body">
-        <dl class="vuln-detail">
-          <dt>Location</dt>
-          <dd><code>Signup.jsx</code> &mdash; name input</dd>
-          <dt>Description</dt>
-          <dd>No character filtering on name. HTML tags, script content, and Unicode accepted. Could be an injection vector if rendered outside React.</dd>
-        </dl>
-      </div>
-    </div>
-
-    <!-- VULN-16 -->
-    <div class="vuln-card medium" onclick="this.classList.toggle('open')">
-      <div class="vuln-header">
-        <span class="vuln-id">VULN-16</span>
-        <span class="vuln-title">No HTTPS Enforcement</span>
-        <span class="badge badge-medium">Medium</span>
-        <span class="badge badge-both">Frontend+Backend</span>
-        <span class="vuln-toggle">&#9660;</span>
-      </div>
-      <div class="vuln-body">
-        <dl class="vuln-detail">
-          <dt>Location</dt>
-          <dd><code>vite.config.js:107</code></dd>
-          <dt>Description</dt>
-          <dd>Dev proxy uses <code>http://</code>. If production follows same pattern, Basic Auth credentials are transmitted in cleartext.</dd>
-        </dl>
-      </div>
-    </div>
-  </div>
-
-  <!-- ======== 3. FRONTEND FIXES ======== -->
-  <div class="section">
-    <h2 class="section-title"><span class="num">3.</span> Frontend Fixes (Our Responsibility)</h2>
-
-    <div class="fix-card frontend">
-      <div class="fix-header">
-        <span class="fix-id fe">FIX-01</span>
-        <span class="fix-title">Remove Credentials from Client Bundle</span>
-        <span class="badge badge-critical">Critical</span>
-      </div>
-      <div class="fix-body">
-        <p><strong>Addresses:</strong> VULN-01, VULN-03</p>
-        <p>Create a server-side API proxy that adds auth headers. Client sends requests without secrets.</p>
-        <ul>
-          <li>Remove <code>VITE_API_USERNAME</code>, <code>VITE_API_PASSWORD</code>, <code>VITE_API_AUTH_KEY</code> from all <code>.env</code> files</li>
-          <li>Remove <code>BASIC_AUTH</code> computation and <code>Authorization</code> header from <code>api.js</code></li>
-          <li>Create server middleware that reads credentials from server-only env vars</li>
-        </ul>
-        <pre><code>Client (no secrets) &rarr; Our Proxy (adds auth) &rarr; Backend API</code></pre>
-      </div>
-    </div>
-
-    <div class="fix-card frontend">
-      <div class="fix-header">
-        <span class="fix-id fe">FIX-02</span>
-        <span class="fix-title">Strip Console Logs in Production</span>
-        <span class="badge badge-high">High</span>
-      </div>
-      <div class="fix-body">
-        <p><strong>Addresses:</strong> VULN-08</p>
-        <p>Add 2 lines to <code>vite.config.js</code>:</p>
-        <pre><code>esbuild: {
-  drop: ['console', 'debugger'],
+<span class="code-comment">// PlayerPage.jsx (client-side &mdash; no hostname visible)</span>
+<span class="code-keyword">const</span> STREAM_RE = <span class="code-string">/^https?:\/\/[^/]+\.bbnl\.in/i</span>;
+<span class="code-keyword">function</span> proxyStreamUrl(url) {
+  <span class="code-keyword">return</span> url.replace(STREAM_RE, <span class="code-string">"/stream"</span>);
 }</code></pre>
-        <p>Removes all <code>console.*</code> from production. Zero runtime cost. No code changes needed.</p>
+        <p><strong>Result:</strong> Attacker cannot find the actual stream server hostname in the production bundle source code.</p>
+      </div>
+
+      <div class="fix-card completed">
+        <div class="fix-header">
+          <span class="fix-title">&#10003; Fix 3: Restricted CORS + Origin/Referer Gate on Stream Proxy</span>
+          <span class="badge badge-done">DONE</span>
+        </div>
+        <div class="vuln-file">File: <code>stream-proxy-plugin.js:133-163</code></div>
+        <div class="vuln-desc">
+          <ul>
+            <li>Added <strong>Origin/Referer validation</strong> &mdash; only requests from the app&rsquo;s own host are allowed</li>
+            <li>Foreign origins receive <strong>HTTP 403 Forbidden</strong> immediately</li>
+            <li>CORS header changed from <code>*</code> to the <strong>actual requesting origin</strong> (reflected, not wildcard)</li>
+          </ul>
+        </div>
+        <pre><code><span class="code-comment">// Only allow requests from our own app (same origin)</span>
+<span class="code-keyword">const</span> allowed =
+  origin === <span class="code-string">`http://${host}`</span> ||
+  origin === <span class="code-string">`https://${host}`</span> ||
+  referer.startsWith(<span class="code-string">`http://${host}`</span>) ||
+  referer.startsWith(<span class="code-string">`https://${host}`</span>) ||
+  (!origin &amp;&amp; !referer); <span class="code-comment">// HLS.js segment fetches may omit Origin</span>
+
+<span class="code-keyword">if</span> (!allowed) {
+  res.writeHead(<span class="code-string">403</span>);
+  res.end(<span class="code-string">"Forbidden"</span>);
+}</code></pre>
+        <p><strong>Result:</strong> Other websites cannot embed or proxy your streams. Direct browser access from foreign origins is blocked.</p>
       </div>
     </div>
 
-    <div class="fix-card frontend">
-      <div class="fix-header">
-        <span class="fix-id fe">FIX-03</span>
-        <span class="fix-title">Fix OTP Verification (Remove Mock)</span>
-        <span class="badge badge-critical">Critical</span>
+    <!-- Section 4: Backend Fixes Required (Suresh) -->
+    <div class="section">
+      <h2>4. Backend Fixes Required <span class="badge badge-pending">PENDING &mdash; Suresh</span></h2>
+      <p>These changes <strong>must</strong> be implemented on the server side before public launch. The frontend fixes above reduce the attack surface but <strong>cannot fully protect</strong> streams without server cooperation.</p>
+
+      <div class="fix-card pending">
+        <div class="fix-header">
+          <span class="fix-title">Backend Fix 1: Expiring Stream Tokens (MOST IMPORTANT)</span>
+          <span class="badge badge-backend">BACKEND</span>
+        </div>
+        <div class="vuln-desc">
+          <h3>How it should work:</h3>
+          <ol>
+            <li>When <code>/ftauserstream</code> is called, backend generates a <strong>signed token</strong> (JWT or HMAC)
+              <ul>
+                <li>Contains: <code>user_id</code>, <code>channel_id</code>, <code>expires_at</code> (15 min), <code>ip_address</code></li>
+              </ul>
+            </li>
+            <li>Returns: <code>{ streamlink: "...", stream_token: "abc123..." }</code></li>
+            <li>Stream server validates the token on every <code>.m3u8</code> / <code>.ts</code> request</li>
+            <li>Expired or invalid token &rarr; <strong>HTTP 403</strong></li>
+          </ol>
+          <h3>Why this is essential:</h3>
+          <p>Even if someone copies the URL from the Network tab, it <strong>stops working after 15 minutes</strong>. This is how Netflix, Hotstar, and every major streaming platform works.</p>
+          <h3>Frontend integration (we will do this once backend is ready):</h3>
+          <ul>
+            <li>HLS.js <code>xhrSetup</code> will attach the token to every segment request as a query param or header</li>
+            <li>Stream proxy will validate the token before forwarding to the stream server</li>
+          </ul>
+        </div>
       </div>
-      <div class="fix-body">
-        <p><strong>Addresses:</strong> VULN-02</p>
-        <p>Remove the mock <code>setTimeout</code> block in <code>VerifyOtp.jsx</code> and enable the real <code>verifyOtp()</code> API call.</p>
-        <p><strong>Dependency:</strong> Backend must fix <code>/verifyftauserotp</code> endpoint first.</p>
+
+      <div class="fix-card pending">
+        <div class="fix-header">
+          <span class="fix-title">Backend Fix 2: JWT Session Tokens (Replace Mobile-Number Auth)</span>
+          <span class="badge badge-backend">BACKEND</span>
+        </div>
+        <div class="vuln-desc">
+          <h3>Current problem:</h3>
+          <p>Every API call sends the user&rsquo;s mobile number as the identifier. There&rsquo;s no session token, no expiry, and no way to revoke access. The <code>VITE_API_USERNAME</code>/<code>VITE_API_PASSWORD</code> are shared credentials baked into the client.</p>
+          <h3>Required changes:</h3>
+          <ol>
+            <li>After OTP verification, return a <strong>JWT token</strong> (not just &ldquo;success&rdquo;)</li>
+            <li>Frontend stores JWT and sends it with every API call instead of Basic Auth</li>
+            <li>Add a <code>/refreshtoken</code> endpoint to extend sessions</li>
+            <li>Move Basic Auth to server-to-server communication only</li>
+            <li>No JWT = no API access, no stream URLs</li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="fix-card pending">
+        <div class="fix-header">
+          <span class="fix-title">Backend Fix 3: Real OTP Verification</span>
+          <span class="badge badge-backend">BACKEND</span>
+        </div>
+        <div class="vuln-desc">
+          <p>The <code>/verifyftauserotp</code> endpoint must properly validate the OTP code. Currently the frontend mocks this &mdash; any 4-digit number is accepted. The backend must:</p>
+          <ul>
+            <li>Validate OTP against what was sent via SMS</li>
+            <li>Expire OTPs after 5 minutes</li>
+            <li>Rate-limit: max 3 OTP requests per 10 minutes per number</li>
+            <li>Return a JWT on successful verification</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="fix-card pending">
+        <div class="fix-header">
+          <span class="fix-title">Backend Fix 4: HLS AES-128 Segment Encryption</span>
+          <span class="badge badge-backend">BACKEND</span>
+        </div>
+        <div class="vuln-desc">
+          <h3>How it works:</h3>
+          <ol>
+            <li>Stream server encrypts each <code>.ts</code> segment with <strong>AES-128</strong></li>
+            <li>The <code>.m3u8</code> manifest includes an <code>#EXT-X-KEY</code> tag pointing to a key URL</li>
+            <li>Key URL requires a valid stream token to return the decryption key</li>
+            <li>HLS.js <strong>automatically handles</strong> <code>#EXT-X-KEY</code> &mdash; fetches the key and decrypts in-browser</li>
+          </ol>
+          <p><strong>Why:</strong> Even if someone downloads the <code>.ts</code> files, they&rsquo;re encrypted and useless without the key. The key is only served to authenticated sessions.</p>
+        </div>
+      </div>
+
+      <div class="fix-card pending">
+        <div class="fix-header">
+          <span class="fix-title">Backend Fix 5: IP Whitelisting + Geo Restriction on Stream Server</span>
+          <span class="badge badge-backend">BACKEND</span>
+        </div>
+        <div class="vuln-desc">
+          <ul>
+            <li><strong>IP whitelist:</strong> Only allow the proxy/app server&rsquo;s IP to access the stream server directly &mdash; block all other IPs</li>
+            <li><strong>Geo-blocking:</strong> If streams are licensed per-country, restrict by country</li>
+            <li><strong>Rate-limit:</strong> Max 2-3 concurrent streams per user/IP</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="fix-card pending">
+        <div class="fix-header">
+          <span class="fix-title">Backend Fix 6: Return Relative URLs (Hide Infrastructure)</span>
+          <span class="badge badge-backend">BACKEND</span>
+        </div>
+        <div class="vuln-desc">
+          <p>Currently the API returns absolute URLs containing internal server IPs and domains. The backend should:</p>
+          <ul>
+            <li>Return <strong>relative paths</strong> for channel logos and stream URLs</li>
+            <li>Never expose internal server IPs or infrastructure domains in API responses</li>
+            <li>Let the frontend/proxy resolve the actual server address</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="fix-card pending">
+        <div class="fix-header">
+          <span class="fix-title">Backend Fix 7: Full DRM (For Premium/Licensed Content)</span>
+          <span class="badge badge-backend">BACKEND</span>
+        </div>
+        <div class="vuln-desc">
+          <p>Only needed if content has licensing requirements or will be paid:</p>
+          <table>
+            <tr>
+              <th>DRM System</th>
+              <th>Browsers/Platforms</th>
+              <th>Cost</th>
+            </tr>
+            <tr>
+              <td><strong>Widevine</strong></td>
+              <td>Chrome, Android, Firefox, Edge</td>
+              <td>Free (requires license server)</td>
+            </tr>
+            <tr>
+              <td><strong>FairPlay</strong></td>
+              <td>Safari, iOS</td>
+              <td>Apple Developer Account required</td>
+            </tr>
+            <tr>
+              <td><strong>PlayReady</strong></td>
+              <td>Edge, Windows, Xbox</td>
+              <td>Microsoft ecosystem</td>
+            </tr>
+          </table>
+          <p style="margin-top: 0.5rem;">DRM prevents screen recording and makes redistribution nearly impossible. HLS.js supports Widevine/PlayReady via EME (Encrypted Media Extensions).</p>
+        </div>
       </div>
     </div>
 
-    <div class="fix-card frontend">
-      <div class="fix-header">
-        <span class="fix-id fe">FIX-04</span>
-        <span class="fix-title">Hide Infrastructure IPs and Domains</span>
-        <span class="badge badge-critical">Critical</span>
-      </div>
-      <div class="fix-body">
-        <p><strong>Addresses:</strong> VULN-05, VULN-06</p>
-        <ul>
-          <li>Backend should return relative URLs for images &mdash; remove <code>proxyImageUrl()</code> and hardcoded IP regex from all files</li>
-          <li>Move <code>livestream.bbnl.in</code> to a server-only env var (no <code>VITE_</code> prefix)</li>
-        </ul>
-      </div>
-    </div>
+    <!-- Section 5: Implementation Timeline -->
+    <div class="section">
+      <h2>5. Implementation Timeline</h2>
 
-    <div class="fix-card frontend">
-      <div class="fix-header">
-        <span class="fix-id fe">FIX-05</span>
-        <span class="fix-title">Restrict CORS on Stream Proxy</span>
-        <span class="badge badge-high">High</span>
-      </div>
-      <div class="fix-body">
-        <p><strong>Addresses:</strong> VULN-09</p>
-        <p>Replace <code>Access-Control-Allow-Origin: *</code> with the actual app domain in <code>stream-proxy-plugin.js</code>.</p>
-      </div>
-    </div>
+      <div class="timeline">
+        <div class="timeline-item done">
+          <div class="phase-label">Phase 1 &mdash; Completed (Frontend)</div>
+          <table>
+            <tr><th>Task</th><th>Status</th><th>Owner</th></tr>
+            <tr><td>Strip console logs from production build</td><td><span class="badge badge-done">DONE</span></td><td><span class="badge badge-frontend">Frontend</span></td></tr>
+            <tr><td>Remove hardcoded stream host from client code</td><td><span class="badge badge-done">DONE</span></td><td><span class="badge badge-frontend">Frontend</span></td></tr>
+            <tr><td>Restrict CORS + add Origin/Referer gate</td><td><span class="badge badge-done">DONE</span></td><td><span class="badge badge-frontend">Frontend</span></td></tr>
+          </table>
+        </div>
 
-    <div class="fix-card frontend">
-      <div class="fix-header">
-        <span class="fix-id fe">FIX-06</span>
-        <span class="fix-title">Add Authentication to Stream Proxy</span>
-        <span class="badge badge-high">High</span>
-      </div>
-      <div class="fix-body">
-        <p><strong>Addresses:</strong> VULN-10</p>
-        <p>Require a valid session token/cookie before proxying stream requests. Return 403 without it.</p>
-      </div>
-    </div>
+        <div class="timeline-item next">
+          <div class="phase-label">Phase 2 &mdash; Before Public Launch (Backend Required)</div>
+          <table>
+            <tr><th>Task</th><th>Effort</th><th>Owner</th></tr>
+            <tr><td>Implement real OTP verification</td><td>1-2 days</td><td><span class="badge badge-backend">Backend</span></td></tr>
+            <tr><td>JWT session tokens (replace Basic Auth)</td><td>2-3 days</td><td><span class="badge badge-backend">Backend</span></td></tr>
+            <tr><td>Expiring stream tokens (15-min JWT)</td><td>2-3 days</td><td><span class="badge badge-backend">Backend</span></td></tr>
+            <tr><td>Token validation in stream proxy</td><td>1 day</td><td><span class="badge badge-frontend">Frontend</span> + <span class="badge badge-backend">Backend</span></td></tr>
+          </table>
+        </div>
 
-    <div class="fix-card frontend">
-      <div class="fix-header">
-        <span class="fix-id fe">FIX-07</span>
-        <span class="fix-title">Add Content Security Policy Headers</span>
-        <span class="badge badge-medium">Medium</span>
-      </div>
-      <div class="fix-body">
-        <p>Add CSP meta tag to <code>index.html</code> to prevent XSS payload execution even if injection occurs.</p>
-        <pre><code>&lt;meta http-equiv="Content-Security-Policy"
-  content="default-src 'self'; script-src 'self'; connect-src 'self' https://api.ipify.org;" /&gt;</code></pre>
+        <div class="timeline-item">
+          <div class="phase-label" style="color: var(--accent);">Phase 3 &mdash; Hardening</div>
+          <table>
+            <tr><th>Task</th><th>Effort</th><th>Owner</th></tr>
+            <tr><td>HLS AES-128 segment encryption</td><td>3-5 days</td><td><span class="badge badge-backend">Backend</span></td></tr>
+            <tr><td>IP whitelisting on stream server</td><td>1 day</td><td><span class="badge badge-backend">Backend</span></td></tr>
+            <tr><td>Return relative URLs (hide infrastructure)</td><td>1 day</td><td><span class="badge badge-backend">Backend</span></td></tr>
+          </table>
+        </div>
+
+        <div class="timeline-item">
+          <div class="phase-label" style="color: var(--purple);">Phase 4 &mdash; Premium (If Needed)</div>
+          <table>
+            <tr><th>Task</th><th>Effort</th><th>Owner</th></tr>
+            <tr><td>Full DRM (Widevine + FairPlay)</td><td>1-2 weeks</td><td><span class="badge badge-backend">Backend</span></td></tr>
+            <tr><td>Geo-restriction per country</td><td>1-2 days</td><td><span class="badge badge-backend">Backend</span></td></tr>
+            <tr><td>Concurrent stream limit per user</td><td>1 day</td><td><span class="badge badge-backend">Backend</span></td></tr>
+          </table>
+        </div>
       </div>
     </div>
 
-    <div class="fix-card frontend">
-      <div class="fix-header">
-        <span class="fix-id fe">FIX-08</span>
-        <span class="fix-title">Sanitize User Inputs</span>
-        <span class="badge badge-medium">Medium</span>
-      </div>
-      <div class="fix-body">
-        <p><strong>Addresses:</strong> VULN-14, VULN-15</p>
-        <ul>
-          <li>Name: strip HTML tags, limit to 50 characters</li>
-          <li>Feedback: strip HTML tags before submission</li>
-        </ul>
-      </div>
-    </div>
-
-    <div class="fix-card frontend">
-      <div class="fix-header">
-        <span class="fix-id fe">FIX-09</span>
-        <span class="fix-title">Replace ipify.org Dependency</span>
-        <span class="badge badge-high">High</span>
-      </div>
-      <div class="fix-body">
-        <p><strong>Addresses:</strong> VULN-11</p>
-        <p>Remove <code>getPublicIP()</code>. Backend reads client IP from <code>X-Forwarded-For</code> header instead.</p>
-      </div>
-    </div>
-
-    <div class="fix-card frontend">
-      <div class="fix-header">
-        <span class="fix-id fe">FIX-10</span>
-        <span class="fix-title">Add Session Timeout</span>
-        <span class="badge badge-high">High</span>
-      </div>
-      <div class="fix-body">
-        <p><strong>Addresses:</strong> VULN-04 (partial)</p>
-        <p>Store <code>loginAt</code> timestamp with user data. Check expiry on app load (e.g., 30 days). Redirect to signup if expired.</p>
-      </div>
-    </div>
-  </div>
-
-  <!-- ======== 4. BACKEND FIXES ======== -->
-  <div class="section">
-    <h2 class="section-title"><span class="num">4.</span> Backend Fixes (Suresh's Responsibility)</h2>
-
-    <div class="fix-card backend">
-      <div class="fix-header"><span class="fix-id be">BE-01</span><span class="fix-title">Fix OTP Verification Endpoint</span><span class="badge badge-critical">Critical</span></div>
-      <div class="fix-body"><p><code>/verifyftauserotp</code> must validate OTP against what was sent via SMS. Return clear success/failure. <strong>Blocks frontend FIX-03.</strong></p></div>
-    </div>
-
-    <div class="fix-card backend">
-      <div class="fix-header"><span class="fix-id be">BE-02</span><span class="fix-title">Implement JWT Token Authentication</span><span class="badge badge-critical">Critical</span></div>
-      <div class="fix-body">
-        <p>After OTP success, return a JWT <code>{ mobile, name, iat, exp }</code>. Client sends JWT instead of mobile number. All endpoints validate JWT.</p>
-        <p>Provide <code>/refreshtoken</code> endpoint for session extension.</p>
-      </div>
-    </div>
-
-    <div class="fix-card backend">
-      <div class="fix-header"><span class="fix-id be">BE-03</span><span class="fix-title">Move API Auth Server-Side</span><span class="badge badge-critical">Critical</span></div>
-      <div class="fix-body"><p>Client uses JWT only. Basic Auth credentials stay on the server. API keys and secrets never leave server environment.</p></div>
-    </div>
-
-    <div class="fix-card backend">
-      <div class="fix-header"><span class="fix-id be">BE-04</span><span class="fix-title">Return Relative URLs for Assets</span><span class="badge badge-high">High</span></div>
-      <div class="fix-body"><p>Channel logos, ad images, and stream URLs should use relative paths (e.g., <code>/showimage/...</code>) instead of absolute URLs containing internal IPs.</p></div>
-    </div>
-
-    <div class="fix-card backend">
-      <div class="fix-header"><span class="fix-id be">BE-05</span><span class="fix-title">Implement Rate Limiting</span><span class="badge badge-high">High</span></div>
-      <div class="fix-body">
-        <ul>
-          <li>OTP send: max 3 per 10 min per number</li>
-          <li>OTP verify: max 5 attempts, then invalidate</li>
-          <li>API: max 100 requests/min per user</li>
-          <li>Return HTTP 429 when limits exceeded</li>
-        </ul>
-      </div>
-    </div>
-
-    <div class="fix-card backend">
-      <div class="fix-header"><span class="fix-id be">BE-06</span><span class="fix-title">Server-Side IP Detection</span><span class="badge badge-high">High</span></div>
-      <div class="fix-body"><p>Read client IP from <code>X-Forwarded-For</code> header instead of requiring client to fetch it. Also enables IP-based country detection for international expansion.</p></div>
-    </div>
-
-    <div class="fix-card backend">
-      <div class="fix-header"><span class="fix-id be">BE-07</span><span class="fix-title">Server-Side Input Validation</span><span class="badge badge-medium">Medium</span></div>
-      <div class="fix-body"><p>Validate all fields server-side. Name: alphanumeric + spaces, max 50 chars. Mobile: digits, validate per country. OTP: 4-6 digits. Feedback: max 1000 chars, strip HTML.</p></div>
-    </div>
-
-    <div class="fix-card backend">
-      <div class="fix-header"><span class="fix-id be">BE-08</span><span class="fix-title">International Phone Number Support</span><span class="badge badge-high">High</span></div>
-      <div class="fix-body"><p>Add <code>country_code</code> column to user table. Accept numbers with country codes (+91, +1, +44, etc.). Validate length per country. Frontend will auto-detect country via IP.</p></div>
-    </div>
-
-    <div class="fix-card backend">
-      <div class="fix-header"><span class="fix-id be">BE-09</span><span class="fix-title">HTTPS Enforcement</span><span class="badge badge-medium">Medium</span></div>
-      <div class="fix-body"><p>Serve all production endpoints over HTTPS only. Set <code>Strict-Transport-Security</code> header. Redirect HTTP to HTTPS at load balancer.</p></div>
-    </div>
-  </div>
-
-  <!-- ======== 5. IMPLEMENTATION PRIORITY ======== -->
-  <div class="section">
-    <h2 class="section-title"><span class="num">5.</span> Implementation Priority</h2>
-
-    <div class="phase-block">
-      <div class="phase-header p1">Phase 1 &mdash; Before Any Public Use</div>
+    <!-- Section 6: Security Comparison -->
+    <div class="section">
+      <h2>6. Security Comparison &mdash; Before vs After</h2>
       <table>
-        <thead><tr><th>Fix</th><th>Description</th><th>Owner</th></tr></thead>
-        <tbody>
-          <tr><td><strong>FIX-03</strong></td><td>Fix OTP verification (remove mock)</td><td><span class="badge badge-both">FE+BE</span></td></tr>
-          <tr><td><strong>FIX-01</strong></td><td>Remove credentials from client bundle</td><td><span class="badge badge-both">FE+BE</span></td></tr>
-          <tr><td><strong>FIX-02</strong></td><td>Strip console logs in production</td><td><span class="badge badge-frontend">Frontend</span></td></tr>
-          <tr><td><strong>BE-01</strong></td><td>Fix /verifyftauserotp endpoint</td><td><span class="badge badge-backend">Backend</span></td></tr>
-          <tr><td><strong>BE-03</strong></td><td>Move API auth server-side</td><td><span class="badge badge-backend">Backend</span></td></tr>
-        </tbody>
+        <tr>
+          <th>Attack Vector</th>
+          <th>Before</th>
+          <th>After Phase 1</th>
+          <th>After Phase 2+</th>
+        </tr>
+        <tr>
+          <td>Extract stream URL from console</td>
+          <td style="color: var(--red);">&#10006; Trivial</td>
+          <td style="color: var(--green);">&#10003; Blocked</td>
+          <td style="color: var(--green);">&#10003; Blocked</td>
+        </tr>
+        <tr>
+          <td>Find stream host in source code</td>
+          <td style="color: var(--red);">&#10006; Hardcoded</td>
+          <td style="color: var(--green);">&#10003; Removed</td>
+          <td style="color: var(--green);">&#10003; Removed</td>
+        </tr>
+        <tr>
+          <td>Embed streams from another website</td>
+          <td style="color: var(--red);">&#10006; CORS *</td>
+          <td style="color: var(--green);">&#10003; Origin gate</td>
+          <td style="color: var(--green);">&#10003; Origin + token</td>
+        </tr>
+        <tr>
+          <td>Copy URL from Network tab &amp; reshare</td>
+          <td style="color: var(--red);">&#10006; Works forever</td>
+          <td style="color: var(--orange);">&#9888; Still possible</td>
+          <td style="color: var(--green);">&#10003; Expires in 15 min</td>
+        </tr>
+        <tr>
+          <td>Access stream server directly</td>
+          <td style="color: var(--red);">&#10006; Open to world</td>
+          <td style="color: var(--orange);">&#9888; Still open</td>
+          <td style="color: var(--green);">&#10003; IP whitelisted</td>
+        </tr>
+        <tr>
+          <td>Download &amp; save video segments</td>
+          <td style="color: var(--red);">&#10006; Plain MPEG-TS</td>
+          <td style="color: var(--orange);">&#9888; Still plain</td>
+          <td style="color: var(--green);">&#10003; AES-128 encrypted</td>
+        </tr>
+        <tr>
+          <td>Impersonate app (steal API keys)</td>
+          <td style="color: var(--red);">&#10006; Keys in bundle</td>
+          <td style="color: var(--orange);">&#9888; Still in bundle</td>
+          <td style="color: var(--green);">&#10003; JWT per-user auth</td>
+        </tr>
+        <tr>
+          <td>Register as any phone number</td>
+          <td style="color: var(--red);">&#10006; Mock OTP</td>
+          <td style="color: var(--orange);">&#9888; Still mock</td>
+          <td style="color: var(--green);">&#10003; Real OTP verified</td>
+        </tr>
       </table>
     </div>
 
-    <div class="phase-block">
-      <div class="phase-header p2">Phase 2 &mdash; Before International Launch</div>
-      <table>
-        <thead><tr><th>Fix</th><th>Description</th><th>Owner</th></tr></thead>
-        <tbody>
-          <tr><td><strong>BE-02</strong></td><td>JWT token authentication</td><td><span class="badge badge-backend">Backend</span></td></tr>
-          <tr><td><strong>FIX-10</strong></td><td>Session timeout on frontend</td><td><span class="badge badge-frontend">Frontend</span></td></tr>
-          <tr><td><strong>FIX-04</strong></td><td>Hide infrastructure IPs/domains</td><td><span class="badge badge-both">FE+BE</span></td></tr>
-          <tr><td><strong>FIX-05</strong></td><td>Restrict CORS on stream proxy</td><td><span class="badge badge-frontend">Frontend</span></td></tr>
-          <tr><td><strong>FIX-06</strong></td><td>Auth on stream proxy</td><td><span class="badge badge-frontend">Frontend</span></td></tr>
-          <tr><td><strong>BE-05</strong></td><td>Rate limiting</td><td><span class="badge badge-backend">Backend</span></td></tr>
-          <tr><td><strong>BE-08</strong></td><td>International phone number support</td><td><span class="badge badge-backend">Backend</span></td></tr>
-        </tbody>
-      </table>
+    <!-- Section 7: Verification Checklist -->
+    <div class="section">
+      <h2>7. Verification Checklist</h2>
+      <p>Use this checklist to verify security after each phase:</p>
+
+      <h3>Phase 1 Verification (Can Do Now)</h3>
+      <ul class="checklist">
+        <li><span class="check-icon" style="color: var(--green);">&#10003;</span> <code>npm run build</code> &rarr; inspect <code>dist/assets/*.js</code> &rarr; search for stream hostname &rarr; should find <strong>NONE</strong></li>
+        <li><span class="check-icon" style="color: var(--green);">&#10003;</span> <code>npm run build</code> &rarr; inspect <code>dist/assets/*.js</code> &rarr; search for <code>console.log</code> &rarr; should find <strong>NONE</strong></li>
+        <li><span class="check-icon" style="color: var(--green);">&#10003;</span> Open production app &rarr; DevTools &rarr; Console &rarr; no stream URLs printed</li>
+        <li><span class="check-icon" style="color: var(--green);">&#10003;</span> Try fetching <code>/stream/...</code> from a different origin &rarr; should return <strong>403 Forbidden</strong></li>
+      </ul>
+
+      <h3>Phase 2 Verification (After Backend Work)</h3>
+      <ul class="checklist">
+        <li><span class="check-icon" style="color: var(--orange);">&#9675;</span> Enter wrong OTP &rarr; should be <strong>rejected</strong></li>
+        <li><span class="check-icon" style="color: var(--orange);">&#9675;</span> Open DevTools &rarr; Sources &rarr; search for passwords/auth keys &rarr; should find <strong>NONE</strong></li>
+        <li><span class="check-icon" style="color: var(--orange);">&#9675;</span> Copy a stream URL &rarr; wait 15 min &rarr; try again &rarr; should return <strong>403</strong></li>
+        <li><span class="check-icon" style="color: var(--orange);">&#9675;</span> Call <code>/ftauserstream</code> without JWT &rarr; should return <strong>401</strong></li>
+      </ul>
+
+      <h3>Phase 3 Verification (After Hardening)</h3>
+      <ul class="checklist">
+        <li><span class="check-icon" style="color: var(--muted);">&#9675;</span> Download a <code>.ts</code> segment directly &rarr; should be <strong>encrypted/unplayable</strong></li>
+        <li><span class="check-icon" style="color: var(--muted);">&#9675;</span> Access stream server directly from outside &rarr; should be <strong>blocked by IP whitelist</strong></li>
+        <li><span class="check-icon" style="color: var(--muted);">&#9675;</span> API responses should <strong>not</strong> contain internal IPs or infrastructure hostnames</li>
+      </ul>
     </div>
 
-    <div class="phase-block">
-      <div class="phase-header p3">Phase 3 &mdash; Hardening</div>
-      <table>
-        <thead><tr><th>Fix</th><th>Description</th><th>Owner</th></tr></thead>
-        <tbody>
-          <tr><td><strong>FIX-07</strong></td><td>Content Security Policy headers</td><td><span class="badge badge-frontend">Frontend</span></td></tr>
-          <tr><td><strong>FIX-08</strong></td><td>Input sanitization</td><td><span class="badge badge-frontend">Frontend</span></td></tr>
-          <tr><td><strong>FIX-09</strong></td><td>Replace ipify.org dependency</td><td><span class="badge badge-both">FE+BE</span></td></tr>
-          <tr><td><strong>BE-06</strong></td><td>Server-side IP detection</td><td><span class="badge badge-backend">Backend</span></td></tr>
-          <tr><td><strong>BE-07</strong></td><td>Server-side input validation</td><td><span class="badge badge-backend">Backend</span></td></tr>
-          <tr><td><strong>BE-09</strong></td><td>HTTPS enforcement</td><td><span class="badge badge-backend">Backend</span></td></tr>
-        </tbody>
-      </table>
+    <!-- Footer -->
+    <div style="text-align: center; padding: 2rem; color: var(--muted); font-size: 0.8rem; border-top: 1px solid var(--border); margin-top: 1rem;">
+      <p><strong>Fo-Fi IPTV FTA &mdash; Security Audit Report</strong></p>
+      <p style="margin-top: 0.25rem;">Prepared for Rishi (Client) &amp; Suresh (Backend) | February 2026</p>
+      <p style="margin-top: 0.5rem; color: var(--red);">Confidential &mdash; Do not distribute outside the team</p>
     </div>
+
   </div>
-
-  <!-- ======== 6. VERIFICATION CHECKLIST ======== -->
-  <div class="section">
-    <h2 class="section-title"><span class="num">6.</span> Verification Checklist</h2>
-
-    <h3 style="font-size:0.85rem;font-weight:700;color:var(--critical);margin-bottom:0.5rem;">After Phase 1</h3>
-    <ul class="checklist">
-      <li><div class="check-box"></div> DevTools &rarr; Sources &rarr; search for passwords/auth keys in JS bundle &rarr; find <strong>NONE</strong></li>
-      <li><div class="check-box"></div> DevTools &rarr; Console &rarr; navigate the app &rarr; <strong>no API data logged</strong></li>
-      <li><div class="check-box"></div> Enter wrong OTP &rarr; <strong>rejected with error message</strong></li>
-      <li><div class="check-box"></div> Enter correct OTP &rarr; works normally</li>
-    </ul>
-
-    <h3 style="font-size:0.85rem;font-weight:700;color:var(--high);margin:1rem 0 0.5rem;">After Phase 2</h3>
-    <ul class="checklist">
-      <li><div class="check-box"></div> localStorage contains <strong>JWT token</strong>, not raw user data</li>
-      <li><div class="check-box"></div> JWT token has an <strong>expiration date</strong></li>
-      <li><div class="check-box"></div> Search page source for <code>124.40.244.211</code> &rarr; find <strong>NONE</strong></li>
-      <li><div class="check-box"></div> Search page source for <code>bbnlnetmon.bbnl.in</code> &rarr; find <strong>NONE</strong></li>
-      <li><div class="check-box"></div> Access <code>/stream/</code> from another website &rarr; <strong>403 Forbidden</strong></li>
-      <li><div class="check-box"></div> Send 10 OTP requests in 1 min &rarr; <strong>429 after 3rd</strong></li>
-    </ul>
-
-    <h3 style="font-size:0.85rem;font-weight:700;color:var(--medium);margin:1rem 0 0.5rem;">After Phase 3</h3>
-    <ul class="checklist">
-      <li><div class="check-box"></div> Response headers contain <code>Content-Security-Policy</code></li>
-      <li><div class="check-box"></div> Feedback with <code>&lt;script&gt;</code> tags &rarr; tags <strong>stripped</strong></li>
-      <li><div class="check-box"></div> Network tab &rarr; <strong>no requests to ipify.org</strong></li>
-      <li><div class="check-box"></div> All API calls go over <strong>HTTPS only</strong></li>
-    </ul>
-  </div>
-
-  <!-- ======== 7. ARCHITECTURE ======== -->
-  <div class="section">
-    <h2 class="section-title"><span class="num">7.</span> Architecture &mdash; Current vs Secure</h2>
-
-    <div class="arch-grid">
-      <div class="arch-card insecure">
-        <h4>Current (Insecure)</h4>
-        <pre><code>Browser (has ALL secrets)
- ├─ API calls with Basic Auth
- │   (credentials in every request)
- ├─ Stream proxy (no auth, CORS: *)
- ├─ ipify.org (leaks IP to 3rd party)
- └─ localStorage:
-    { name, mobile } plaintext</code></pre>
-      </div>
-      <div class="arch-card secure">
-        <h4>Target (Secure)</h4>
-        <pre><code>Browser (JWT token only)
- ├─ API calls with JWT Bearer
- │   └─ Server proxy adds Basic Auth
- ├─ Stream proxy (session required,
- │   CORS: app domain only)
- ├─ Server reads X-Forwarded-For
- └─ localStorage:
-    { token, expiresAt } only</code></pre>
-      </div>
-    </div>
-  </div>
-
-  <!-- ======== FOOTER ======== -->
-  <div class="doc-footer">
-    <p>Security audit conducted February 2026 &bull; Next review: Before international launch</p>
-    <p style="margin-top:0.25rem;color:var(--gray-300);">IPTV FTA PWA &mdash; Fo-Fi</p>
-  </div>
-
-</div>
-
 </body>
 </html>

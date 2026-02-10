@@ -1,6 +1,4 @@
 import { Routes, Route, Navigate } from "react-router-dom";
-import Signup from "./pages/Signup";
-import VerifyOtp from "./pages/VerifyOtp";
 import Home from "./pages/Home";
 import LiveTvPage from "./pages/LiveTvPage";
 import ChannelsPage from "./pages/ChannelsPage";
@@ -13,8 +11,7 @@ import AppInfoPage from "./pages/AppInfoPage";
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<Signup />} />
-      <Route path="/verify-otp" element={<VerifyOtp />} />
+      <Route path="/" element={<Navigate to="/home" replace />} />
       <Route path="/home" element={<Home />} />
       <Route path="/live-tv" element={<LiveTvPage />} />
       <Route path="/channels" element={<ChannelsPage />} />
@@ -23,7 +20,7 @@ export default function App() {
       <Route path="/profile" element={<ProfilePage />} />
       <Route path="/feedback" element={<FeedbackPage />} />
       <Route path="/app-info" element={<AppInfoPage />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<Navigate to="/home" replace />} />
     </Routes>
   );
 }
