@@ -15,6 +15,7 @@
 
 import "./api-connectivity-test";
 import { cleanupStalePWA } from "./pwa-cleanup";
+import { setupPwaNavGuard } from "./pwa-nav-guard";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
@@ -27,6 +28,8 @@ const basename = import.meta.env.VITE_API_APP_DIR_PATH || '/'
 
 // Remove stale PWAs from other apps (e.g. IPTV) that ran on same origin
 cleanupStalePWA();
+// In standalone PWA mode, intercept external links so they open in browser
+setupPwaNavGuard();
 // if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
 //   document.documentElement.classList.add('dark')
 // }

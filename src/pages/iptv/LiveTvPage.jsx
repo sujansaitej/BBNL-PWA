@@ -1,13 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
-import { Search, Play, Tv, Radio, AlertCircle, X, Languages, Globe, ArrowLeft } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Search, Play, Tv, Radio, AlertCircle, X, Languages, Globe, ArrowLeft, Mic, MicOff } from "lucide-react";
 import Layout from "../../layout/Layout";
 import { ChannelListSkeleton } from "../../components/iptv/Loader";
-import { getChannelList, getAdvertisements, getLanguageList, getIptvMobile } from "../../services/iptvApi";
+import { getChannelList, getLanguageList, getIptvMobile } from "../../services/iptvApi";
 import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
-import { getCachedAds, setCachedAds, preloadAdImages, getCachedAdImage } from "../../services/imageStore";
+import { ads as fetchAds } from "../../services/customer/apis";
 
 function proxyImageUrl(url) {
   if (!url) return null;
@@ -25,27 +25,14 @@ function getNextAdIndex(page, totalAds) {
 }
 
 function AdBanner({ ad }) {
-  const adpath = ad?.adpath;
-  const proxied = proxyImageUrl(adpath);
-  // Try localStorage cache first for instant render
-  const cached = getCachedAdImage(adpath);
-  const [src, setSrc] = useState(cached || null);
-
-  useEffect(() => {
-    if (!proxied) return;
-    if (cached) { setSrc(cached); return; }
-    // Not cached yet — decode from proxy URL, cache will happen via preloadAdImages
-    const img = new Image();
-    img.src = proxied;
-    img.decode().then(() => setSrc(proxied)).catch(() => {});
-  }, [proxied, cached]);
-
-  if (!src) return null;
+  if (!ad?.content) return null;
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="mb-4 rounded-xl overflow-hidden relative">
       <div className="aspect-[16/7] bg-gray-50 overflow-hidden">
-        <motion.img src={src} alt="Ad" initial={{ scale: 1.15 }} animate={{ scale: 1 }} transition={{ duration: AD_ZOOM_DURATION, ease: "easeOut" }} className="w-full h-full object-cover" onError={(e) => { e.target.closest(".rounded-xl").style.display = "none"; }} />
+        <a href={ad.redirectlink || "#"} target="_blank" rel="noopener noreferrer">
+          <motion.img src={ad.content} alt={ad.description || "Ad"} initial={{ scale: 1.15 }} animate={{ scale: 1 }} transition={{ duration: AD_ZOOM_DURATION, ease: "easeOut" }} className="w-full h-full object-cover" onError={(e) => { e.target.closest(".rounded-xl").style.display = "none"; }} />
+        </a>
       </div>
       <span className="absolute top-2 right-2 text-[9px] font-semibold text-white/70 bg-black/30 px-1.5 py-0.5 rounded backdrop-blur-sm">Ad</span>
     </motion.div>
@@ -104,22 +91,227 @@ export default function LiveTvPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [listening, setListening] = useState(false);
+  const [voiceLang, setVoiceLang] = useState("en-IN");
+  const [voiceError, setVoiceError] = useState("");
+  const [micBlocked, setMicBlocked] = useState(false);
+  const recognitionRef = useRef(null);
+  const timeoutRef = useRef(null);
 
-  const cachedAds = getCachedAds("livetv");
-  const [ads, setAds] = useState(cachedAds);
+  const hasSpeechSupport = typeof window !== "undefined" && ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+
+  // Voice languages the user can cycle through
+  const voiceLangs = [
+    { code: "en-IN", label: "EN" },
+    { code: "hi-IN", label: "HI" },
+    { code: "te-IN", label: "TE" },
+    { code: "ta-IN", label: "TA" },
+    { code: "kn-IN", label: "KN" },
+  ];
+
+  // Cleanup recognition + timeout on unmount
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop();
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  // Check mic permission on mount (so we can show MicOff if blocked)
+  useEffect(() => {
+    if (!hasSpeechSupport) return;
+    navigator.permissions?.query({ name: "microphone" }).then((status) => {
+      setMicBlocked(status.state === "denied");
+      status.onchange = () => setMicBlocked(status.state === "denied");
+    }).catch(() => {});
+  }, [hasSpeechSupport]);
+
+  const parseSpokenNumber = useCallback((text) => {
+    let t = text.toLowerCase().trim();
+
+    // Strip filler words: "channel", "number", "no", "play", Hindi commands
+    t = t.replace(/\b(channel|number|no\.?|play|open|search|find|go to|switch to|tune to|dikhao|chalao|lagao|batao|sunao)\b/gi, "").trim();
+
+    // ── Hindi / Hinglish number words (1–99 + multipliers) ──
+    const hindiMap = {
+      sunya: 0, ek: 1, do: 2, teen: 3, char: 4, paanch: 5, panch: 5, chhe: 6, che: 6, cheh: 6,
+      saat: 7, sat: 7, aath: 8, aat: 8, nau: 9, das: 10, gyarah: 11, barah: 12, terah: 13,
+      chaudah: 14, pandrah: 15, solah: 16, satrah: 17, atharah: 18, unnis: 19, bees: 20,
+      ikkees: 21, bais: 22, teis: 23, chaubis: 24, pachchis: 25, chhabbis: 26, sattais: 27,
+      attais: 28, untees: 29, tees: 30, ikatees: 31, battis: 32, tentis: 33, chautis: 34,
+      paintis: 35, chhattis: 36, saintis: 37, adhtis: 38, untalis: 39, chalis: 40,
+      iktalis: 41, bayalis: 42, tentalis: 43, chavalis: 44, paintalis: 45, chhiyalis: 46,
+      saintalis: 47, adhtalis: 48, unchas: 49, pachas: 50, ikyavan: 51, bavan: 52,
+      tirpan: 53, chauvan: 54, pachpan: 55, chhappan: 56, sattavan: 57, atthavan: 58,
+      unsath: 59, saath: 60, iksath: 61, basath: 62, tirsath: 63, chausath: 64, painsath: 65,
+      chhiyasath: 66, sarsath: 67, adsath: 68, unahattar: 69, sattar: 70, ikattar: 71,
+      bahattar: 72, tihattar: 73, chauhattar: 74, pachattar: 75, chhihattar: 76,
+      satattar: 77, athattar: 78, unasi: 79, assi: 80, ikyasi: 81, bayasi: 82,
+      tirasi: 83, chaurasi: 84, pachasi: 85, chhiyasi: 86, sattasi: 87, aththasi: 88,
+      navasi: 89, nabbe: 90, ikyaanbe: 91, bayaanbe: 92, tiraanbe: 93, chauraanbe: 94,
+      pachaanbe: 95, chhiyaanbe: 96, sattaanbe: 97, athaanbe: 98, ninyaanbe: 99,
+      sau: 100, hazaar: 1000, hazar: 1000,
+      // common slang / alternate spellings
+      pachaas: 50, pachass: 50, aathh: 8, paach: 5,
+    };
+
+    // Check if entire input is a single Hindi number word
+    const hindiClean = t.replace(/[^a-z\s]/g, "").trim();
+    if (hindiMap[hindiClean] !== undefined) return String(hindiMap[hindiClean]);
+
+    // Handle Hindi compound like "ek sau pachas" (150), "do sau tees" (230)
+    const hindiCompound = hindiClean.split(/\s+/);
+    if (hindiCompound.length >= 2 && hindiCompound.length <= 4) {
+      const allHindi = hindiCompound.every(w => hindiMap[w] !== undefined);
+      if (allHindi) {
+        const nums = hindiCompound.map(w => hindiMap[w]);
+        let result = 0, i = 0;
+        while (i < nums.length) {
+          if (i + 1 < nums.length && nums[i + 1] === 1000) { result += nums[i] * 1000; i += 2; }
+          else if (i + 1 < nums.length && nums[i + 1] === 100) { result += nums[i] * 100; i += 2; }
+          else { result += nums[i]; i++; }
+        }
+        if (result > 0) return String(result);
+      }
+    }
+
+    // ── English number words ──
+    const engUnits = {
+      zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+      ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
+      seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50,
+      sixty: 60, seventy: 70, eighty: 80, ninety: 90,
+    };
+    const engMult = { hundred: 100, thousand: 1000 };
+
+    const engWords = t.replace(/\band\b/g, "").replace(/[^a-z\s]/g, "").trim().split(/\s+/).filter(Boolean);
+    if (engWords.length >= 1 && engWords.length <= 6) {
+      const allEng = engWords.every(w => engUnits[w] !== undefined || engMult[w] !== undefined);
+      if (allEng) {
+        let result = 0, current = 0;
+        for (const w of engWords) {
+          if (engUnits[w] !== undefined) { current += engUnits[w]; }
+          else if (w === "hundred") { current = (current === 0 ? 1 : current) * 100; }
+          else if (w === "thousand") { current = (current === 0 ? 1 : current) * 1000; result += current; current = 0; }
+        }
+        result += current;
+        if (result > 0) return String(result);
+      }
+    }
+
+    // Shorthand like "one fifty" → 150, "two thirty" → 230
+    if (engWords.length === 2) {
+      const a = engUnits[engWords[0]], b = engUnits[engWords[1]];
+      if (a !== undefined && b !== undefined && a >= 1 && a <= 9 && b >= 10 && b <= 90 && b % 10 === 0) {
+        return String(a * 100 + b);
+      }
+    }
+
+    // If text already has digits, extract them
+    const digits = t.replace(/[^\d]/g, "");
+    if (digits.length > 0) return digits;
+
+    // Return cleaned text for name-based search
+    return t;
+  }, []);
+
+  const stopVoice = useCallback(() => {
+    recognitionRef.current?.stop();
+    if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
+    setListening(false);
+  }, []);
+
+  const startVoiceSearch = useCallback(async () => {
+    if (listening) { stopVoice(); return; }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setVoiceError("Voice search not supported on this device");
+      setTimeout(() => setVoiceError(""), 3000);
+      return;
+    }
+
+    // PWA requirement: request mic permission explicitly before SpeechRecognition
+    // Some standalone PWAs won't grant mic access without a prior getUserMedia call.
+    // On insecure contexts (HTTP) mediaDevices is undefined — skip and let
+    // SpeechRecognition handle its own permission prompt.
+    if (navigator.mediaDevices?.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Release the stream immediately — we only needed the permission grant
+        stream.getTracks().forEach(track => track.stop());
+      } catch (err) {
+        setMicBlocked(true);
+        setVoiceError(err.name === "NotAllowedError" ? "Microphone blocked — enable it in site settings" : "Microphone not available");
+        setTimeout(() => setVoiceError(""), 4000);
+        return;
+      }
+    }
+
+    setVoiceError("");
+    const recognition = new SpeechRecognition();
+    recognition.lang = voiceLang;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 3;
+    recognition.continuous = false;
+    recognitionRef.current = recognition;
+
+    // Auto-stop after 8 seconds (safety net for PWAs where onend may not fire)
+    timeoutRef.current = setTimeout(() => {
+      recognition.stop();
+    }, 8000);
+
+    recognition.onstart = () => {
+      setListening(true);
+      setMicBlocked(false);
+    };
+
+    recognition.onresult = (event) => {
+      let best = "";
+      for (const result of event.results) {
+        best = result[0].transcript;
+      }
+      const parsed = parseSpokenNumber(best.trim());
+      setSearch(parsed);
+    };
+
+    recognition.onerror = (event) => {
+      if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
+      setListening(false);
+      const errMap = {
+        "not-allowed": "Microphone blocked — enable it in site settings",
+        "audio-capture": "No microphone found on this device",
+        "network": "Network error — voice search needs internet",
+        "no-speech": "No speech detected — try again",
+        "aborted": "",
+      };
+      const msg = errMap[event.error] || "";
+      if (event.error === "not-allowed") setMicBlocked(true);
+      if (msg) { setVoiceError(msg); setTimeout(() => setVoiceError(""), 4000); }
+    };
+
+    recognition.onend = () => {
+      if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
+      setListening(false);
+    };
+
+    try {
+      recognition.start();
+    } catch (err) {
+      setListening(false);
+      setVoiceError("Could not start voice search");
+      setTimeout(() => setVoiceError(""), 3000);
+    }
+  }, [listening, voiceLang, parseSpokenNumber, stopVoice]);
+
+  const [ads, setAds] = useState([]);
 
   useEffect(() => {
     fetchChannels();
     fetchLanguages();
-    if (cachedAds.length > 0) preloadAdImages(cachedAds, proxyImageUrl);
-    getAdvertisements({ mobile: iptvMobile, displayarea: "homepage", displaytype: "multiple" })
-      .then((data) => {
-        const adList = data?.body || [];
-        setAds(adList);
-        setCachedAds("livetv", adList);
-        preloadAdImages(adList, proxyImageUrl);
-      })
-      .catch(() => {});
+    fetchAds("custapp").then(data => {
+      if (data?.count > 0) setAds(data.imglist || []);
+    }).catch(() => {});
   }, []);
 
   const fetchChannels = async () => {
@@ -164,7 +356,7 @@ export default function LiveTvPage() {
       <div className="px-4 pt-4 pb-2 max-w-lg mx-auto">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2.5">
-            <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center hover:bg-gray-200 active:bg-gray-300 transition-colors flex-shrink-0">
+            <button onClick={() => navigate("/cust/dashboard")} className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center hover:bg-gray-200 active:bg-gray-300 transition-colors flex-shrink-0">
               <ArrowLeft className="w-5 h-5 text-gray-600" />
             </button>
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center shadow-sm shadow-red-200">
@@ -182,11 +374,33 @@ export default function LiveTvPage() {
         </div>
 
         <div className="relative mb-4">
-          <div className="flex items-center bg-white border border-gray-200 rounded-xl px-3 py-3 shadow-sm focus-within:border-red-300 focus-within:ring-1 focus-within:ring-red-200 transition-all min-h-[48px]">
+          <div className={`flex items-center bg-white border rounded-xl px-3 py-3 shadow-sm transition-all min-h-[48px] ${listening ? 'border-red-400 ring-2 ring-red-200' : 'border-gray-200 focus-within:border-red-300 focus-within:ring-1 focus-within:ring-red-200'}`}>
             <Search className="w-4 h-4 text-gray-400 mr-2 flex-shrink-0" />
-            <input type="text" placeholder="Search by name or channel number..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full outline-none text-sm text-gray-700 bg-transparent placeholder-gray-400" />
+            <input type="text" placeholder={listening ? "Listening..." : "Search by name or channel number..."} value={search} onChange={(e) => setSearch(e.target.value)} className="w-full outline-none text-sm text-gray-700 bg-transparent placeholder-gray-400" />
             {search && (<button onClick={() => setSearch("")} className="ml-2 flex-shrink-0"><X className="w-4 h-4 text-gray-400" /></button>)}
+            {hasSpeechSupport && (
+              <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                <button onClick={() => setVoiceLang(prev => { const idx = voiceLangs.findIndex(l => l.code === prev); return voiceLangs[(idx + 1) % voiceLangs.length].code; })} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-[9px] font-bold text-gray-500 hover:bg-gray-200 active:bg-gray-300 transition-colors">
+                  {voiceLangs.find(l => l.code === voiceLang)?.label}
+                </button>
+                <button onClick={startVoiceSearch} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${micBlocked ? 'bg-gray-200 cursor-not-allowed' : listening ? 'bg-red-500 animate-pulse' : 'bg-gray-100 hover:bg-gray-200 active:bg-gray-300'}`}>
+                  {micBlocked ? <MicOff className="w-4 h-4 text-red-400" /> : <Mic className={`w-4 h-4 ${listening ? 'text-white' : 'text-gray-500'}`} />}
+                </button>
+              </div>
+            )}
           </div>
+          <AnimatePresence>
+            {listening && (
+              <motion.p key="listening" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="text-[11px] text-red-500 font-medium mt-1.5 ml-1">
+                Speak a channel name or number...
+              </motion.p>
+            )}
+            {voiceError && !listening && (
+              <motion.p key="voice-error" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="text-[11px] text-orange-600 font-medium mt-1.5 ml-1">
+                {voiceError}
+              </motion.p>
+            )}
+          </AnimatePresence>
         </div>
 
         {loading && (<div className="space-y-4"><ChannelListSkeleton count={6} /></div>)}

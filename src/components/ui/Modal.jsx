@@ -9,7 +9,7 @@ const Modal = ({ isOpen, onClose, children, title }) => {
     <AnimatePresence>
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 px-4">
         <motion.div
-          className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+          className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
           initial={{ opacity: 0, scale: 0.9, y: -20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.9, y: 20 }}

@@ -67,8 +67,9 @@ export default function PlayerPage() {
   const stripScrollRef = useRef(null);
 
   const [videoKey, setVideoKey] = useState(0);
-  const [streamUrl, setStreamUrl] = useState(null);
-  const [status, setStatus] = useState("loading");
+  // Use streamlink from channel object immediately if available (skip API call)
+  const [streamUrl, setStreamUrl] = useState(channel?.streamlink || null);
+  const [status, setStatus] = useState(channel?.streamlink ? "loading" : "loading");
   const [errorMsg, setErrorMsg] = useState("");
   const [muted, setMuted] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -101,6 +102,12 @@ export default function PlayerPage() {
 
   useEffect(() => {
     if (!currentChannel) return;
+    // If channel already has streamlink, use it directly (no API call needed)
+    if (currentChannel.streamlink) {
+      setStreamUrl(currentChannel.streamlink);
+      return;
+    }
+    // Fallback: fetch stream URL from API only when streamlink is missing
     const mobile = getIptvMobile();
     let cancelled = false;
     const fetchStream = async () => {
@@ -157,14 +164,33 @@ export default function PlayerPage() {
     const video = videoRef.current;
     if (!video || status !== "playing") return;
     let stallCount = 0;
-    const MAX_STALL_RETRIES = 3;
+    const MAX_STALL_RETRIES = 5;
     const pendingTimeouts = new Set();
-    const onStalled = () => { stallCount++; if (stallCount > MAX_STALL_RETRIES) return; const hls = hlsRef.current; if (hls) hls.startLoad(); };
+    const recover = () => {
+      stallCount++;
+      if (stallCount > MAX_STALL_RETRIES) return;
+      const hls = hlsRef.current;
+      if (!hls) return;
+      // Try to skip past any buffer hole first
+      const buffered = video.buffered;
+      if (buffered.length > 0) {
+        const currentTime = video.currentTime;
+        for (let i = 0; i < buffered.length; i++) {
+          if (buffered.start(i) > currentTime + 0.1) {
+            video.currentTime = buffered.start(i) + 0.05;
+            break;
+          }
+        }
+      }
+      hls.startLoad();
+      video.play().catch(() => {});
+    };
+    const onStalled = () => recover();
     const onWaiting = () => {
       const waitTimeout = setTimeout(() => {
         pendingTimeouts.delete(waitTimeout);
-        if (video.paused || !video.readyState || video.readyState < 3) { stallCount++; if (stallCount > MAX_STALL_RETRIES) return; const hls = hlsRef.current; if (hls) { hls.startLoad(); video.play().catch(() => {}); } }
-      }, 8000);
+        if (video.paused || !video.readyState || video.readyState < 3) recover();
+      }, 1500);
       pendingTimeouts.add(waitTimeout);
       video.addEventListener("playing", () => { clearTimeout(waitTimeout); pendingTimeouts.delete(waitTimeout); }, { once: true });
     };
@@ -184,11 +210,39 @@ export default function PlayerPage() {
 
     if (Hls.isSupported()) {
       const hls = new Hls({
-        enableWorker: true, lowLatencyMode: false, backBufferLength: 30, liveSyncDuration: 3, liveMaxLatencyDuration: 10, liveDurationInfinity: true, maxBufferLength: 30, maxMaxBufferLength: 60, maxBufferSize: 60 * 1000 * 1000, maxBufferHole: 0.5, fragLoadingTimeOut: 15000, fragLoadingMaxRetry: 8, fragLoadingRetryDelay: 1000, fragLoadingMaxRetryTimeout: 16000, manifestLoadingTimeOut: 15000, manifestLoadingMaxRetry: 6, manifestLoadingRetryDelay: 1000, levelLoadingTimeOut: 15000, levelLoadingMaxRetry: 6, levelLoadingRetryDelay: 1000,
+        enableWorker: true,
+        lowLatencyMode: false,
+        startFragPrefetch: true,
+        backBufferLength: 0,
+        liveSyncDuration: 3,
+        liveMaxLatencyDuration: 10,
+        liveDurationInfinity: true,
+        maxBufferLength: 10,
+        maxMaxBufferLength: 20,
+        maxBufferSize: 20 * 1000 * 1000,
+        maxBufferHole: 0.5,
+        startLevel: 0,
+        capLevelToPlayerSize: true,
+        abrEwmaDefaultEstimate: 1000000,
+        abrBandWidthFactor: 0.9,
+        abrBandWidthUpFactor: 0.7,
+        initialLiveManifestSize: 1,
+        fragLoadingTimeOut: 8000,
+        fragLoadingMaxRetry: 4,
+        fragLoadingRetryDelay: 500,
+        fragLoadingMaxRetryTimeout: 6000,
+        manifestLoadingTimeOut: 6000,
+        manifestLoadingMaxRetry: 3,
+        manifestLoadingRetryDelay: 500,
+        levelLoadingTimeOut: 6000,
+        levelLoadingMaxRetry: 3,
+        levelLoadingRetryDelay: 500,
         xhrSetup: (xhr, url) => { xhr.open("GET", proxyStreamUrl(url), true); },
       });
       hlsRef.current = hls;
       hls.on(Hls.Events.MANIFEST_PARSED, () => { if (cancelled) return; tryPlay(); });
+      let firstBuffered = false;
+      hls.on(Hls.Events.FRAG_BUFFERED, () => { if (!firstBuffered && !cancelled) { firstBuffered = true; tryPlay(); } });
       let networkRetries = 0;
       const MAX_NETWORK_RETRIES = 4;
       hls.on(Hls.Events.ERROR, (_, data) => {
@@ -238,7 +292,12 @@ export default function PlayerPage() {
   const handleChannelSwitch = useCallback((newChannel) => {
     if (newChannel.chid === currentChannel?.chid) return;
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
-    setVideoKey((k) => k + 1); setStreamUrl(null); setStatus("loading"); setErrorMsg(""); setLogoError(false); setPaused(false); setCurrentChannel(newChannel); closeSheet();
+    setVideoKey((k) => k + 1);
+    setStatus("loading"); setErrorMsg(""); setLogoError(false); setPaused(false);
+    // Set streamUrl directly if available — avoids API round-trip
+    setStreamUrl(newChannel.streamlink || null);
+    setCurrentChannel(newChannel);
+    closeSheet();
   }, [currentChannel, closeSheet]);
 
   const togglePlayPause = () => { const video = videoRef.current; if (!video) return; if (video.paused) video.play().catch(() => {}); else video.pause(); resetHideTimer(); };
@@ -254,7 +313,7 @@ export default function PlayerPage() {
 
   return (
     <div ref={containerRef} className="fixed inset-0 bg-black z-50 select-none" onMouseMove={() => status === "playing" && resetHideTimer()} onClick={() => status === "playing" && handleScreenTap()} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
-      <video key={videoKey} ref={videoRef} className={`absolute inset-0 w-full h-full ${isFullscreen ? "object-cover" : "object-contain"}`} playsInline autoPlay />
+      <video key={videoKey} ref={videoRef} className={`absolute inset-0 w-full h-full ${isFullscreen ? "object-cover" : "object-contain"}`} playsInline autoPlay preload="auto" />
 
       <AnimatePresence>
         {controlsVisible && !showSheet && (<>

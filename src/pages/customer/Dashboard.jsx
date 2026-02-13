@@ -82,10 +82,10 @@ export default function Dashboard() {
                 <h2 className="text-lg font-semibold">Offers & New Features</h2>
                 <a href="#" className="text-sm text-indigo-600">View All</a>
               </div> */}
-              <Swiper spaceBetween={12} slidesPerView={'auto'} loop modules={[Autoplay]} autoplay={{ delay: 2500 }}>
+              <Swiper spaceBetween={12} slidesPerView={'auto'} loop={adCnt >= 3} modules={[Autoplay]} autoplay={{ delay: 2500 }}>
                 {Advertisement.map(ad => (
                   <SwiperSlide key={ad.id} style={{ width: adCnt > 1 ? '90%' : '100%' }}>
-                    <a href={ad.redirectlink} className="block bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden">
+                    <a href={ad.redirectlink} target="_blank" rel="noopener noreferrer" className="block bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden">
                       <img src={ad.content} alt={ad.description} className="h-32 w-full object-cover" />
                       {/* <div className="p-3">
                         <p className="font-medium">{ad.description}</p>

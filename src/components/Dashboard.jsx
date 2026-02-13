@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { UsersIcon, BellAlertIcon, SignalIcon, TicketIcon, ChartBarIcon, ArchiveBoxIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
-import { featuredAds, transactions } from '../data.js'
+import { ads as fetchAds } from "../services/customer/apis"
 import { Swiper, SwiperSlide } from 'swiper/react'
 import { Autoplay } from 'swiper/modules'
 import 'swiper/css'
@@ -14,6 +14,7 @@ export default function Dashboard() {
   const [servkey, setServkey] = useState('');
   const [intWB, setIntWB] = useState(0);
   const [fofiWB, setFofiWB] = useState(0);
+  const [adList, setAdList] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [greet, setGreet] = useState(false);
   localStorage.getItem('firstLogin') ? null : localStorage.setItem('firstLogin', 'true');
@@ -27,6 +28,12 @@ export default function Dashboard() {
   useEffect(() => {
     getWalBalance();
   }, [servkey]);
+
+  useEffect(() => {
+    fetchAds("custapp").then(data => {
+      if (data?.count > 0) setAdList(data.imglist || []);
+    }).catch(() => {});
+  }, []);
 
   async function getWalBalance() {
     try {
@@ -93,24 +100,22 @@ export default function Dashboard() {
       </div>
 
       {/* Featured Ads with Swiper */}
+      {adList.length > 0 && (
       <div>
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-lg font-semibold">Features & Offers</h2>
-          <a href="#" className="text-sm text-indigo-600">View All</a>
         </div>
-        <Swiper spaceBetween={12} slidesPerView={'auto'} loop modules={[Autoplay]} autoplay={{ delay: 2500 }}>
-          {featuredAds.map(ad => (
-            <SwiperSlide key={ad.id} style={{ width: 240 }}>
-              <a href={ad.link} className="block bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden">
-                <img src={import.meta.env.VITE_API_APP_DIR_PATH + ad.image} alt={ad.title} className="h-32 w-full object-cover" />
-                <div className="p-3">
-                  <p className="font-medium">{ad.title}</p>
-                </div>
+        <Swiper spaceBetween={12} slidesPerView={'auto'} loop={adList.length >= 3} modules={[Autoplay]} autoplay={{ delay: 2500 }}>
+          {adList.map(ad => (
+            <SwiperSlide key={ad.id} style={{ width: adList.length > 1 ? '90%' : '100%' }}>
+              <a href={ad.redirectlink} target="_blank" rel="noopener noreferrer" className="block bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden">
+                <img src={ad.content} alt={ad.description} className="h-32 w-full object-cover" />
               </a>
             </SwiperSlide>
           ))}
         </Swiper>
       </div>
+      )}
 
       {/* Transactions */}
       {/* <div>

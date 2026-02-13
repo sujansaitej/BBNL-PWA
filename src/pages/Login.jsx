@@ -95,7 +95,8 @@ export default function Login() {
       const userDet = (({ username, firstname, lastname, emailid, mobileno, op_id, photo }) => ({ username, firstname, lastname, emailid, mobileno, op_id, photo }))(result.body);
       login(userDet);
       localStorage.setItem("otprefid", result.body.otprefid);
-      result.body.otpstatus === 'yes' ? navigate('/verify-otp') : navigate("/");
+      const home = loginType === 'customer' ? '/cust/dashboard' : '/';
+      result.body.otpstatus === 'yes' ? navigate('/verify-otp') : navigate(home);
     } catch (err) {
       console.error("Login failed:", err);
       setError("Login failed. Please try again.");

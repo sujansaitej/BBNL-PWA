@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   UserPlusIcon,
@@ -8,6 +9,7 @@ import {
   CurrencyRupeeIcon,
   TvIcon
 } from "@heroicons/react/24/outline";
+import { Modal } from "@/components/ui";
 
 function Grid3x3Icon({ className }) {
   return (
@@ -32,11 +34,10 @@ function Grid3x3Icon({ className }) {
   );
 }
 
-function comingsoon() {
-  alert("The feature will be added very soon!");
-}
-
 export default function BottomBar() {
+  const [modalOpen, setModalOpen] = useState(false);
+  const comingsoon = (e) => { e.preventDefault(); setModalOpen(true); };
+
   return (
     <>
     {localStorage.getItem('loginType') !== 'customer' &&
@@ -89,13 +90,13 @@ export default function BottomBar() {
       </Link>
 
       {/* Renew */}
-      <Link to="#" className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
+      <Link to="#" onClick={comingsoon} className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
         <CurrencyRupeeIcon className="h-6 w-6" />
         <span className="text-xs">Renew</span>
       </Link>
 
       {/* Highlighted Dashboard (middle icon) */}
-      <Link to="/" className="flex flex-col items-center -mt-6">
+      <Link to="/cust/dashboard" className="flex flex-col items-center -mt-6">
         <div className="bg-blue-600 rounded-full p-4 shadow-lg">
           <Grid3x3Icon className="h-7 w-7 text-white" />
         </div>
@@ -103,19 +104,25 @@ export default function BottomBar() {
       </Link>
 
       {/* Tickets */}
-      <Link to="#" className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
+      <Link to="#" onClick={comingsoon} className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
         <TicketIcon className="h-6 w-6" />
         <span className="text-xs">Tickets</span>
       </Link>
 
       {/* support */}
-      <Link to="#" className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
+      <Link to="#" onClick={comingsoon} className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
         {/* <Cog6ToothIcon className="h-6 w-6" /> */}
         <ChatBubbleOvalLeftEllipsisIcon className="h-6 w-6" />
         <span className="text-xs">Support</span>
       </Link>
     </div>
     }
+
+    <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)}>
+      <h2 className="text-xl font-semibold text-center text-red-500 mb-2">Coming Soon!</h2>
+      <img src={import.meta.env.VITE_API_APP_DIR_PATH + 'img/under_dev.jpg'} alt="Modal Info" className="w-70 h-70 mx-auto" />
+      <p className="text-center text-violet-900 mt-1">We're working on this feature — check back soon!</p>
+    </Modal>
     </>
   );
 }

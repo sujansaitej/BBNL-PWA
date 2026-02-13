@@ -1,13 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { motion } from "framer-motion";
-import { LayoutGrid, Search, AlertCircle, Play, Tv, ArrowLeft } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { LayoutGrid, Search, AlertCircle, Play, Tv, ArrowLeft, X, Mic, MicOff } from "lucide-react";
 import Layout from "../../layout/Layout";
+import useVoiceSearch from "../../hooks/useVoiceSearch";
 import { ChannelGridSkeleton } from "../../components/iptv/Loader";
-import { getChannelList, getAdvertisements, getIptvMobile } from "../../services/iptvApi";
+import { getChannelList, getIptvMobile } from "../../services/iptvApi";
 import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
-import { getCachedAds, setCachedAds, preloadAdImages, getCachedAdImage } from "../../services/imageStore";
+import { ads as fetchAds } from "../../services/customer/apis";
 
 const container = {
   hidden: { opacity: 0 },
@@ -35,25 +36,14 @@ function getNextAdIndex(langid, totalAds) {
 }
 
 function AdBanner({ ad }) {
-  const adpath = ad?.adpath;
-  const proxied = proxyImageUrl(adpath);
-  const cached = getCachedAdImage(adpath);
-  const [src, setSrc] = useState(cached || null);
-
-  useEffect(() => {
-    if (!proxied) return;
-    if (cached) { setSrc(cached); return; }
-    const img = new Image();
-    img.src = proxied;
-    img.decode().then(() => setSrc(proxied)).catch(() => {});
-  }, [proxied, cached]);
-
-  if (!src) return null;
+  if (!ad?.content) return null;
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="mb-4 rounded-xl overflow-hidden relative col-span-2">
       <div className="aspect-[16/7] bg-gray-50 overflow-hidden">
-        <motion.img src={src} alt="Ad" initial={{ scale: 1.15 }} animate={{ scale: 1 }} transition={{ duration: AD_ZOOM_DURATION, ease: "easeOut" }} className="w-full h-full object-cover" onError={(e) => { e.target.closest(".rounded-xl").style.display = "none"; }} />
+        <a href={ad.redirectlink || "#"} target="_blank" rel="noopener noreferrer">
+          <motion.img src={ad.content} alt={ad.description || "Ad"} initial={{ scale: 1.15 }} animate={{ scale: 1 }} transition={{ duration: AD_ZOOM_DURATION, ease: "easeOut" }} className="w-full h-full object-cover" onError={(e) => { e.target.closest(".rounded-xl").style.display = "none"; }} />
+        </a>
       </div>
       <span className="absolute top-2 right-2 text-[9px] font-semibold text-white/70 bg-black/30 px-1.5 py-0.5 rounded backdrop-blur-sm">Ad</span>
     </motion.div>
@@ -104,20 +94,19 @@ export default function ChannelsPage() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
 
-  const cachedAds = getCachedAds("channels");
-  const [ads, setAds] = useState(cachedAds);
+  const onVoiceResult = useCallback((text) => setSearch(text), []);
+  const {
+    listening, voiceLang, voiceLangs, voiceError, micBlocked,
+    hasSpeechSupport, startVoiceSearch, cycleVoiceLang,
+  } = useVoiceSearch(onVoiceResult, { parseNumbers: true });
+
+  const [ads, setAds] = useState([]);
 
   useEffect(() => {
     fetchChannels();
-    if (cachedAds.length > 0) preloadAdImages(cachedAds, proxyImageUrl);
-    getAdvertisements({ mobile: iptvMobile, displayarea: "homepage", displaytype: "multiple" })
-      .then((data) => {
-        const adList = data?.body || [];
-        setAds(adList);
-        setCachedAds("channels", adList);
-        preloadAdImages(adList, proxyImageUrl);
-      })
-      .catch(() => {});
+    fetchAds("custapp").then(data => {
+      if (data?.count > 0) setAds(data.imglist || []);
+    }).catch(() => {});
   }, [langid]);
 
   const fetchChannels = async () => {
@@ -138,8 +127,6 @@ export default function ChannelsPage() {
   const handlePlayChannel = (channel) => {
     navigate("/cust/livetv/player", { state: { channel, channels } });
   };
-
-  const handleSearch = (e) => e.preventDefault();
 
   const filteredChannels = search.trim()
     ? channels.filter((ch) => {
@@ -168,13 +155,35 @@ export default function ChannelsPage() {
           </div>
         </motion.div>
 
-        <motion.form initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} onSubmit={handleSearch} className="mb-4">
-          <div className="flex items-center bg-white border border-gray-200 rounded-xl px-3 py-3 shadow-sm focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-200 transition-all min-h-[48px]">
+        <div className="relative mb-4">
+          <div className={`flex items-center bg-white border rounded-xl px-3 py-3 shadow-sm transition-all min-h-[48px] ${listening ? 'border-blue-400 ring-2 ring-blue-200' : 'border-gray-200 focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-200'}`}>
             <Search className="w-4 h-4 text-gray-400 mr-2 flex-shrink-0" />
-            <input type="text" placeholder="Search by name or channel number..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full outline-none text-sm text-gray-700 bg-transparent placeholder-gray-400" />
-            {search && (<button type="button" onClick={() => setSearch("")} className="text-xs text-gray-400 hover:text-gray-600 ml-2 flex-shrink-0">Clear</button>)}
+            <input type="text" placeholder={listening ? "Listening..." : "Search by name or channel number..."} value={search} onChange={(e) => setSearch(e.target.value)} className="w-full outline-none text-sm text-gray-700 bg-transparent placeholder-gray-400" />
+            {search && (<button onClick={() => setSearch("")} className="ml-2 flex-shrink-0"><X className="w-4 h-4 text-gray-400" /></button>)}
+            {hasSpeechSupport && (
+              <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                <button onClick={cycleVoiceLang} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-[9px] font-bold text-gray-500 hover:bg-gray-200 active:bg-gray-300 transition-colors">
+                  {voiceLangs.find(l => l.code === voiceLang)?.label}
+                </button>
+                <button onClick={startVoiceSearch} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${micBlocked ? 'bg-gray-200 cursor-not-allowed' : listening ? 'bg-blue-500 animate-pulse' : 'bg-gray-100 hover:bg-gray-200 active:bg-gray-300'}`}>
+                  {micBlocked ? <MicOff className="w-4 h-4 text-red-400" /> : <Mic className={`w-4 h-4 ${listening ? 'text-white' : 'text-gray-500'}`} />}
+                </button>
+              </div>
+            )}
           </div>
-        </motion.form>
+          <AnimatePresence>
+            {listening && (
+              <motion.p key="listening" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="text-[11px] text-blue-500 font-medium mt-1.5 ml-1">
+                Speak a channel name or number...
+              </motion.p>
+            )}
+            {voiceError && !listening && (
+              <motion.p key="voice-error" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="text-[11px] text-orange-600 font-medium mt-1.5 ml-1">
+                {voiceError}
+              </motion.p>
+            )}
+          </AnimatePresence>
+        </div>
 
         {ads.length > 0 && (<AdBanner ad={ads[getNextAdIndex(langid, ads.length)]} />)}
 
