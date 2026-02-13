@@ -2,23 +2,23 @@ import { useState, useEffect } from "react";
 import { getCachedLogo, subscribeLogo } from "../services/logoCache";
 
 /**
- * Returns a blob URL for the given image URL once it's fully loaded.
+ * Returns a cached data URL (base64 or blob) for the given image URL.
  * Returns null while the image is still downloading.
- * Uses the global logo cache — load once, instant everywhere.
+ * Uses the two-tier cache — instant from localStorage on return visits.
  */
 export default function useCachedLogo(url) {
-  const [blobUrl, setBlobUrl] = useState(() => getCachedLogo(url));
+  const [dataUrl, setDataUrl] = useState(() => getCachedLogo(url));
 
   useEffect(() => {
-    if (!url) { setBlobUrl(null); return; }
+    if (!url) { setDataUrl(null); return; }
 
     // Check cache synchronously (might have loaded between renders)
     const cached = getCachedLogo(url);
-    if (cached) { setBlobUrl(cached); return; }
+    if (cached) { setDataUrl(cached); return; }
 
-    setBlobUrl(null);
-    return subscribeLogo(url, setBlobUrl);
+    setDataUrl(null);
+    return subscribeLogo(url, setDataUrl);
   }, [url]);
 
-  return blobUrl;
+  return dataUrl;
 }

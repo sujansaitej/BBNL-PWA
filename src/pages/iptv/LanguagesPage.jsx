@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Languages, Globe, AlertCircle } from "lucide-react";
+import { Languages, Globe, AlertCircle, ArrowLeft } from "lucide-react";
 import Layout from "../../layout/Layout";
 import { LanguageListSkeleton } from "../../components/iptv/Loader";
-import { getLanguageList } from "../../services/iptvApi";
+import { getLanguageList, getIptvMobile } from "../../services/iptvApi";
+import { preloadLogos } from "../../services/logoCache";
+import useCachedLogo from "../../hooks/useCachedLogo";
 
 const container = {
   hidden: { opacity: 0 },
@@ -22,15 +24,15 @@ function proxyImageUrl(url) {
 }
 
 function LangCard({ lang, onClick }) {
-  const [imgError, setImgError] = useState(false);
   const hasLogo = lang.langlogomob && !lang.langlogomob.includes("chnlnoimage");
   const imgSrc = proxyImageUrl(lang.langlogomob);
+  const cachedSrc = useCachedLogo(hasLogo ? imgSrc : null);
 
   return (
     <motion.div variants={item} whileTap={{ scale: 0.95 }} onClick={onClick} className="flex flex-col items-center cursor-pointer group">
       <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-md mb-2 bg-gray-100 flex items-center justify-center group-active:shadow-sm transition-shadow">
-        {hasLogo && imgSrc && !imgError ? (
-          <img src={imgSrc} alt={lang.langtitle} className="w-full h-full object-cover" onError={() => setImgError(true)} />
+        {cachedSrc ? (
+          <img src={cachedSrc} alt={lang.langtitle} className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center">
             <Globe className="w-7 h-7 text-emerald-600" />
@@ -44,17 +46,13 @@ function LangCard({ lang, onClick }) {
 
 export default function LanguagesPage() {
   const navigate = useNavigate();
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  const iptvMobile = getIptvMobile();
 
   const [languages, setLanguages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!user.mobileno) {
-      navigate("/", { replace: true });
-      return;
-    }
     fetchLanguages();
   }, []);
 
@@ -62,8 +60,9 @@ export default function LanguagesPage() {
     setLoading(true);
     setError("");
     try {
-      const data = await getLanguageList({ mobile: user.mobileno });
+      const data = await getLanguageList({ mobile: iptvMobile });
       const langs = data?.body?.[0]?.languages || [];
+      preloadLogos(langs.map((l) => proxyImageUrl(l.langlogomob)).filter((u) => u && !u.includes("chnlnoimage")));
       setLanguages(langs);
     } catch (err) {
       setError(err.message || "Failed to load languages.");
@@ -76,6 +75,9 @@ export default function LanguagesPage() {
     <Layout>
       <div className="px-4 py-5 max-w-lg mx-auto">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-3 mb-5">
+          <button onClick={() => navigate("/cust/livetv")} className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center hover:bg-gray-200 active:bg-gray-300 transition-colors flex-shrink-0">
+            <ArrowLeft className="w-5 h-5 text-gray-600" />
+          </button>
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center shadow-sm">
             <Languages className="w-5 h-5 text-white" />
           </div>

@@ -83,28 +83,23 @@ export default function Login() {
     }
 
     setLoading(true);
+    localStorage.setItem("loginType", loginType);
 
-    // if (username === "superadmin" && password === "admin123") {
-      login(username, password);
-      try {
-        const result = await UserLogin(username, password);
-        if(result?.status?.err_code === 1) {
-            setError(result?.status?.err_msg || "Login failed");
-            setLoading(false);
-            return;
-        }
-        const userDet = (({ username, firstname, lastname, emailid, mobileno, op_id, photo }) => ({ username, firstname, lastname, emailid, mobileno, op_id, photo }))(result.body);
-        localStorage.setItem("user", JSON.stringify(userDet));
-        localStorage.setItem("otprefid", result.body.otprefid);
-        // localStorage.setItem("loginTime", new Date().toISOString());
-        // console.log("Login success:", result);
-        result.body.otpstatus === 'yes' ? navigate('/verify-otp') : navigate("/");
-      } catch (err) {
-        console.error("Login failed:", err);
+    try {
+      const result = await UserLogin(username, password);
+      if(result?.status?.err_code === 1) {
+          setError(result?.status?.err_msg || "Login failed");
+          setLoading(false);
+          return;
       }
-    // } else {
-    //   setError("Invalid username or password.");
-    // }
+      const userDet = (({ username, firstname, lastname, emailid, mobileno, op_id, photo }) => ({ username, firstname, lastname, emailid, mobileno, op_id, photo }))(result.body);
+      login(userDet);
+      localStorage.setItem("otprefid", result.body.otprefid);
+      result.body.otpstatus === 'yes' ? navigate('/verify-otp') : navigate("/");
+    } catch (err) {
+      console.error("Login failed:", err);
+      setError("Login failed. Please try again.");
+    }
 
     setLoading(false);
   };

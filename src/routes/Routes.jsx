@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import PrivateRoute from "./PrivateRoute";
 import Dashboard from "../pages/Dashboard";
 import Profile from "../pages/Profile";
@@ -204,39 +204,14 @@ export default function AppRoutes() {
         }
       />
 
-      {/* ── IPTV Live TV Routes ── */}
-      <Route
-        path="/cust/livetv"
-        element={
-          <PrivateRoute>
-            <LiveTvPage />
-          </PrivateRoute>
-        }
-      />
-      <Route
-        path="/cust/livetv/channels"
-        element={
-          <PrivateRoute>
-            <ChannelsPage />
-          </PrivateRoute>
-        }
-      />
-      <Route
-        path="/cust/livetv/languages"
-        element={
-          <PrivateRoute>
-            <LanguagesPage />
-          </PrivateRoute>
-        }
-      />
-      <Route
-        path="/cust/livetv/player"
-        element={
-          <PrivateRoute>
-            <PlayerPage />
-          </PrivateRoute>
-        }
-      />
+      {/* ── IPTV Live TV Routes (no auth required) ── */}
+      <Route path="/cust/livetv" element={<LiveTvPage />} />
+      <Route path="/cust/livetv/channels" element={<ChannelsPage />} />
+      <Route path="/cust/livetv/languages" element={<LanguagesPage />} />
+      <Route path="/cust/livetv/player" element={<PlayerPage />} />
+
+      {/* Catch-all: redirect any undefined route to login */}
+      <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   );
 }

@@ -8,21 +8,20 @@ import { getWalBal } from "../services/generalApis";
 export default function Sidebar({ open, onClose }) {
   const navigate = useNavigate();
   const [modalOpen, setModalOpen] = useState(false);
-  const user   = JSON.parse(localStorage.getItem('user'));
-  // const userObj = user ? JSON.parse(user) : null;
+  const user   = JSON.parse(localStorage.getItem('user') || 'null');
   const fname  = user?.firstname ? user.firstname.charAt(0).toUpperCase() + user.firstname.slice(1) : '';
   const lname  = user?.lastname ? user.lastname.charAt(0).toUpperCase() + user.lastname.slice(1) : '';
   const name   = fname || lname ? `${fname} ${lname}`.trim() : 'User';
   const mobile = user?.mobileno || 'N/A';
   const photo  = (user?.photo && user?.photo !='path') ? import.meta.env.VITE_API_BASE_URL + import.meta.env.VITE_API_APP_USER_IMG_PATH + user?.photo : import.meta.env.VITE_API_APP_DIR_PATH + import.meta.env.VITE_API_APP_DEFAULT_USER_IMG_PATH;
 
-  const logUname = JSON.parse(localStorage.getItem('user')).username;
+  const logUname = user?.username || '';
   const [servkey, setServkey] = useState('');
   const [intWB, setIntWB] = useState(0);
   // const [fofiWB, setFofiWB] = useState(0);
   const isCustomer = localStorage.getItem('loginType') === 'customer'? true : false;
   useEffect(() => {
-    getWalBalance();
+    if (logUname) getWalBalance();
   }, []);
 
   async function getWalBalance() {
@@ -30,10 +29,8 @@ export default function Sidebar({ open, onClose }) {
       const payload = { loginuname: logUname, servicekey: servkey || 'internet' };
       const data = await getWalBal(payload);
       if (data?.status?.err_code === 0) {
-        if(payload.servicekey === 'internet') 
+        if(payload.servicekey === 'internet')
           setIntWB((data?.body?.wallet_balance || 0).toFixed(2));
-        else
-          setFofiWB(data?.body?.wallet_balance || 0);
         // console.log("Wallet Balance:", data?.body?.wallet_balance);
       } else {
         console.error("Failed to fetch wallet balance:", data?.status?.err_msg || "Unknown error");

@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, Volume2, VolumeX, Maximize, Minimize, Tv, ExternalLink, RefreshCw, Play, Pause, ChevronUp } from "lucide-react";
 import Hls from "hls.js";
-import { getChannelStream, getChannelList } from "../../services/iptvApi";
+import { getChannelStream, getChannelList, getIptvMobile } from "../../services/iptvApi";
 import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
 
@@ -85,10 +85,10 @@ export default function PlayerPage() {
 
   useEffect(() => {
     if (channelList.length > 0) return;
-    const user = JSON.parse(localStorage.getItem("user") || "{}");
-    if (!user.mobileno) return;
+    const mobile = getIptvMobile();
+    if (!mobile) return;
     let cancelled = false;
-    getChannelList({ mobile: user.mobileno, langid: "subs" })
+    getChannelList({ mobile, langid: "subs" })
       .then((data) => {
         if (cancelled) return;
         const chnls = data?.body?.[0]?.channels || [];
@@ -101,11 +101,11 @@ export default function PlayerPage() {
 
   useEffect(() => {
     if (!currentChannel) return;
-    const user = JSON.parse(localStorage.getItem("user") || "{}");
+    const mobile = getIptvMobile();
     let cancelled = false;
     const fetchStream = async () => {
       try {
-        const data = await getChannelStream({ mobile: user.mobileno, chid: currentChannel.chid || "", chno: currentChannel.chno || "" });
+        const data = await getChannelStream({ mobile, chid: currentChannel.chid || "", chno: currentChannel.chno || "" });
         const stream = data?.body?.[0]?.stream?.[0];
         if (!stream || !stream.streamlink) throw new Error("No stream available for this channel.");
         if (!cancelled) setStreamUrl(stream.streamlink);

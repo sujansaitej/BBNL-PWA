@@ -4,10 +4,10 @@ import { motion } from "framer-motion";
 import { LayoutGrid, Search, AlertCircle, Play, Tv, ArrowLeft } from "lucide-react";
 import Layout from "../../layout/Layout";
 import { ChannelGridSkeleton } from "../../components/iptv/Loader";
-import { getChannelList, getAdvertisements } from "../../services/iptvApi";
+import { getChannelList, getAdvertisements, getIptvMobile } from "../../services/iptvApi";
 import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
-import { getCachedAds, setCachedAds, preloadAdImages } from "../../services/imageStore";
+import { getCachedAds, setCachedAds, preloadAdImages, getCachedAdImage } from "../../services/imageStore";
 
 const container = {
   hidden: { opacity: 0 },
@@ -35,18 +35,20 @@ function getNextAdIndex(langid, totalAds) {
 }
 
 function AdBanner({ ad }) {
-  const [ready, setReady] = useState(false);
-  const src = proxyImageUrl(ad?.adpath);
+  const adpath = ad?.adpath;
+  const proxied = proxyImageUrl(adpath);
+  const cached = getCachedAdImage(adpath);
+  const [src, setSrc] = useState(cached || null);
 
   useEffect(() => {
-    if (!src) return;
-    setReady(false);
+    if (!proxied) return;
+    if (cached) { setSrc(cached); return; }
     const img = new Image();
-    img.src = src;
-    img.decode().then(() => setReady(true)).catch(() => {});
-  }, [src]);
+    img.src = proxied;
+    img.decode().then(() => setSrc(proxied)).catch(() => {});
+  }, [proxied, cached]);
 
-  if (!src || !ready) return null;
+  if (!src) return null;
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="mb-4 rounded-xl overflow-hidden relative col-span-2">
@@ -92,7 +94,7 @@ function ChannelCard({ channel, onPlay }) {
 export default function ChannelsPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  const iptvMobile = getIptvMobile();
 
   const langid = location.state?.langid || "subs";
   const langTitle = location.state?.langTitle || "";
@@ -106,13 +108,9 @@ export default function ChannelsPage() {
   const [ads, setAds] = useState(cachedAds);
 
   useEffect(() => {
-    if (!user.mobileno) {
-      navigate("/", { replace: true });
-      return;
-    }
     fetchChannels();
     if (cachedAds.length > 0) preloadAdImages(cachedAds, proxyImageUrl);
-    getAdvertisements({ mobile: user.mobileno, displayarea: "homepage", displaytype: "multiple" })
+    getAdvertisements({ mobile: iptvMobile, displayarea: "homepage", displaytype: "multiple" })
       .then((data) => {
         const adList = data?.body || [];
         setAds(adList);
@@ -126,7 +124,7 @@ export default function ChannelsPage() {
     setLoading(true);
     setError("");
     try {
-      const data = await getChannelList({ mobile: user.mobileno, langid });
+      const data = await getChannelList({ mobile: iptvMobile, langid });
       const chnls = data?.body?.[0]?.channels || [];
       preloadLogos(chnls.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage")));
       setChannels(chnls);
@@ -158,11 +156,9 @@ export default function ChannelsPage() {
     <Layout>
       <div className="px-4 py-5 max-w-lg mx-auto">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-3 mb-4">
-          {langTitle && (
-            <button onClick={() => navigate("/cust/livetv/languages")} className="w-11 h-11 rounded-xl bg-gray-100 flex items-center justify-center hover:bg-gray-200 active:bg-gray-300 transition-colors flex-shrink-0">
-              <ArrowLeft className="w-5 h-5 text-gray-600" />
-            </button>
-          )}
+          <button onClick={() => navigate(-1)} className="w-11 h-11 rounded-xl bg-gray-100 flex items-center justify-center hover:bg-gray-200 active:bg-gray-300 transition-colors flex-shrink-0">
+            <ArrowLeft className="w-5 h-5 text-gray-600" />
+          </button>
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center shadow-sm flex-shrink-0">
             <LayoutGrid className="w-5 h-5 text-white" />
           </div>
