@@ -51,6 +51,9 @@ export default ({ mode }) => {
       })
     ],
     base: env.VITE_API_APP_DIR_PATH,
+    esbuild: {
+      drop: mode === 'production' ? ['console', 'debugger'] : [],
+    },
     build: {
       rollupOptions: {
         output: {
