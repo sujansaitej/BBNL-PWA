@@ -14,6 +14,7 @@ import { getOrderHistory } from "../services/orderApis";
 import { formatCustomerId } from "../services/helpers";
 import BottomNav from "../components/BottomNav";
 import { Loader } from "@/components/ui";
+import { jsPDF } from "jspdf";
 
 // Helper function to parse date strings like "30-01-2026 16:32:54" to Date object
 const parsePaymentDate = (dateStr) => {
@@ -143,103 +144,196 @@ export default function PaymentHistory() {
   const orders = orderHistory?.body || [];
 
   const handleDownload = (order) => {
-    // Generate properly structured billing receipt
     const customerName = order.name || customerData?.name || "N/A";
     const customerId = formatCustomerId(order.cid || customerData?.customer_id);
     const mobile = order.mobile || customerData?.mobile || "N/A";
 
-    // Build billing structure
-    let receiptContent = `
-================================================================================
-                              PAYMENT RECEIPT
-================================================================================
+    // Create PDF document
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    let y = 15;
 
-BBNL - Bangalore Broadband Network Limited
-${serviceType === 'fofi' ? 'FoFi Smart Box Service' : 'Internet Service'}
---------------------------------------------------------------------------------
+    // Colors matching UI
+    const primaryColor = [79, 70, 229]; // indigo-600
+    const purpleColor = [147, 51, 234]; // purple-600
+    const grayColor = [107, 114, 128]; // gray-500
+    const darkGray = [31, 41, 55]; // gray-800
 
-CUSTOMER DETAILS
---------------------------------------------------------------------------------
-Customer Name    : ${customerName}
-Customer ID      : ${customerId}
-Mobile Number    : ${mobile}
-${order.gstno ? `GST Number       : ${order.gstno}` : ''}
+    // Header background
+    doc.setFillColor(79, 70, 229);
+    doc.rect(0, 0, pageWidth, 40, 'F');
 
-PAYMENT DETAILS
---------------------------------------------------------------------------------
-Payment Date     : ${order.payment_date || "N/A"}
-Payment Mode     : ${(order.pymt_mode || "N/A").toUpperCase()}
-Payment Type     : ${(order.pymt_type || "N/A").toUpperCase()}
-${order.orderid ? `Order ID         : ${order.orderid}` : ''}
+    // Header text
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(20);
+    doc.setFont("helvetica", "bold");
+    doc.text("PAYMENT RECEIPT", pageWidth / 2, 18, { align: "center" });
 
-PLAN DETAILS
---------------------------------------------------------------------------------
-Plan Name        : ${order.plan_name || "N/A"}
-Plan Rate        : Rs. ${formatAmount(order.plan_rate)}
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "normal");
+    doc.text("BBNL - Bangalore Broadband Network Limited", pageWidth / 2, 28, { align: "center" });
+    doc.setFontSize(10);
+    doc.text(serviceType === 'fofi' ? 'FoFi Smart Box Service' : 'Internet Service', pageWidth / 2, 35, { align: "center" });
 
-BILLING BREAKDOWN
---------------------------------------------------------------------------------
-Base Amount                              Rs. ${formatAmount(order.plan_rate).padStart(10)}
-`;
+    y = 50;
 
-    // Add taxes if available
+    // Helper function to draw section header
+    const drawSectionHeader = (title, yPos) => {
+      doc.setFillColor(238, 242, 255); // indigo-50
+      doc.roundedRect(15, yPos, pageWidth - 30, 10, 2, 2, 'F');
+      doc.setTextColor(...primaryColor);
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold");
+      doc.text(title, 20, yPos + 7);
+      return yPos + 15;
+    };
+
+    // Helper function to draw label-value pair
+    const drawLabelValue = (label, value, yPos, labelColor = grayColor, valueColor = darkGray) => {
+      doc.setTextColor(...labelColor);
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.text(label, 20, yPos);
+      doc.setTextColor(...valueColor);
+      doc.setFont("helvetica", "bold");
+      doc.text(String(value), pageWidth - 20, yPos, { align: "right" });
+      return yPos + 8;
+    };
+
+    // Payment Date section
+    doc.setFillColor(238, 242, 255);
+    doc.roundedRect(15, y, pageWidth - 30, 14, 3, 3, 'F');
+    doc.setTextColor(...grayColor);
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.text("Payment Date", 20, y + 6);
+    doc.setTextColor(...darkGray);
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.text(order.payment_date || "N/A", 20, y + 12);
+    y += 20;
+
+    // Customer Details Section
+    y = drawSectionHeader("CUSTOMER DETAILS", y);
+    y = drawLabelValue("Customer Name", customerName, y);
+    y = drawLabelValue("Customer ID", customerId, y);
+    y = drawLabelValue("Mobile Number", mobile, y);
+    if (order.gstno) {
+      y = drawLabelValue("GST Number", order.gstno, y);
+    }
+    y += 5;
+
+    // Payment Details Section
+    y = drawSectionHeader("PAYMENT DETAILS", y);
+    y = drawLabelValue("Payment Mode", (order.pymt_mode || "N/A").toUpperCase(), y);
+    y = drawLabelValue("Payment Type", (order.pymt_type || "N/A").toUpperCase(), y);
+    if (order.orderid) {
+      y = drawLabelValue("Order ID", order.orderid, y);
+    }
+    y += 5;
+
+    // Plan Details Section
+    y = drawSectionHeader("PLAN DETAILS", y);
+    doc.setFillColor(238, 242, 255);
+    doc.roundedRect(15, y, pageWidth - 30, 14, 3, 3, 'F');
+    doc.setTextColor(...primaryColor);
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.text(order.plan_name || "N/A", 20, y + 9);
+    doc.setTextColor(...primaryColor);
+    doc.text(`Rs. ${formatAmount(order.plan_rate)} /month`, pageWidth - 20, y + 9, { align: "right" });
+    y += 22;
+
+    // Payment Breakdown Section
+    y = drawSectionHeader("PAYMENT BREAKDOWN", y);
+
+    // Draw breakdown box
+    const breakdownStartY = y;
+    doc.setFillColor(249, 250, 251); // gray-50
+
+    // Calculate box height based on content
+    let lineCount = 2; // Plan Rate + Subtotal
+    if (order.subtaxes && order.subtaxes.length > 0) lineCount += order.subtaxes.length;
+    if (order.discount > 0) lineCount++;
+    if (order.other_charges > 0) lineCount++;
+    const boxHeight = lineCount * 8 + 15;
+
+    doc.roundedRect(15, y, pageWidth - 30, boxHeight, 3, 3, 'F');
+    y += 8;
+
+    // Plan Rate
+    y = drawLabelValue("Plan Rate", `Rs. ${formatAmount(order.plan_rate)}`, y);
+
+    // Taxes
     if (order.subtaxes && order.subtaxes.length > 0) {
       order.subtaxes.forEach(tax => {
-        const taxLabel = `${tax.key} (${tax.perc}%)`;
-        receiptContent += `${taxLabel.padEnd(40)} Rs. ${formatAmount(tax.value).padStart(10)}\n`;
+        y = drawLabelValue(`${tax.key} (${tax.perc}%)`, `Rs. ${formatAmount(tax.value)}`, y);
       });
     }
 
-    // Add discount if available
+    // Discount
     if (order.discount > 0) {
-      receiptContent += `Discount                                -Rs. ${formatAmount(order.discount).padStart(9)}\n`;
+      y = drawLabelValue("Discount", `-Rs. ${formatAmount(order.discount)}`, y, grayColor, [22, 163, 74]); // green
     }
 
-    // Add other charges if available
+    // Other Charges
     if (order.other_charges > 0) {
-      receiptContent += `Other Charges                            Rs. ${formatAmount(order.other_charges).padStart(10)}\n`;
+      y = drawLabelValue("Other Charges", `Rs. ${formatAmount(order.other_charges)}`, y);
     }
 
-    receiptContent += `--------------------------------------------------------------------------------
-Subtotal                                 Rs. ${formatAmount(order.subtotal).padStart(10)}
-================================================================================
-TOTAL PAID                               Rs. ${formatAmount(order.paid_amt || order.total_amt).padStart(10)}
-================================================================================
-`;
+    // Subtotal line
+    doc.setDrawColor(229, 231, 235);
+    doc.line(20, y, pageWidth - 20, y);
+    y += 6;
+    y = drawLabelValue("Subtotal", `Rs. ${formatAmount(order.subtotal)}`, y);
+    y += 8;
 
-    // Add balance if any
+    // Total Paid - Purple highlight box
+    doc.setFillColor(250, 245, 255); // purple-50
+    doc.roundedRect(15, y, pageWidth - 30, 18, 3, 3, 'F');
+    doc.setTextColor(...purpleColor);
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.text("Total Paid", 20, y + 12);
+    doc.setFontSize(16);
+    doc.text(`Rs. ${formatAmount(order.paid_amt || order.total_amt)}`, pageWidth - 20, y + 12, { align: "right" });
+    y += 25;
+
+    // Balance Due (if any)
     if (order.balance_amt > 0) {
-      receiptContent += `
-BALANCE DUE                              Rs. ${formatAmount(order.balance_amt).padStart(10)}
---------------------------------------------------------------------------------
-`;
+      doc.setFillColor(255, 247, 237); // orange-50
+      doc.roundedRect(15, y, pageWidth - 30, 16, 3, 3, 'F');
+      doc.setTextColor(234, 88, 12); // orange-600
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold");
+      doc.text("Balance Due", 20, y + 11);
+      doc.setFontSize(14);
+      doc.text(`Rs. ${formatAmount(order.balance_amt)}`, pageWidth - 20, y + 11, { align: "right" });
+      y += 22;
     }
 
-    receiptContent += `
---------------------------------------------------------------------------------
-Thank you for your payment!
-For support, contact BBNL Customer Care.
---------------------------------------------------------------------------------
-Generated on: ${new Date().toLocaleString('en-IN')}
-================================================================================
-`;
+    // Footer
+    y += 10;
+    doc.setDrawColor(229, 231, 235);
+    doc.line(15, y, pageWidth - 15, y);
+    y += 8;
 
-    // Create and download the file
-    const blob = new Blob([receiptContent], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
+    doc.setTextColor(...grayColor);
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.text("Thank you for your payment!", pageWidth / 2, y, { align: "center" });
+    y += 5;
+    doc.text("For support, contact BBNL Customer Care.", pageWidth / 2, y, { align: "center" });
+    y += 8;
+    doc.setFontSize(8);
+    doc.text(`Generated on: ${new Date().toLocaleString('en-IN')}`, pageWidth / 2, y, { align: "center" });
 
     // Create filename with date and customer ID
     const dateStr = (order.payment_date || "").replace(/[:\s]/g, '-').replace(/\//g, '-');
-    const fileName = `BBNL_Receipt_${customerId}_${dateStr || Date.now()}.txt`;
-    link.download = fileName;
+    const fileName = `BBNL_Receipt_${customerId}_${dateStr || Date.now()}.pdf`;
 
-    // Trigger download
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    // Download the PDF
+    doc.save(fileName);
   };
 
   const formatDate = (dateStr) => {
