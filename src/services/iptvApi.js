@@ -12,11 +12,10 @@ const IPTV_DEFAULT_MOBILE = import.meta.env.VITE_IPTV_DEFAULT_MOBILE || "";
 
 const BASIC_AUTH = "Basic " + btoa(`${IPTV_USERNAME}:${IPTV_PASSWORD}`);
 
-/** Get the mobile number to use for IPTV APIs (default or logged-in user's) */
+/** Get the mobile number to use for IPTV APIs (logged-in user first, fallback to default) */
 export function getIptvMobile() {
-  if (IPTV_DEFAULT_MOBILE) return IPTV_DEFAULT_MOBILE;
   const user = JSON.parse(localStorage.getItem("user") || "{}");
-  return user.mobileno || "";
+  return user.mobileno || IPTV_DEFAULT_MOBILE || "";
 }
 
 async function iptvFetch(endpoint, options = {}) {
