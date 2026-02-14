@@ -55,6 +55,7 @@ export default ({ mode }) => {
       drop: mode === 'production' ? ['console', 'debugger'] : [],
     },
     build: {
+      chunkSizeWarningLimit: 1500,
       rollupOptions: {
         output: {
           manualChunks: {

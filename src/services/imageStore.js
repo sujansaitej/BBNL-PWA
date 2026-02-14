@@ -5,6 +5,8 @@
  * Ad images (base64): cached 7 days so they render instantly.
  */
 
+import { fetchImage } from "./iptvImage";
+
 const AD_META_PREFIX = "ad_meta_";
 const AD_IMG_PREFIX = "ad_img_";
 const META_TTL = 30 * 60 * 1000;      // 30 minutes
@@ -112,7 +114,7 @@ export function getCachedAdImage(adpath) {
 async function fetchAndCacheAdImage(url, adpath) {
   if (!url || adImageMem.has(adpath)) return;
   try {
-    const res = await fetch(url, { cache: "force-cache" });
+    const res = await fetchImage(url, { cache: "force-cache" });
     if (!res.ok) return;
     const blob = await res.blob();
     // Skip images > 500KB to protect localStorage

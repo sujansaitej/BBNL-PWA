@@ -7,12 +7,8 @@ import { ChannelListSkeleton } from "../../components/iptv/Loader";
 import { getChannelList, getLanguageList, getIptvMobile } from "../../services/iptvApi";
 import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
+import { proxyImageUrl } from "../../services/iptvImage";
 import { ads as fetchAds } from "../../services/customer/apis";
-
-function proxyImageUrl(url) {
-  if (!url) return null;
-  return url.replace(/^https?:\/\/124\.40\.244\.211\/netmon\/Cabletvapis/i, "");
-}
 
 const AD_ZOOM_DURATION = 5;
 

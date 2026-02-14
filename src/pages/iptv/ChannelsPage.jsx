@@ -8,6 +8,7 @@ import { ChannelGridSkeleton } from "../../components/iptv/Loader";
 import { getChannelList, getIptvMobile } from "../../services/iptvApi";
 import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
+import { proxyImageUrl } from "../../services/iptvImage";
 import { ads as fetchAds } from "../../services/customer/apis";
 
 const container = {
@@ -19,11 +20,6 @@ const item = {
   hidden: { opacity: 0, y: 15 },
   show: { opacity: 1, y: 0 },
 };
-
-function proxyImageUrl(url) {
-  if (!url) return null;
-  return url.replace(/^https?:\/\/124\.40\.244\.211\/netmon\/Cabletvapis/i, "");
-}
 
 const AD_ZOOM_DURATION = 5;
 

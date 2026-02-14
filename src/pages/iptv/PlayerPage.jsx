@@ -6,11 +6,7 @@ import Hls from "hls.js";
 import { getChannelStream, getChannelList, getIptvMobile } from "../../services/iptvApi";
 import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
-
-function proxyImageUrl(url) {
-  if (!url) return null;
-  return url.replace(/^https?:\/\/124\.40\.244\.211\/netmon\/Cabletvapis/i, "");
-}
+import { proxyImageUrl } from "../../services/iptvImage";
 
 const STREAM_RE = /^https?:\/\/[^/]+\.bbnl\.in/i;
 function proxyStreamUrl(url) {

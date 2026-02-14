@@ -8,6 +8,8 @@
  * - TTL of 7 days. Oldest entries evicted when localStorage is full.
  */
 
+import { fetchImage } from "./iptvImage";
+
 const LS_PREFIX = "lc_";
 const TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 const MAX_CONCURRENT = 4;
@@ -86,7 +88,7 @@ function evictOldest(count) {
 // ── Core fetch: download image → base64 → store both tiers ──
 async function fetchAndCache(url) {
   try {
-    const res = await fetch(url, { cache: "force-cache" });
+    const res = await fetchImage(url, { cache: "force-cache" });
     if (!res.ok) return null;
     const blob = await res.blob();
     // Skip very large images (>500KB) to avoid filling localStorage

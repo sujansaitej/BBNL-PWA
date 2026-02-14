@@ -7,6 +7,7 @@ import { LanguageListSkeleton } from "../../components/iptv/Loader";
 import { getLanguageList, getIptvMobile } from "../../services/iptvApi";
 import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
+import { proxyImageUrl } from "../../services/iptvImage";
 import useVoiceSearch from "../../hooks/useVoiceSearch";
 
 const container = {
@@ -18,11 +19,6 @@ const item = {
   hidden: { opacity: 0, y: 15 },
   show: { opacity: 1, y: 0 },
 };
-
-function proxyImageUrl(url) {
-  if (!url) return null;
-  return url.replace(/^https?:\/\/124\.40\.244\.211\/netmon\/Cabletvapis/i, "");
-}
 
 function LangCard({ lang, onClick }) {
   const hasLogo = lang.langlogomob && !lang.langlogomob.includes("chnlnoimage");
