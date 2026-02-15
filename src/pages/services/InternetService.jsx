@@ -36,23 +36,32 @@ export default function InternetService() {
     async function fetchOverview() {
       setLoading(true);
       setError("");
-      try {
-        const [assigned, cable, primary, plan] = await Promise.all([
-          getUserAssignedItems("internet", userid),
-          getCableCustomerDetails(userid),
-          getPrimaryCustomerDetails(userid),
-          getMyPlanDetails({ servicekey: "internet", userid, fofiboxid: "", voipnumber: "" })
-        ]);
-        setAssignedItems(assigned);
-        setCableDetails(cable);
-        setPrimaryDetails(primary);
-        setPlanDetails(plan);
-      } catch (err) {
-        console.error("Error fetching overview:", err);
+      let hasAnyData = false;
+
+      // Fetch each API independently so partial failures don't block everything
+      const calls = [
+        { fn: () => getUserAssignedItems("internet", userid), set: setAssignedItems, label: "assigned items" },
+        { fn: () => getCableCustomerDetails(userid), set: setCableDetails, label: "cable details" },
+        { fn: () => getPrimaryCustomerDetails(userid), set: setPrimaryDetails, label: "primary details" },
+        { fn: () => getMyPlanDetails({ servicekey: "internet", userid, fofiboxid: "", voipnumber: "" }), set: setPlanDetails, label: "plan details" },
+      ];
+
+      await Promise.all(
+        calls.map(async ({ fn, set, label }) => {
+          try {
+            const data = await fn();
+            set(data);
+            hasAnyData = true;
+          } catch (err) {
+            console.error(`Error fetching ${label}:`, err);
+          }
+        })
+      );
+
+      if (!hasAnyData) {
         setError("Failed to load customer overview data.");
-      } finally {
-        setLoading(false);
       }
+      setLoading(false);
     }
     if (userid) fetchOverview();
   }, [userid]);
@@ -260,7 +269,7 @@ export default function InternetService() {
             <div className="space-y-3">
               <h3 className="text-indigo-600 font-semibold text-lg flex items-center gap-2">
                 <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
-                Current Plan (Read-Only)
+                Current Plan
               </h3>
               <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 border border-gray-100 dark:border-gray-700">
                 <div className="flex items-start gap-4">

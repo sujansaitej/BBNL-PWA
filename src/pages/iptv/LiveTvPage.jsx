@@ -4,11 +4,11 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Search, Play, Tv, Radio, AlertCircle, X, Languages, Globe, ArrowLeft, Mic, MicOff } from "lucide-react";
 import Layout from "../../layout/Layout";
 import { ChannelListSkeleton } from "../../components/iptv/Loader";
-import { getChannelList, getLanguageList, getIptvMobile } from "../../services/iptvApi";
+import { getChannelList, getLanguageList, getAdvertisements, getIptvMobile } from "../../services/iptvApi";
 import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
 import { proxyImageUrl } from "../../services/iptvImage";
-import { ads as fetchAds } from "../../services/customer/apis";
+import IptvSignup from "../../components/iptv/IptvSignup";
 
 const AD_ZOOM_DURATION = 5;
 
@@ -27,7 +27,7 @@ function AdBanner({ ad }) {
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="mb-4 rounded-xl overflow-hidden relative">
       <div className="aspect-[16/7] bg-gray-50 overflow-hidden">
         <a href={ad.redirectlink || "#"} target="_blank" rel="noopener noreferrer">
-          <motion.img src={ad.content} alt={ad.description || "Ad"} initial={{ scale: 1.15 }} animate={{ scale: 1 }} transition={{ duration: AD_ZOOM_DURATION, ease: "easeOut" }} className="w-full h-full object-cover" onError={(e) => { e.target.closest(".rounded-xl").style.display = "none"; }} />
+          <motion.img src={proxyImageUrl(ad.content)} alt={ad.description || "Ad"} initial={{ scale: 1.15 }} animate={{ scale: 1 }} transition={{ duration: AD_ZOOM_DURATION, ease: "easeOut" }} className="w-full h-full object-cover" onError={(e) => { e.target.closest(".rounded-xl").style.display = "none"; }} />
         </a>
       </div>
       <span className="absolute top-2 right-2 text-[9px] font-semibold text-white/70 bg-black/30 px-1.5 py-0.5 rounded backdrop-blur-sm">Ad</span>
@@ -86,6 +86,7 @@ export default function LiveTvPage() {
   const [languages, setLanguages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [userNotFound, setUserNotFound] = useState(false);
   const [search, setSearch] = useState("");
   const [listening, setListening] = useState(false);
   const [voiceLang, setVoiceLang] = useState("en-IN");
@@ -305,21 +306,28 @@ export default function LiveTvPage() {
   useEffect(() => {
     fetchChannels();
     fetchLanguages();
-    fetchAds("custapp").then(data => {
-      if (data?.count > 0) setAds(data.imglist || []);
+    getAdvertisements({ mobile: iptvMobile }).then(data => {
+      const list = (data?.body?.[0]?.ads || []).filter(a => a.content);
+      if (list.length > 0) setAds(list);
     }).catch(() => {});
   }, []);
 
   const fetchChannels = async () => {
     setLoading(true);
     setError("");
+    setUserNotFound(false);
     try {
       const data = await getChannelList({ mobile: iptvMobile, langid: "subs" });
       const chnls = data?.body?.[0]?.channels || [];
       preloadLogos(chnls.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage")));
       setChannels(chnls);
     } catch (err) {
-      setError(err.message || "Failed to load channels.");
+      const msg = err.message || "Failed to load channels.";
+      if (msg.toLowerCase().includes("user not found")) {
+        setUserNotFound(true);
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -401,7 +409,15 @@ export default function LiveTvPage() {
 
         {loading && (<div className="space-y-4"><ChannelListSkeleton count={6} /></div>)}
 
-        {!loading && error && (
+        {!loading && userNotFound && (
+          <IptvSignup
+            name={(() => { const u = JSON.parse(localStorage.getItem("user") || "{}"); return [u.firstname, u.lastname].filter(Boolean).join(" ") || u.username || ""; })()}
+            mobile={iptvMobile}
+            onSuccess={() => { setUserNotFound(false); fetchChannels(); fetchLanguages(); }}
+          />
+        )}
+
+        {!loading && error && !userNotFound && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center justify-center py-16">
             <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-red-400" /></div>
             <p className="text-sm text-gray-600 mb-1 font-medium">{error}</p>

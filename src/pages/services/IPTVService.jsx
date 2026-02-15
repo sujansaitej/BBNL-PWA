@@ -1,14 +1,16 @@
 import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { mockCustomerServices, iptvAddonPackages } from "../../data";
+import { iptvAddonPackages } from "../../data";
 import BottomNav from "../../components/BottomNav";
-import { ServiceSelectionModal } from "@/components/ui";
-import { getCustKYCPreview } from "../../services/generalApis";
+import { ServiceSelectionModal, Loader } from "@/components/ui";
+import { useToast } from "@/components/ui/Toast";
+import { getCustKYCPreview, getMyPlanDetails, getUserAssignedItems } from "../../services/generalApis";
 import { formatCustomerId } from "../../services/helpers";
 
 export default function IPTVService() {
     const location = useLocation();
     const navigate = useNavigate();
+    const toast = useToast();
 
     // Use actual customer data from API (passed from customer list)
     const customerData = location.state?.customer || {
@@ -18,15 +20,13 @@ export default function IPTVService() {
         email: 'dghddh@email.com'
     };
 
+    const userid = customerData?.customer_id;
+
     // Check if we should show the service modal automatically (coming from customer list)
     const shouldShowModal = location.state?.showServiceModal || false;
 
     // Get services from location state (passed from Customerlist)
     const servicesFromState = location.state?.services || [];
-
-    // Use mock data ONLY for service details (new feature)
-    const mockServiceData = mockCustomerServices[customerData.customer_id];
-    const iptvService = mockServiceData?.services?.iptv;
 
     // State management
     const [showServiceModal, setShowServiceModal] = useState(false);
@@ -35,12 +35,47 @@ export default function IPTVService() {
     const [activeTab, setActiveTab] = useState('BROAD-CASTER PA...');
     const [uploadLoading, setUploadLoading] = useState(false);
 
+    // API states
+    const [planDetails, setPlanDetails] = useState(null);
+    const [assignedItems, setAssignedItems] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+
     // Show modal automatically when navigating from customer list
     useEffect(() => {
         if (shouldShowModal) {
             setShowServiceModal(true);
         }
     }, [shouldShowModal]);
+
+    // Fetch real API data
+    useEffect(() => {
+        async function fetchData() {
+            setLoading(true);
+            setError("");
+            try {
+                const [plan, assigned] = await Promise.all([
+                    getMyPlanDetails({ servicekey: "iptv", userid, fofiboxid: "", voipnumber: "" }),
+                    getUserAssignedItems("iptv", userid),
+                ]);
+                setPlanDetails(plan);
+                setAssignedItems(assigned);
+            } catch (err) {
+                console.error("Error fetching IPTV overview:", err);
+                setError("Failed to load Cable TV data.");
+            } finally {
+                setLoading(false);
+            }
+        }
+        if (userid) fetchData();
+    }, [userid]);
+
+    // Extract data from API responses
+    const iptvService = planDetails?.body?.subscribed_services?.find(s => s.servicekey === 'iptv');
+    const fofiBoxId = assignedItems?.body?.iptv?.[0]?.product_name || userid;
+    const planName = iptvService?.planname || 'N/A';
+    const expiryDate = iptvService?.expirydate || 'N/A';
+    const serviceName = iptvService?.title || 'cabletv';
 
     const tabs = ['LCO PACKAGE', 'BROAD-CASTER PA...', 'MSO PACKAGE', 'FOUNDATION PACKAG...'];
 
@@ -170,7 +205,7 @@ export default function IPTVService() {
                     </div>
                 </div>
 
-                <div className="flex-1 px-4 py-4 space-y-3 pb-24 bg-white">
+                <div className="flex-1 px-4 py-4 space-y-3 pb-36 bg-white overflow-y-auto">
                     {/* Search */}
                     <div className="relative">
                         <svg className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -210,10 +245,16 @@ export default function IPTVService() {
 
                 {/* Footer Buttons */}
                 <div className="fixed bottom-16 left-0 right-0 p-3 bg-white border-t flex gap-3">
-                    <button className="flex-1 bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-bold py-3 rounded-lg text-sm shadow-md hover:shadow-lg transition-all duration-200">
+                    <button
+                        onClick={() => toast.add('Coming Soon', { type: 'info' })}
+                        className="flex-1 bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-bold py-3 rounded-lg text-sm shadow-md hover:shadow-lg transition-all duration-200"
+                    >
                         Continue
                     </button>
-                    <button className="flex-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold py-3 rounded-lg text-sm shadow-md hover:shadow-lg transition-all duration-200">
+                    <button
+                        onClick={() => toast.add('Coming Soon', { type: 'info' })}
+                        className="flex-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold py-3 rounded-lg text-sm shadow-md hover:shadow-lg transition-all duration-200"
+                    >
                         Skip and create new pack
                     </button>
                 </div>
@@ -245,6 +286,12 @@ export default function IPTVService() {
             </header>
 
             <div className="flex-1 max-w-2xl mx-auto w-full px-4 py-4 space-y-4 pb-24">
+                {loading ? (
+                    <Loader text="Loading Cable TV data..." />
+                ) : error ? (
+                    <div className="text-center py-10 text-red-500">{error}</div>
+                ) : (
+                <>
                 {/* User Details */}
                 <div className="space-y-2">
                     <div className="flex items-center gap-2 mb-3">
@@ -313,7 +360,7 @@ export default function IPTVService() {
                         <h3 className="text-indigo-600 font-semibold text-lg">FoFi Box ID</h3>
                     </div>
                     <div className="bg-gray-100 dark:bg-gray-800 px-4 py-3 rounded flex justify-between items-center">
-                        <p className="text-indigo-600 font-medium text-base">{iptvService?.fofiBoxId || 'A43EA0A01F4A'}</p>
+                        <p className="text-indigo-600 font-medium text-base">{fofiBoxId}</p>
                         <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                         </svg>
@@ -343,18 +390,17 @@ export default function IPTVService() {
                             <div className="flex-1 space-y-2 text-sm">
                                 <div className="flex">
                                     <span className="w-28 text-gray-700 dark:text-gray-300">Service Name</span>
-                                    <span className="text-gray-700 dark:text-gray-300">:   cabletv</span>
+                                    <span className="text-gray-700 dark:text-gray-300">:   {serviceName}</span>
                                 </div>
                                 <div className="flex">
                                     <span className="w-28 text-gray-700 dark:text-gray-300">Plan Name</span>
-                                    <span className="text-gray-700 dark:text-gray-300">:   {iptvService?.planName || 'FTA+SUPER SAVER PACK'}</span>
+                                    <span className="text-gray-700 dark:text-gray-300">:   {planName}</span>
                                 </div>
                                 <div className="flex items-start">
                                     <span className="w-28 text-gray-700 dark:text-gray-300">Expiry Date</span>
                                     <span className="text-gray-700 dark:text-gray-300">:</span>
                                     <span className="flex flex-col ml-2 text-gray-700 dark:text-gray-300">
-                                        <span>{new Date(iptvService?.expiryDate || Date.now()).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')}</span>
-                                        <span>{new Date(iptvService?.expiryDate || Date.now()).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }).toLowerCase()}</span>
+                                        <span>{expiryDate}</span>
                                     </span>
                                 </div>
                             </div>
@@ -366,17 +412,19 @@ export default function IPTVService() {
                                 onClick={() => setView('packages')}
                                 className="flex-1 bg-purple-400 hover:bg-purple-500 text-white font-semibold py-3 px-4 rounded-lg transition-colors text-sm"
                             >
-                                SELECT PACKAGES
+                                Select Packages
                             </button>
                             <button
                                 onClick={() => setView('packages')}
                                 className="flex-1 bg-purple-400 hover:bg-purple-500 text-white font-semibold py-3 px-4 rounded-lg transition-colors text-sm"
                             >
-                                SELECT CHANNELS
+                                Select Channels
                             </button>
                         </div>
                     </div>
                 </div>
+                </>
+                )}
             </div>
 
             <BottomNav />

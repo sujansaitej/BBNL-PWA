@@ -45,7 +45,8 @@ export default function PaymentHistory() {
       setLoading(true);
       setError("");
       try {
-        const apiopid = cableDetails?.body?.op_id || customerData?.op_id;
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const apiopid = cableDetails?.body?.op_id || customerData?.op_id || user?.op_id;
         const cid = customerData?.customer_id;
         console.log("🔵 [PaymentHistory] Fetching order history for:", { apiopid, cid, serviceType });
 

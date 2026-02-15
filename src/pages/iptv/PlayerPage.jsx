@@ -8,10 +8,68 @@ import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
 import { proxyImageUrl } from "../../services/iptvImage";
 
-const STREAM_RE = /^https?:\/\/[^/]+\.bbnl\.in/i;
-function proxyStreamUrl(url) {
+// Convert proxy-format URLs to direct stream URLs
+// e.g. "/stream/livestream.bbnl.in/ddchandana/index.m3u8" → "https://livestream.bbnl.in/ddchandana/index.m3u8"
+// e.g. "https://bbnlnetmon.bbnl.in/stream/livestream.bbnl.in/path" → "https://livestream.bbnl.in/path"
+// Already-direct URLs pass through unchanged.
+function resolveStreamUrl(url) {
   if (!url) return url;
-  return url.replace(STREAM_RE, "/stream");
+  const match = url.match(/\/stream\/([^/]+)(\/.*)/);
+  if (match) return `https://${match[1]}${match[2]}`;
+  return url;
+}
+
+function loadWithHlsJs(video, streamUrl, isCancelled, tryPlay, setStatus, setErrorMsg, hlsRef) {
+  const hls = new Hls({
+    enableWorker: true,
+    lowLatencyMode: false,
+    startFragPrefetch: true,
+    backBufferLength: 0,
+    liveSyncDuration: 3,
+    liveMaxLatencyDuration: 10,
+    liveDurationInfinity: true,
+    maxBufferLength: 10,
+    maxMaxBufferLength: 20,
+    maxBufferSize: 20 * 1000 * 1000,
+    maxBufferHole: 0.5,
+    startLevel: 0,
+    capLevelToPlayerSize: true,
+    abrEwmaDefaultEstimate: 1000000,
+    abrBandWidthFactor: 0.9,
+    abrBandWidthUpFactor: 0.7,
+    initialLiveManifestSize: 1,
+    fragLoadingTimeOut: 8000,
+    fragLoadingMaxRetry: 4,
+    fragLoadingRetryDelay: 500,
+    fragLoadingMaxRetryTimeout: 6000,
+    manifestLoadingTimeOut: 8000,
+    manifestLoadingMaxRetry: 3,
+    manifestLoadingRetryDelay: 500,
+    levelLoadingTimeOut: 8000,
+    levelLoadingMaxRetry: 3,
+    levelLoadingRetryDelay: 500,
+  });
+  hlsRef.current = hls;
+  hls.on(Hls.Events.MANIFEST_PARSED, () => { if (!isCancelled()) tryPlay(); });
+  let firstBuffered = false;
+  hls.on(Hls.Events.FRAG_BUFFERED, () => { if (!firstBuffered && !isCancelled()) { firstBuffered = true; tryPlay(); } });
+  let networkRetries = 0;
+  const MAX_NETWORK_RETRIES = 4;
+  hls.on(Hls.Events.ERROR, (_, data) => {
+    if (isCancelled() || !data.fatal) return;
+    switch (data.type) {
+      case Hls.ErrorTypes.NETWORK_ERROR:
+        networkRetries++;
+        if (networkRetries <= MAX_NETWORK_RETRIES) { setTimeout(() => { if (!isCancelled()) hls.startLoad(); }, networkRetries * 1500); }
+        else { if (!isCancelled()) { setStatus("error"); setErrorMsg("Network error — stream unavailable."); } }
+        break;
+      case Hls.ErrorTypes.MEDIA_ERROR: hls.recoverMediaError(); break;
+      default: if (!isCancelled()) { setStatus("error"); setErrorMsg(data.details || "Stream playback failed."); } break;
+    }
+  });
+  hls.on(Hls.Events.FRAG_LOADED, () => { networkRetries = 0; });
+  hls.loadSource(streamUrl);
+  hls.attachMedia(video);
 }
 
 async function lockLandscape() {
@@ -64,7 +122,7 @@ export default function PlayerPage() {
 
   const [videoKey, setVideoKey] = useState(0);
   // Use streamlink from channel object immediately if available (skip API call)
-  const [streamUrl, setStreamUrl] = useState(channel?.streamlink || null);
+  const [streamUrl, setStreamUrl] = useState(resolveStreamUrl(channel?.streamlink) || null);
   const [status, setStatus] = useState(channel?.streamlink ? "loading" : "loading");
   const [errorMsg, setErrorMsg] = useState("");
   const [muted, setMuted] = useState(false);
@@ -100,7 +158,7 @@ export default function PlayerPage() {
     if (!currentChannel) return;
     // If channel already has streamlink, use it directly (no API call needed)
     if (currentChannel.streamlink) {
-      setStreamUrl(currentChannel.streamlink);
+      setStreamUrl(resolveStreamUrl(currentChannel.streamlink));
       return;
     }
     // Fallback: fetch stream URL from API only when streamlink is missing
@@ -111,9 +169,13 @@ export default function PlayerPage() {
         const data = await getChannelStream({ mobile, chid: currentChannel.chid || "", chno: currentChannel.chno || "" });
         const stream = data?.body?.[0]?.stream?.[0];
         if (!stream || !stream.streamlink) throw new Error("No stream available for this channel.");
-        if (!cancelled) setStreamUrl(stream.streamlink);
+        if (!cancelled) setStreamUrl(resolveStreamUrl(stream.streamlink));
       } catch (err) {
-        if (!cancelled) { setStatus("error"); setErrorMsg(err.message || "Failed to load stream."); }
+        if (!cancelled) {
+          const msg = err.message || "Failed to load stream.";
+          setStatus("error");
+          setErrorMsg(msg.toLowerCase().includes("user not found") ? "Your account is not activated for Live TV. Please contact support." : msg);
+        }
       }
     };
     fetchStream();
@@ -199,62 +261,26 @@ export default function PlayerPage() {
     if (!streamUrl || !videoRef.current) return;
     const video = videoRef.current;
     let cancelled = false;
-    const proxiedUrl = proxyStreamUrl(streamUrl);
     const tryPlay = async () => { try { await video.play(); } catch (_) { video.muted = true; setMuted(true); try { await video.play(); } catch (__) {} } };
     const onVideoPlaying = () => { if (!cancelled) setStatus("playing"); };
     video.addEventListener("playing", onVideoPlaying, { once: true });
 
-    if (Hls.isSupported()) {
-      const hls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: false,
-        startFragPrefetch: true,
-        backBufferLength: 0,
-        liveSyncDuration: 3,
-        liveMaxLatencyDuration: 10,
-        liveDurationInfinity: true,
-        maxBufferLength: 10,
-        maxMaxBufferLength: 20,
-        maxBufferSize: 20 * 1000 * 1000,
-        maxBufferHole: 0.5,
-        startLevel: 0,
-        capLevelToPlayerSize: true,
-        abrEwmaDefaultEstimate: 1000000,
-        abrBandWidthFactor: 0.9,
-        abrBandWidthUpFactor: 0.7,
-        initialLiveManifestSize: 1,
-        fragLoadingTimeOut: 8000,
-        fragLoadingMaxRetry: 4,
-        fragLoadingRetryDelay: 500,
-        fragLoadingMaxRetryTimeout: 6000,
-        manifestLoadingTimeOut: 6000,
-        manifestLoadingMaxRetry: 3,
-        manifestLoadingRetryDelay: 500,
-        levelLoadingTimeOut: 6000,
-        levelLoadingMaxRetry: 3,
-        levelLoadingRetryDelay: 500,
-        xhrSetup: (xhr, url) => { xhr.open("GET", proxyStreamUrl(url), true); },
-      });
-      hlsRef.current = hls;
-      hls.on(Hls.Events.MANIFEST_PARSED, () => { if (cancelled) return; tryPlay(); });
-      let firstBuffered = false;
-      hls.on(Hls.Events.FRAG_BUFFERED, () => { if (!firstBuffered && !cancelled) { firstBuffered = true; tryPlay(); } });
-      let networkRetries = 0;
-      const MAX_NETWORK_RETRIES = 4;
-      hls.on(Hls.Events.ERROR, (_, data) => {
-        if (cancelled || !data.fatal) return;
-        switch (data.type) {
-          case Hls.ErrorTypes.NETWORK_ERROR: networkRetries++; if (networkRetries <= MAX_NETWORK_RETRIES) { setTimeout(() => { if (!cancelled) hls.startLoad(); }, networkRetries * 1500); } else { if (!cancelled) { setStatus("error"); setErrorMsg("Network error — stream unavailable."); } } break;
-          case Hls.ErrorTypes.MEDIA_ERROR: hls.recoverMediaError(); break;
-          default: if (!cancelled) { setStatus("error"); setErrorMsg(data.details || "Stream playback failed."); } break;
-        }
-      });
-      hls.on(Hls.Events.FRAG_LOADED, () => { networkRetries = 0; });
-      hls.loadSource(proxiedUrl);
-      hls.attachMedia(video);
-    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = proxiedUrl;
+    // Prefer native HLS (Safari, iOS, many Android browsers) — no CORS restrictions
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = streamUrl;
       video.addEventListener("loadedmetadata", () => { if (!cancelled) tryPlay(); });
+      video.addEventListener("error", () => {
+        if (cancelled) return;
+        // Native playback failed — fall back to HLS.js if available
+        if (Hls.isSupported()) {
+          video.removeAttribute("src");
+          loadWithHlsJs(video, streamUrl, () => cancelled, tryPlay, setStatus, setErrorMsg, hlsRef);
+        } else {
+          setStatus("error"); setErrorMsg("Stream playback failed.");
+        }
+      }, { once: true });
+    } else if (Hls.isSupported()) {
+      loadWithHlsJs(video, streamUrl, () => cancelled, tryPlay, setStatus, setErrorMsg, hlsRef);
     } else {
       setStatus("error"); setErrorMsg("HLS playback is not supported in this browser.");
     }

@@ -6,7 +6,7 @@ const Alert = ({ isOpen, onClose, type = "success", title, message, autoClose = 
     if (autoClose && isOpen) {
         setTimeout(() => {
             onClose();
-        }, 3000);
+        }, 5000);
     }
 
     const icons = {

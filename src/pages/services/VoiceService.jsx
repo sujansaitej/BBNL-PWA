@@ -2,10 +2,12 @@ import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { voicePlans } from "../../data";
 import BottomNav from "../../components/BottomNav";
+import { useToast } from "@/components/ui/Toast";
 
 export default function VoiceService() {
     const location = useLocation();
     const navigate = useNavigate();
+    const toast = useToast();
 
     // Use actual customer data from API (passed from customer list)
     const customerData = location.state?.customer;
@@ -18,9 +20,7 @@ export default function VoiceService() {
     );
 
     const handlePlanClick = (plan) => {
-        // Navigate to plan details or subscription page
-        console.log('Selected plan:', plan);
-        // TODO: Implement plan details/subscription flow
+        toast.add('Voice service details coming soon', { type: 'info' });
     };
 
     // Handle Order History button click
@@ -101,11 +101,10 @@ export default function VoiceService() {
                             >
                                 {/* Special Offer Ribbon */}
                                 {plan.isSpecialOffer && (
-                                    <div className="absolute right-0 top-0 flex items-center" style={{ zIndex: 2 }}>
-                                        <svg width="110" height="36" viewBox="0 0 110 36" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ position: 'absolute', right: 0, top: 0 }}>
-                                            <path d="M0 0H95C102.18 0 108 5.82 108 13V23C108 30.18 102.18 36 95 36H0V0Z" fill="#e53935" />
-                                        </svg>
-                                        <span style={{ position: 'absolute', right: 12, top: 8, fontWeight: 'bold', fontSize: 11, color: '#fff', letterSpacing: 0.3 }}>SPECIAL OFFER</span>
+                                    <div className="absolute right-0 top-0 overflow-hidden rounded-bl-lg" style={{ zIndex: 2 }}>
+                                        <div className="bg-red-600 text-white text-[10px] font-bold px-3 py-1 tracking-wide">
+                                            SPECIAL OFFER
+                                        </div>
                                     </div>
                                 )}
 

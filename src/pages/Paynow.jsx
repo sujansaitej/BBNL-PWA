@@ -173,6 +173,9 @@ export default function Subscribe() {
         localStorage.setItem('groups', '');
         localStorage.setItem('selectedPlan', '');
         localStorage.setItem('filerefid', '');
+        // Zero out balance after successful payment
+        setIntWB(0);
+        setPaydet(prev => ({ ...prev, "Balance Amount": 0 }));
         setAlertConfig({
           type: 'success',
           title: 'Payment Successful!',
@@ -181,7 +184,7 @@ export default function Subscribe() {
         setAlertOpen(true);
         setTimeout(() => {
           navigate('/');
-        }, 2000);
+        }, 5000);
         // window.location.href = '/';
       } else {
         setAlertConfig({
@@ -198,6 +201,30 @@ export default function Subscribe() {
       setSubmitting(false);
     }
   };
+
+  if (!userid) {
+    return (
+      <Layout hideHeader={true} hideBottomNav={true}>
+        <div className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-4 py-3 flex items-center shadow-lg">
+          <button onClick={() => navigate(-1)} className="mr-3">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <h1 className="text-lg font-medium">Payment</h1>
+        </div>
+        <div className="bg-gray-50 min-h-screen flex flex-col items-center justify-center px-4">
+          <p className="text-gray-500 text-center mb-4">No payment data available. Please navigate here from a customer page.</p>
+          <button
+            onClick={() => navigate('/')}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 px-6 rounded-lg transition-colors"
+          >
+            Go Home
+          </button>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout hideHeader={true} hideBottomNav={true}>

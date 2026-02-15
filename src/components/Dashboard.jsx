@@ -2,7 +2,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { UsersIcon, BellAlertIcon, SignalIcon, TicketIcon, ChartBarIcon, ArchiveBoxIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
-import { ads as fetchAds } from "../services/customer/apis"
+import { getAdvertisements, getIptvMobile } from "../services/iptvApi"
+import { proxyImageUrl } from "../services/iptvImage"
 import { Swiper, SwiperSlide } from 'swiper/react'
 import { Autoplay } from 'swiper/modules'
 import 'swiper/css'
@@ -30,9 +31,13 @@ export default function Dashboard() {
   }, [servkey]);
 
   useEffect(() => {
-    fetchAds("custapp").then(data => {
-      if (data?.count > 0) setAdList(data.imglist || []);
-    }).catch(() => {});
+    const mobile = getIptvMobile();
+    if (mobile) {
+      getAdvertisements({ mobile }).then(data => {
+        const list = (data?.body?.[0]?.ads || []).filter(a => a.content);
+        if (list.length > 0) setAdList(list);
+      }).catch(() => {});
+    }
   }, []);
 
   async function getWalBalance() {
@@ -109,7 +114,7 @@ export default function Dashboard() {
           {adList.map(ad => (
             <SwiperSlide key={ad.id} style={{ width: adList.length > 1 ? '90%' : '100%' }}>
               <a href={ad.redirectlink} target="_blank" rel="noopener noreferrer" className="block bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden">
-                <img src={ad.content} alt={ad.description} className="h-32 w-full object-cover" />
+                <img src={proxyImageUrl(ad.content)} alt={ad.description} className="h-32 w-full object-cover" />
               </a>
             </SwiperSlide>
           ))}

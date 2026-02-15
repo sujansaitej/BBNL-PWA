@@ -105,7 +105,7 @@ export default function VerifyOtpPage() {
           triggerError((result?.status && result?.status?.err_msg ) || "Invalid OTP");
       }else{
           localStorage.removeItem("otprefid");
-          localStorage.getItem('loginType') == "franchisee" ? navigate("/") : navigate("/cust/dashboard");
+          localStorage.getItem('loginType') == "franchisee" ? navigate("/", { replace: true }) : navigate("/cust/dashboard", { replace: true });
           // navigate("/");
       }
     } catch (err) {

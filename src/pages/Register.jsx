@@ -16,6 +16,7 @@ import {
   getDeviceId,
 } from "../services/registrationApis";
 import { Modal } from "@/components/ui";
+import { useToast } from "@/components/ui/Toast";
 
 // debounce helper
 function debounce(fn, wait = 500) {
@@ -330,6 +331,7 @@ function LocationPicker({ center, onChange }) {
 
 export default function Register() {
   const navigate = useNavigate();
+  const toast = useToast();
   const [form, setForm] = useState({
     username: "",
     firstname: "",
@@ -740,11 +742,11 @@ export default function Register() {
       if (filerefid.length > 0) data.filerefid = filerefid;
       localStorage.setItem("registrationData", JSON.stringify(data));
 
-      // window.location.href = "/plans";
+      toast.add('Registration submitted successfully!', { type: 'success' });
       navigate("/plans");
     } catch (err) {
       console.error("Submit error:", err);
-      alert("Submit failed. Please try again.");
+      toast.add('Submit failed. Please try again.', { type: 'error' });
     } finally {
       setSubmitting(false);
     }

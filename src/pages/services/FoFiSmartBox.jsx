@@ -2212,12 +2212,12 @@ function FoFiSmartBox() {
                                 placeholder="FOFI Box Id*"
                                 className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-800 dark:text-white bg-white dark:bg-gray-700 placeholder-gray-400 transition-all duration-200"
                             />
-                            <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
+                            <button type="button" onClick={handleQRScan} className="absolute right-3 top-1/2 transform -translate-y-1/2 cursor-pointer">
                                 {/* Barcode Icon */}
-                                <svg className="w-6 h-6 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                                <svg className="w-6 h-6 text-gray-400 hover:text-indigo-600 transition-colors" viewBox="0 0 24 24" fill="currentColor">
                                     <path d="M2 4h2v16H2V4zm4 0h1v16H6V4zm2 0h2v16H8V4zm4 0h1v16h-1V4zm2 0h3v16h-3V4zm4 0h1v16h-1V4zm2 0h2v16h-2V4z"/>
                                 </svg>
-                            </div>
+                            </button>
                         </div>
                     </div>
 
@@ -2242,12 +2242,12 @@ function FoFiSmartBox() {
                                 placeholder="FOFI MAC ID*"
                                 className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-800 dark:text-white bg-white dark:bg-gray-700 font-mono text-sm placeholder-gray-400 transition-all duration-200"
                             />
-                            <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
+                            <button type="button" onClick={handleQRScan} className="absolute right-3 top-1/2 transform -translate-y-1/2 cursor-pointer">
                                 {/* Barcode Icon */}
-                                <svg className="w-6 h-6 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                                <svg className="w-6 h-6 text-gray-400 hover:text-indigo-600 transition-colors" viewBox="0 0 24 24" fill="currentColor">
                                     <path d="M2 4h2v16H2V4zm4 0h1v16H6V4zm2 0h2v16H8V4zm4 0h1v16h-1V4zm2 0h3v16h-3V4zm4 0h1v16h-1V4zm2 0h2v16h-2V4z"/>
                                 </svg>
-                            </div>
+                            </button>
                         </div>
                     </div>
                 </div>

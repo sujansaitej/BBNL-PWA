@@ -1,7 +1,6 @@
 
 import { XMarkIcon, GlobeAltIcon, Cog6ToothIcon, UsersIcon, BellAlertIcon, ArchiveBoxIcon, ChatBubbleOvalLeftEllipsisIcon, ArrowRightOnRectangleIcon, WifiIcon, FilmIcon, TicketIcon, UserIcon, CurrencyRupeeIcon, ClipboardDocumentListIcon } from '@heroicons/react/24/outline';
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { Modal } from "@/components/ui";
 import { useNavigate } from "react-router-dom";
 import { getWalBal } from "../services/generalApis";
@@ -115,23 +114,23 @@ export default function Sidebar({ open, onClose }) {
           <nav className="space-y-1">
             {!isCustomer ? (
             <>
-            <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="/customers"><UsersIcon className="h-5 w-5 text-blue bg-blue" /> All Users {/*<span className="ml-auto text-xs bg-green-600 text-white rounded px-2">10</span>*/}</Link>
-            <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="/customers?filter=expiring"><BellAlertIcon className="h-5 w-5" /> Today's Expiry {/*<span className="ml-auto text-xs bg-yellow-500 text-white rounded px-2">5</span>*/}</Link>
-            <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="/tickets"><TicketIcon className="h-5 w-5" /> Tickets</Link>
-            <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="#" onClick={comingsoon}><ArchiveBoxIcon className="h-5 w-5" /> Order History</Link>
-            {/* <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="#" onClick={comingsoon}><Cog6ToothIcon className="h-5 w-5" /> Settings</Link> */}
-            <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="/support"><ChatBubbleOvalLeftEllipsisIcon className="h-5 w-5" /> Support</Link>
-            <a className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" href="" onClick={logout}><ArrowRightOnRectangleIcon className="h-5 w-5" /> Log out</a>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); navigate('/customers'); }}><UsersIcon className="h-5 w-5 text-blue bg-blue" /> All Users</button>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); navigate('/customers?filter=expiring'); }}><BellAlertIcon className="h-5 w-5" /> Today's Expiry</button>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); navigate('/tickets'); }}><TicketIcon className="h-5 w-5" /> Tickets</button>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><ArchiveBoxIcon className="h-5 w-5" /> Order History</button>
+            {/* <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><Cog6ToothIcon className="h-5 w-5" /> Settings</button> */}
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); navigate('/support'); }}><ChatBubbleOvalLeftEllipsisIcon className="h-5 w-5" /> Support</button>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); logout(); }}><ArrowRightOnRectangleIcon className="h-5 w-5" /> Log out</button>
             </>
             ) : (
             <>
-            <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="#" onClick={comingsoon}><UserIcon className="h-5 w-5 text-blue bg-blue" /> Profile {/*<span className="ml-auto text-xs bg-green-600 text-white rounded px-2">10</span>*/}</Link>
-            <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="#" onClick={comingsoon}><CurrencyRupeeIcon className="h-5 w-5" /> Renew {/*<span className="ml-auto text-xs bg-yellow-500 text-white rounded px-2">5</span>*/}</Link>
-            <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="#" onClick={comingsoon}><ClipboardDocumentListIcon className="h-5 w-5" /> Bills</Link>
-            <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="#" onClick={comingsoon}><TicketIcon className="h-5 w-5" /> Tickets</Link>
-            {/* <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="#" onClick={comingsoon}><Cog6ToothIcon className="h-5 w-5" /> Settings</Link> */}
-            <Link className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" to="#" onClick={comingsoon}><ChatBubbleOvalLeftEllipsisIcon className="h-5 w-5" /> Support</Link>
-            <a className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800" href="" onClick={logout}><ArrowRightOnRectangleIcon className="h-5 w-5" /> Log out</a>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><UserIcon className="h-5 w-5 text-blue bg-blue" /> Profile</button>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><CurrencyRupeeIcon className="h-5 w-5" /> Renew</button>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><ClipboardDocumentListIcon className="h-5 w-5" /> Bills</button>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><TicketIcon className="h-5 w-5" /> Tickets</button>
+            {/* <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><Cog6ToothIcon className="h-5 w-5" /> Settings</button> */}
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><ChatBubbleOvalLeftEllipsisIcon className="h-5 w-5" /> Support</button>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); logout(); }}><ArrowRightOnRectangleIcon className="h-5 w-5" /> Log out</button>
             </>
             )}
           </nav>

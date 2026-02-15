@@ -96,7 +96,7 @@ export default function Login() {
       login(userDet);
       localStorage.setItem("otprefid", result.body.otprefid);
       const home = loginType === 'customer' ? '/cust/dashboard' : '/';
-      result.body.otpstatus === 'yes' ? navigate('/verify-otp') : navigate(home);
+      result.body.otpstatus === 'yes' ? navigate('/verify-otp', { replace: true }) : navigate(home, { replace: true });
     } catch (err) {
       console.error("Login failed:", err);
       setError("Login failed. Please try again.");

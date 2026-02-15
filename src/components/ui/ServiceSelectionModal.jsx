@@ -10,10 +10,7 @@ export default function ServiceSelectionModal({ isOpen, onClose, onSelectService
         { id: 'fofi', name: 'Fo-Fi Smart Box', path: 'fofi-smart-box' },
         { id: 'voice', name: 'Voice Call', path: 'voice' },
         { id: 'internet', name: 'Internet', path: 'internet' },
-        { id: 'iptv', name: 'Cable TV', path: 'iptv' },
-        { id: 'games', name: 'Games', path: 'games' },
-        { id: 'multi', name: 'Multi Service', path: 'multi-service' },
-        { id: 'camera', name: 'IP Camera', path: 'ip-camera' }
+        { id: 'iptv', name: 'Cable TV', path: 'iptv' }
     ];
 
     // Use services from props if available, otherwise use default

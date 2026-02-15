@@ -5,11 +5,11 @@ import { LayoutGrid, Search, AlertCircle, Play, Tv, ArrowLeft, X, Mic, MicOff } 
 import Layout from "../../layout/Layout";
 import useVoiceSearch from "../../hooks/useVoiceSearch";
 import { ChannelGridSkeleton } from "../../components/iptv/Loader";
-import { getChannelList, getIptvMobile } from "../../services/iptvApi";
+import { getChannelList, getAdvertisements, getIptvMobile } from "../../services/iptvApi";
 import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
 import { proxyImageUrl } from "../../services/iptvImage";
-import { ads as fetchAds } from "../../services/customer/apis";
+import IptvSignup from "../../components/iptv/IptvSignup";
 
 const container = {
   hidden: { opacity: 0 },
@@ -38,7 +38,7 @@ function AdBanner({ ad }) {
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="mb-4 rounded-xl overflow-hidden relative col-span-2">
       <div className="aspect-[16/7] bg-gray-50 overflow-hidden">
         <a href={ad.redirectlink || "#"} target="_blank" rel="noopener noreferrer">
-          <motion.img src={ad.content} alt={ad.description || "Ad"} initial={{ scale: 1.15 }} animate={{ scale: 1 }} transition={{ duration: AD_ZOOM_DURATION, ease: "easeOut" }} className="w-full h-full object-cover" onError={(e) => { e.target.closest(".rounded-xl").style.display = "none"; }} />
+          <motion.img src={proxyImageUrl(ad.content)} alt={ad.description || "Ad"} initial={{ scale: 1.15 }} animate={{ scale: 1 }} transition={{ duration: AD_ZOOM_DURATION, ease: "easeOut" }} className="w-full h-full object-cover" onError={(e) => { e.target.closest(".rounded-xl").style.display = "none"; }} />
         </a>
       </div>
       <span className="absolute top-2 right-2 text-[9px] font-semibold text-white/70 bg-black/30 px-1.5 py-0.5 rounded backdrop-blur-sm">Ad</span>
@@ -52,7 +52,7 @@ function ChannelCard({ channel, onPlay }) {
   const cachedSrc = useCachedLogo(hasLogo ? imgSrc : null);
 
   const handlePlay = () => {
-    if (channel.streamlink) onPlay(channel);
+    onPlay(channel);
   };
 
   return (
@@ -61,11 +61,9 @@ function ChannelCard({ channel, onPlay }) {
         {cachedSrc ? (<img src={cachedSrc} alt={channel.chtitle} className="w-full h-full object-contain p-3" />) : (
           <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-100 to-cyan-100 flex items-center justify-center"><Tv className="w-7 h-7 text-blue-500" /></div>
         )}
-        {channel.streamlink && (
-          <div className="absolute inset-0 bg-black/0 hover:bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-all">
-            <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg"><Play className="w-5 h-5 text-blue-600 ml-0.5" /></div>
-          </div>
-        )}
+        <div className="absolute inset-0 bg-black/0 hover:bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-all">
+          <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg"><Play className="w-5 h-5 text-blue-600 ml-0.5" /></div>
+        </div>
       </div>
       <div className="px-3 py-2.5">
         <h4 className="text-xs font-semibold text-gray-800 truncate">{channel.chtitle}</h4>
@@ -88,6 +86,7 @@ export default function ChannelsPage() {
   const [channels, setChannels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [userNotFound, setUserNotFound] = useState(false);
   const [search, setSearch] = useState("");
 
   const onVoiceResult = useCallback((text) => setSearch(text), []);
@@ -100,21 +99,28 @@ export default function ChannelsPage() {
 
   useEffect(() => {
     fetchChannels();
-    fetchAds("custapp").then(data => {
-      if (data?.count > 0) setAds(data.imglist || []);
+    getAdvertisements({ mobile: iptvMobile }).then(data => {
+      const list = (data?.body?.[0]?.ads || []).filter(a => a.content);
+      if (list.length > 0) setAds(list);
     }).catch(() => {});
   }, [langid]);
 
   const fetchChannels = async () => {
     setLoading(true);
     setError("");
+    setUserNotFound(false);
     try {
       const data = await getChannelList({ mobile: iptvMobile, langid });
       const chnls = data?.body?.[0]?.channels || [];
       preloadLogos(chnls.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage")));
       setChannels(chnls);
     } catch (err) {
-      setError(err.message || "Failed to load channels.");
+      const msg = err.message || "Failed to load channels.";
+      if (msg.toLowerCase().includes("user not found")) {
+        setUserNotFound(true);
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -185,7 +191,15 @@ export default function ChannelsPage() {
 
         {loading && <ChannelGridSkeleton count={6} />}
 
-        {!loading && error && (
+        {!loading && userNotFound && (
+          <IptvSignup
+            name={(() => { const u = JSON.parse(localStorage.getItem("user") || "{}"); return [u.firstname, u.lastname].filter(Boolean).join(" ") || u.username || ""; })()}
+            mobile={iptvMobile}
+            onSuccess={() => { setUserNotFound(false); fetchChannels(); }}
+          />
+        )}
+
+        {!loading && error && !userNotFound && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center justify-center py-16">
             <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-red-400" /></div>
             <p className="text-sm text-gray-600 mb-1 font-medium">{error}</p>

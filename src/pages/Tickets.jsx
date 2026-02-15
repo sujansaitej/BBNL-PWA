@@ -32,6 +32,7 @@ const Tickets = () => {
   const [selectedDept, setSelectedDept] = useState('');
   const [tickets, setTickets] = useState([]);
   const [selectedTicket, setSelectedTicket] = useState(null);
+  const [searchTerm, setSearchTerm] = useState("");
 
   const userdet = JSON.parse(localStorage.getItem('user'));
   const deptsAllowedTabs = ['OPEN', 'PENDING'];
@@ -250,6 +251,19 @@ const Tickets = () => {
     }
   }, [activeTab]);
 
+  const filteredTickets = searchTerm.trim()
+    ? tickets.filter((t) => {
+        const term = searchTerm.trim().toLowerCase();
+        return (
+          (t.cid && t.cid.toLowerCase().includes(term)) ||
+          (t.customername && t.customername.toLowerCase().includes(term)) ||
+          (t.mobile && t.mobile.toLowerCase().includes(term)) ||
+          (t.subject && t.subject.toLowerCase().includes(term)) ||
+          (t.tid && String(t.tid).includes(term))
+        );
+      })
+    : tickets;
+
   const openMap2 = (ticket) => {
     // console.log("Open map for ticket:", ticket);
     var lat = ticket.latitude ? parseFloat(ticket.latitude) : 13.0278502;
@@ -311,7 +325,9 @@ const Tickets = () => {
           <div className="relative">
             <input
               type="text"
-              placeholder="Search by Customer ID"
+              placeholder="Search by Customer ID, Name, or Mobile"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full border rounded-lg py-2 pl-10 pr-3 text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition-all duration-200"
             />
             <Search className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
@@ -332,9 +348,9 @@ const Tickets = () => {
         className={`flex-1 overflow-y-auto px-4 pb-4 transition-all duration-500 ${showHeader ? (deptsAllowedTabs.includes(activeTab) ? "pt-[200px]" : "pt-[150px]") : "pt-[150px]"
           }`}
       >
-        {tickets.length > 0 && (
+        {filteredTickets.length > 0 && (
           <div className="text-sm text-gray-600 mb-2 flex">
-            <span>Total Jobs: {tickets.length}</span>
+            <span>Total Jobs: {filteredTickets.length}</span>
             {/* <span className="ml-auto"> <MapPin className="w-4 h-4" />{activeTab}</span> */}
             <span className="ml-auto"><Link to={`/smart-map#${activeTab}`}><MapPin className="h-5 w-5" /> </Link></span>
           </div>
@@ -343,12 +359,12 @@ const Tickets = () => {
           <Loader size={10} color="indigo" text="Loading jobs..." className="py-10" />
         ) : (
           <div>
-            {tickets.length === 0 && (
+            {filteredTickets.length === 0 && (
               <div className="text-center text-gray-500 mt-10">
-                No jobs available.
+                {searchTerm.trim() ? "No matching jobs found." : "No jobs available."}
               </div>
             )}
-            {tickets.map((t, i) => (
+            {filteredTickets.map((t, i) => (
               <div key={i} className="flex items-center justify-between bg-white dark:bg-gray-800 p-3 mb-5 rounded-xl shadow hover:shadow-cyan-500/100 hover:scale-[1.01] transition-all duration-300" onClick={() => selectT(t)}>
                 <div className="flex flex-col gap-2 text-sm w-full">
                   <div className="flex items-center text-blue-800 font-medium">

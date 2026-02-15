@@ -63,6 +63,8 @@ vite.config.js.timestamp*
 
 # Misc
 *.tgz
+dist.zip
+nul
 
 # Optional: Ignore public/img/ads and public/img/user if generated
 # public/img/ads/

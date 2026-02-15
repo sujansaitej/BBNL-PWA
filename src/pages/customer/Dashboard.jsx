@@ -7,7 +7,8 @@ import { Swiper, SwiperSlide } from 'swiper/react'
 import { Autoplay } from 'swiper/modules'
 import 'swiper/css'
 import Layout from "../../layout/Layout";
-import { ads } from "../../services/customer/apis";
+import { getAdvertisements, getIptvMobile } from "../../services/iptvApi";
+import { proxyImageUrl } from "../../services/iptvImage";
 import { Modal } from "@/components/ui";
 
 export default function Dashboard() {
@@ -43,10 +44,13 @@ export default function Dashboard() {
     
     async function getAds() {
         try {
-            const data = await ads("custapp");
-            if (data?.count > 0) {
-                setAdCnt(data?.imglist.length || 0); console.log(data?.imglist.length);
-                setAdvertisement(data?.imglist || []);
+            const mobile = getIptvMobile();
+            if (!mobile) return;
+            const data = await getAdvertisements({ mobile });
+            const list = (data?.body?.[0]?.ads || []).filter(a => a.content);
+            if (list.length > 0) {
+                setAdCnt(list.length);
+                setAdvertisement(list);
             } else {
                 // console.error("Advertisement not found:", data?.count || "No data");
             }
@@ -86,7 +90,7 @@ export default function Dashboard() {
                 {Advertisement.map(ad => (
                   <SwiperSlide key={ad.id} style={{ width: adCnt > 1 ? '90%' : '100%' }}>
                     <a href={ad.redirectlink} target="_blank" rel="noopener noreferrer" className="block bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden">
-                      <img src={ad.content} alt={ad.description} className="h-32 w-full object-cover" />
+                      <img src={proxyImageUrl(ad.content)} alt={ad.description} className="h-32 w-full object-cover" />
                       {/* <div className="p-3">
                         <p className="font-medium">{ad.description}</p>
                       </div> */}

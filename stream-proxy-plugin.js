@@ -1,23 +1,27 @@
 // Custom Vite plugin that proxies stream requests via HTTP/2.
-// The stream server requires HTTP/2+ and sends broken CORS headers
+// The stream servers require HTTP/2+ and send broken CORS headers
 // (Access-Control-Allow-Origin: *, *).
 // This plugin fetches via HTTP/2, pipes with backpressure, and returns clean headers.
+//
+// URL format: /stream/<hostname>/<path>
+// e.g. /stream/livestream.bbnl.in/hls/ch1.m3u8
+//      /stream/livestream2.bbnl.in/hls/ch2.m3u8
 
 import http2 from "node:http2";
 import { pipeline } from "node:stream";
 
-const STREAM_HOST = process.env.STREAM_HOST || "livestream.bbnl.in";
-const PREFIX = "/stream";
+const PREFIX = "/stream/";
 const SESSION_MAX_AGE = 600_000; // Rotate session every 10 minutes
 
-let h2Session = null;
-let sessionCreatedAt = 0;
-let nextSession = null;
-let activeRequestCount = 0;
-let pingInterval = null;
+// Allowed stream hosts — only these hostnames can be proxied
+const ALLOWED_HOSTS = new Set(
+  (process.env.STREAM_HOSTS || "livestream.bbnl.in,livestream2.bbnl.in")
+    .split(",").map(h => h.trim().toLowerCase()).filter(Boolean)
+);
 
-// Set of error codes that are normal during HLS streaming
-// (HLS.js frequently cancels segments when switching quality or seeking)
+// Per-host HTTP/2 session pool
+const sessionPool = new Map(); // host → { session, nextSession, createdAt, activeCount, pingTimer }
+
 const BENIGN_ERRORS = new Set([
   "ERR_HTTP2_STREAM_CANCEL",
   "ERR_STREAM_PREMATURE_CLOSE",
@@ -49,104 +53,108 @@ function isBenign(err) {
   return false;
 }
 
-function safeCreateSession() {
+function safeCreateH2(host) {
   try {
-    const session = http2.connect(`https://${STREAM_HOST}`, {
+    const session = http2.connect(`https://${host}`, {
       rejectUnauthorized: false,
       settings: { initialWindowSize: 8 * 1024 * 1024 },
     });
-    // Attach error handler IMMEDIATELY to prevent uncaught exceptions
     session.on("error", (err) => {
-      if (!isBenign(err)) {
-        console.error("[Stream Proxy] session error:", err.message);
+      if (!isBenign(err)) console.error(`[Stream Proxy:${host}] session error:`, err.message);
+      const pool = sessionPool.get(host);
+      if (pool) {
+        if (pool.session === session) pool.session = null;
+        if (pool.nextSession === session) pool.nextSession = null;
       }
-      if (session === h2Session) h2Session = null;
-      if (session === nextSession) nextSession = null;
     });
     return session;
   } catch (err) {
-    console.error("[Stream Proxy] http2.connect() failed:", err.message);
+    console.error(`[Stream Proxy:${host}] http2.connect() failed:`, err.message);
     return null;
   }
 }
 
-function setupSessionHandlers(session, label) {
+function setupHandlers(host, session, label) {
   if (!session) return;
-  // Error handler already attached in safeCreateSession, but add close/goaway
   session.on("close", () => {
-    if (h2Session === session) h2Session = null;
-    if (nextSession === session) nextSession = null;
+    const pool = sessionPool.get(host);
+    if (pool) {
+      if (pool.session === session) pool.session = null;
+      if (pool.nextSession === session) pool.nextSession = null;
+    }
   });
   session.on("goaway", () => {
-    console.log(`[Stream Proxy] ${label} GOAWAY — will reconnect on next request`);
-    if (session === h2Session) h2Session = null;
-    if (session === nextSession) nextSession = null;
+    console.log(`[Stream Proxy:${host}] ${label} GOAWAY — will reconnect`);
+    const pool = sessionPool.get(host);
+    if (pool) {
+      if (pool.session === session) pool.session = null;
+      if (pool.nextSession === session) pool.nextSession = null;
+    }
   });
 }
 
-function startPing() {
-  if (pingInterval) clearInterval(pingInterval);
-  pingInterval = setInterval(() => {
-    if (h2Session && !h2Session.closed && !h2Session.destroyed) {
+function startPing(host) {
+  const pool = sessionPool.get(host);
+  if (!pool) return;
+  if (pool.pingTimer) clearInterval(pool.pingTimer);
+  pool.pingTimer = setInterval(() => {
+    if (pool.session && !pool.session.closed && !pool.session.destroyed) {
       try {
-        h2Session.ping(Buffer.alloc(8), (err) => {
+        pool.session.ping(Buffer.alloc(8), (err) => {
           if (err) {
-            if (!isBenign(err)) {
-              console.error("[Stream Proxy] Ping failed:", err.message);
-            }
-            h2Session = null;
-            if (pingInterval) clearInterval(pingInterval);
+            if (!isBenign(err)) console.error(`[Stream Proxy:${host}] Ping failed:`, err.message);
+            pool.session = null;
+            if (pool.pingTimer) { clearInterval(pool.pingTimer); pool.pingTimer = null; }
           }
         });
       } catch (_) {
-        h2Session = null;
-        if (pingInterval) clearInterval(pingInterval);
+        pool.session = null;
+        if (pool.pingTimer) { clearInterval(pool.pingTimer); pool.pingTimer = null; }
       }
     } else {
-      if (pingInterval) clearInterval(pingInterval);
+      if (pool.pingTimer) { clearInterval(pool.pingTimer); pool.pingTimer = null; }
     }
   }, 30_000);
 }
 
-function getSession() {
-  const now = Date.now();
-  const alive = h2Session && !h2Session.closed && !h2Session.destroyed;
-  const age = now - sessionCreatedAt;
-  const fresh = age < SESSION_MAX_AGE;
-
-  // Pre-warm the next session at 80% of session lifetime
-  if (alive && fresh && age > SESSION_MAX_AGE * 0.8 && !nextSession) {
-    console.log("[Stream Proxy] Pre-warming next HTTP/2 session");
-    nextSession = safeCreateSession();
-    setupSessionHandlers(nextSession, "Pre-warm");
+function getSession(host) {
+  let pool = sessionPool.get(host);
+  if (!pool) {
+    pool = { session: null, nextSession: null, createdAt: 0, activeCount: 0, pingTimer: null };
+    sessionPool.set(host, pool);
   }
 
-  if (alive && fresh) return h2Session;
-  if (alive && !fresh && activeRequestCount > 0) return h2Session;
+  const now = Date.now();
+  const alive = pool.session && !pool.session.closed && !pool.session.destroyed;
+  const age = now - pool.createdAt;
+  const fresh = age < SESSION_MAX_AGE;
 
-  // Let old session drain
-  if (h2Session && !h2Session.closed) {
-    const old = h2Session;
+  if (alive && fresh && age > SESSION_MAX_AGE * 0.8 && !pool.nextSession) {
+    pool.nextSession = safeCreateH2(host);
+    setupHandlers(host, pool.nextSession, "Pre-warm");
+  }
+
+  if (alive && fresh) return pool.session;
+  if (alive && !fresh && pool.activeCount > 0) return pool.session;
+
+  if (pool.session && !pool.session.closed) {
+    const old = pool.session;
     setTimeout(() => { try { if (!old.closed) old.close(); } catch (_) {} }, 45_000);
   }
 
-  // Swap to pre-warmed session
-  if (nextSession && !nextSession.closed && !nextSession.destroyed) {
-    console.log("[Stream Proxy] Swapping to pre-warmed session");
-    h2Session = nextSession;
-    nextSession = null;
-    sessionCreatedAt = now;
-    startPing();
-    return h2Session;
+  if (pool.nextSession && !pool.nextSession.closed && !pool.nextSession.destroyed) {
+    pool.session = pool.nextSession;
+    pool.nextSession = null;
+    pool.createdAt = now;
+    startPing(host);
+    return pool.session;
   }
 
-  // Create new session
-  console.log("[Stream Proxy] Opening new HTTP/2 session");
-  h2Session = safeCreateSession();
-  sessionCreatedAt = now;
-  setupSessionHandlers(h2Session, "Main");
-  startPing();
-  return h2Session;
+  pool.session = safeCreateH2(host);
+  pool.createdAt = now;
+  setupHandlers(host, pool.session, "Main");
+  startPing(host);
+  return pool.session;
 }
 
 // Safe response helpers — never throw
@@ -164,11 +172,8 @@ function send502(res) {
 function safeRequest(session, headers) {
   try {
     const req = session.request(headers);
-    // Attach error handler IMMEDIATELY to prevent uncaught exceptions
     req.on("error", (err) => {
-      if (!isBenign(err)) {
-        console.error("[Stream Proxy] h2 request error:", err.code || err.message);
-      }
+      if (!isBenign(err)) console.error("[Stream Proxy] h2 request error:", err.code || err.message);
     });
     return req;
   } catch (err) {
@@ -177,18 +182,33 @@ function safeRequest(session, headers) {
   }
 }
 
+// Parse target host and path from URL: /stream/<hostname>/<path>
+function parseStreamUrl(url) {
+  const rest = url.slice(PREFIX.length);
+  const slashIdx = rest.indexOf("/");
+  if (slashIdx < 1) return null;
+  const host = rest.slice(0, slashIdx).toLowerCase();
+  const streamPath = rest.slice(slashIdx);
+  if (!ALLOWED_HOSTS.has(host)) return null;
+  return { host, streamPath };
+}
+
 export default function streamProxyPlugin() {
   return {
     name: "stream-proxy",
     configureServer(server) {
-      try { getSession(); } catch (_) {}
+      // Pre-warm sessions for all allowed hosts
+      for (const host of ALLOWED_HOSTS) {
+        try { getSession(host); } catch (_) {}
+      }
 
-      console.log(`[Stream Proxy] Plugin registered — proxying /stream → ${STREAM_HOST}`);
+      const hostList = [...ALLOWED_HOSTS].join(", ");
+      console.log(`[Stream Proxy] Plugin registered — proxying /stream/{host}/... → HTTP/2`);
+      console.log(`[Stream Proxy] Allowed hosts: ${hostList}`);
 
       server.middlewares.use((req, res, next) => {
         if (!req.url.startsWith(PREFIX)) return next();
 
-        // Wrap the entire handler in try-catch to prevent server crashes
         try {
           handleStreamRequest(req, res);
         } catch (err) {
@@ -204,12 +224,12 @@ function handleStreamRequest(req, res) {
   // ── Origin / Referer gate ──
   const origin = req.headers.origin || "";
   const referer = req.headers.referer || "";
-  const host = req.headers.host || "";
+  const reqHost = req.headers.host || "";
   const allowed =
-    origin === `http://${host}` ||
-    origin === `https://${host}` ||
-    referer.startsWith(`http://${host}`) ||
-    referer.startsWith(`https://${host}`) ||
+    origin === `http://${reqHost}` ||
+    origin === `https://${reqHost}` ||
+    referer.startsWith(`http://${reqHost}`) ||
+    referer.startsWith(`https://${reqHost}`) ||
     (!origin && !referer);
 
   if (!allowed) {
@@ -218,7 +238,7 @@ function handleStreamRequest(req, res) {
     return;
   }
 
-  const corsOrigin = origin || `http://${host}`;
+  const corsOrigin = origin || `http://${reqHost}`;
 
   if (req.method === "OPTIONS") {
     safeWriteHead(res, 204, {
@@ -231,55 +251,64 @@ function handleStreamRequest(req, res) {
     return;
   }
 
-  const streamPath = req.url.slice(PREFIX.length);
+  // Parse target host from URL
+  const parsed = parseStreamUrl(req.url);
+  if (!parsed) {
+    safeWriteHead(res, 400, { "Content-Type": "text/plain" });
+    safeEnd(res, "Invalid stream host");
+    return;
+  }
+
+  const { host: streamHost, streamPath } = parsed;
 
   let session;
   try {
-    session = getSession();
+    session = getSession(streamHost);
   } catch (err) {
-    console.error("[Stream Proxy] getSession error:", err.message);
+    console.error(`[Stream Proxy:${streamHost}] getSession error:`, err.message);
     send502(res);
     return;
   }
 
   if (!session || session.closed || session.destroyed) {
-    console.error("[Stream Proxy] No valid session available");
+    console.error(`[Stream Proxy:${streamHost}] No valid session available`);
     send502(res);
     return;
   }
 
-  activeRequestCount++;
+  const pool = sessionPool.get(streamHost);
+  pool.activeCount++;
 
   const reqHeaders = {
     ":method": "GET",
     ":path": streamPath,
-    ":authority": STREAM_HOST,
+    ":authority": streamHost,
     "accept": "*/*",
   };
 
   let h2Req = safeRequest(session, reqHeaders);
 
   if (!h2Req) {
-    activeRequestCount = Math.max(0, activeRequestCount - 1);
-    if (session === h2Session) h2Session = null;
+    pool.activeCount = Math.max(0, pool.activeCount - 1);
+    pool.session = null;
 
     // Retry once with a fresh session
     try {
-      const fresh = getSession();
+      const fresh = getSession(streamHost);
       if (!fresh || fresh.closed || fresh.destroyed) {
         send502(res);
         return;
       }
-      activeRequestCount++;
+      pool.activeCount++;
       h2Req = safeRequest(fresh, reqHeaders);
       if (!h2Req) {
-        activeRequestCount = Math.max(0, activeRequestCount - 1);
+        pool.activeCount = Math.max(0, pool.activeCount - 1);
         send502(res);
         return;
       }
     } catch (retryErr) {
-      activeRequestCount = Math.max(0, activeRequestCount - 1);
-      console.error("[Stream Proxy] retry failed:", retryErr.message);
+      pool.activeCount = Math.max(0, pool.activeCount - 1);
+      console.error(`[Stream Proxy:${streamHost}] retry failed:`, retryErr.message);
       send502(res);
       return;
     }
@@ -289,7 +318,6 @@ function handleStreamRequest(req, res) {
     try { h2Req.close(http2.constants.NGHTTP2_CANCEL); } catch (_) {}
   });
 
-  // When the browser aborts, cancel the upstream H2 request
   const cancelH2 = () => {
     try {
       if (!h2Req.closed && !h2Req.destroyed) {
@@ -320,27 +348,24 @@ function handleStreamRequest(req, res) {
 
       pipeline(h2Req, res, (err) => {
         if (err && !isBenign(err)) {
-          console.error("[Stream Proxy] pipeline error:", err.code || err.message);
+          console.error(`[Stream Proxy:${streamHost}] pipeline error:`, err.code || err.message);
         }
       });
     } catch (err) {
       if (!isBenign(err)) {
-        console.error("[Stream Proxy] response handler error:", err.message);
+        console.error(`[Stream Proxy:${streamHost}] response handler error:`, err.message);
       }
       send502(res);
     }
   });
 
   h2Req.on("close", () => {
-    activeRequestCount = Math.max(0, activeRequestCount - 1);
+    pool.activeCount = Math.max(0, pool.activeCount - 1);
   });
 
-  // Additional error handler for logging non-benign errors and sending 502
-  // (the initial handler from safeRequest() prevents uncaught exceptions,
-  //  this one handles the HTTP response side)
   h2Req.on("error", (err) => {
     if (isBenign(err)) return;
-    console.error("[Stream Proxy] stream error:", err.message);
+    console.error(`[Stream Proxy:${streamHost}] stream error:`, err.message);
     send502(res);
   });
 

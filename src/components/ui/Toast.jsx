@@ -38,12 +38,12 @@ export function ToastProvider({ children, position = "top-right", autoDismiss = 
         aria-live="polite"
         className={`fixed z-50 pointer-events-none flex flex-col gap-2 p-2 ${
           position === "top-right"
-            ? "top-2 right-2 items-end"
+            ? "top-4 left-1/2 -translate-x-1/2 items-center"
             : position === "top-left"
-            ? "top-2 left-2 items-start"
+            ? "top-4 left-1/2 -translate-x-1/2 items-center"
             : position === "bottom-right"
-            ? "bottom-2 right-2 items-end"
-            : "bottom-2 left-2 items-start"
+            ? "bottom-4 left-1/2 -translate-x-1/2 items-center"
+            : "bottom-4 left-1/2 -translate-x-1/2 items-center"
         }`}
       >
         {toasts.map((t) => (

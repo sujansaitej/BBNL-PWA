@@ -9,6 +9,7 @@ import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
 import { proxyImageUrl } from "../../services/iptvImage";
 import useVoiceSearch from "../../hooks/useVoiceSearch";
+import IptvSignup from "../../components/iptv/IptvSignup";
 
 const container = {
   hidden: { opacity: 0 },
@@ -48,6 +49,7 @@ export default function LanguagesPage() {
   const [languages, setLanguages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [userNotFound, setUserNotFound] = useState(false);
   const [search, setSearch] = useState("");
 
   const onVoiceResult = useCallback((text) => setSearch(text), []);
@@ -63,13 +65,19 @@ export default function LanguagesPage() {
   const fetchLanguages = async () => {
     setLoading(true);
     setError("");
+    setUserNotFound(false);
     try {
       const data = await getLanguageList({ mobile: iptvMobile });
       const langs = data?.body?.[0]?.languages || [];
       preloadLogos(langs.map((l) => proxyImageUrl(l.langlogomob)).filter((u) => u && !u.includes("chnlnoimage")));
       setLanguages(langs);
     } catch (err) {
-      setError(err.message || "Failed to load languages.");
+      const msg = err.message || "Failed to load languages.";
+      if (msg.toLowerCase().includes("user not found")) {
+        setUserNotFound(true);
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -128,7 +136,15 @@ export default function LanguagesPage() {
 
         {loading && <LanguageListSkeleton count={6} />}
 
-        {!loading && error && (
+        {!loading && userNotFound && (
+          <IptvSignup
+            name={(() => { const u = JSON.parse(localStorage.getItem("user") || "{}"); return [u.firstname, u.lastname].filter(Boolean).join(" ") || u.username || ""; })()}
+            mobile={iptvMobile}
+            onSuccess={() => { setUserNotFound(false); fetchLanguages(); }}
+          />
+        )}
+
+        {!loading && error && !userNotFound && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center justify-center py-16">
             <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-red-400" /></div>
             <p className="text-sm text-gray-600 mb-1 font-medium">{error}</p>

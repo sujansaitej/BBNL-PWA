@@ -7,6 +7,8 @@ import { formatCustomerId } from "../services/helpers";
 import { Loader, Badge } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 
+const PAGE_SIZE = 20;
+
 export default function Customerlist() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -18,6 +20,7 @@ export default function Customerlist() {
   const [customercount, setCustomercount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingServices, setLoadingServices] = useState(false);
+  const [page, setPage] = useState(1);
   const title = (searchTerm === 'expiring' ? "Today's Expiry" : (searchTerm === 'live' ? "Live Customers" : "All Customers"));
 
   const logUname = JSON.parse(localStorage.getItem('user')).username;
@@ -59,6 +62,7 @@ export default function Customerlist() {
   // }
 
   function filterCustomers(term) {
+    setPage(1);
     if (!term) {
       setCustomers(allCustomers);
       setCustomercount(allCustomers.length);
@@ -78,6 +82,9 @@ export default function Customerlist() {
     setCustomers(filtered);
     setCustomercount(filtered.length);
   }
+
+  const totalPages = Math.ceil(customers.length / PAGE_SIZE);
+  const paginatedCustomers = customers.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   async function selectCustomer(customer) {
     console.log('🟢 [selectCustomer] Customer selected:', customer.customer_id);
@@ -145,29 +152,54 @@ export default function Customerlist() {
         ) : (
           <div className="space-y-3">
             {customercount === 0 && <div className="text-center text-gray-500 dark:text-gray-400 py-10">No customers found</div>}
-            {customers.map(d => (
+            {paginatedCustomers.map(d => (
               <div key={d.customer_id} className="flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md hover:shadow-lg transition-all duration-300 cursor-pointer border border-gray-100 dark:border-gray-700" onClick={() => selectCustomer(d)}>
-                <div className="flex flex-col gap-2 text-sm">
+                <div className="flex flex-col gap-2 text-sm min-w-0 flex-1">
                   <div className={`flex`}>
-                    <span className={`w-28 text-gray-700 dark:text-gray-400 font-semibold`}>Username</span>
+                    <span className={`w-28 flex-shrink-0 text-gray-700 dark:text-gray-400 font-semibold`}>Username</span>
                     <span className={`text-indigo-600 dark:text-gray-400 font-bold break-words`}>{formatCustomerId(d.customer_id)}</span>
                   </div>
                   <div className={`flex`}>
-                    <span className={`w-28 text-gray-700 dark:text-gray-400 font-semibold`}>Name</span>
+                    <span className={`w-28 flex-shrink-0 text-gray-700 dark:text-gray-400 font-semibold`}>Name</span>
                     <span className={`text-gray-700 dark:text-gray-400 text-wrap`}>{d.name}</span>
                   </div>
                   <div className={`flex`}>
-                    <span className={`w-28 text-gray-700 dark:text-gray-400 font-semibold`}>Mobile No.</span>
+                    <span className={`w-28 flex-shrink-0 text-gray-700 dark:text-gray-400 font-semibold`}>Mobile No.</span>
                     <span className={`text-gray-700 dark:text-gray-400`}>{d.mobile}</span>
                   </div>
                   <div className={`flex`}>
-                    <span className={`w-28 text-gray-700 dark:text-gray-400 font-semibold`}>Email ID</span>
+                    <span className={`w-28 flex-shrink-0 text-gray-700 dark:text-gray-400 font-semibold`}>Email ID</span>
                     <span className={`text-gray-700 dark:text-gray-400 break-words`}>{d.email}</span>
                   </div>
                 </div>
-                <ArrowRightIcon className="h-6 w-6 text-gray-500" />
+                <div className="flex-shrink-0 ml-2">
+                  <ArrowRightIcon className="h-6 w-6 text-gray-500" />
+                </div>
               </div>
             ))}
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between pt-2 pb-4">
+                <button
+                  onClick={() => { setPage(p => Math.max(1, p - 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                  disabled={page === 1}
+                  className="px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                >
+                  Previous
+                </button>
+                <span className="text-sm text-gray-600 dark:text-gray-400">
+                  Page {page} of {totalPages}
+                </span>
+                <button
+                  onClick={() => { setPage(p => Math.min(totalPages, p + 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                  disabled={page === totalPages}
+                  className="px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
