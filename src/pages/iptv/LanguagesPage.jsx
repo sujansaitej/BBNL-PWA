@@ -13,7 +13,7 @@ import IptvSignup from "../../components/iptv/IptvSignup";
 
 const container = {
   hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.05 } },
+  show: { opacity: 1, transition: { staggerChildren: 0.02 } },
 };
 
 const item = {
@@ -63,12 +63,37 @@ export default function LanguagesPage() {
   }, []);
 
   const fetchLanguages = async () => {
-    setLoading(true);
     setError("");
     setUserNotFound(false);
+
+    // Check cache first — avoid loading flicker on cache hit
+    // Uses same key as LiveTvPage so data is shared between pages
+    const cacheKey = `livetv_languages_${iptvMobile}`;
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) {
+      try {
+        const { languages: cachedLangs, timestamp } = JSON.parse(cached);
+        // Cache valid for 10 minutes
+        if (Date.now() - timestamp < 10 * 60 * 1000) {
+          setLanguages(cachedLangs);
+          preloadLogos(cachedLangs.map((l) => proxyImageUrl(l.langlogomob)).filter((u) => u && !u.includes("chnlnoimage")));
+          setLoading(false);
+          return;
+        }
+      } catch (e) {
+        sessionStorage.removeItem(cacheKey);
+      }
+    }
+
+    setLoading(true);
+
     try {
       const data = await getLanguageList({ mobile: iptvMobile });
       const langs = data?.body?.[0]?.languages || [];
+
+      // Cache the results
+      sessionStorage.setItem(cacheKey, JSON.stringify({ languages: langs, timestamp: Date.now() }));
+
       preloadLogos(langs.map((l) => proxyImageUrl(l.langlogomob)).filter((u) => u && !u.includes("chnlnoimage")));
       setLanguages(langs);
     } catch (err) {

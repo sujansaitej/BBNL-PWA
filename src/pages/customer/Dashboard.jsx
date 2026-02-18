@@ -1,6 +1,6 @@
 // import DashboardContent from "../../components/Dashboard";
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { ArrowUpOnSquareStackIcon, CurrencyRupeeIcon, ClipboardDocumentListIcon, ChartPieIcon, PhotoIcon, SignalIcon, TicketIcon, UserIcon } from '@heroicons/react/24/outline'
 // import { featuredAds, transactions } from '../../data.js'
 import { Swiper, SwiperSlide } from 'swiper/react'
@@ -12,19 +12,29 @@ import { proxyImageUrl } from "../../services/iptvImage";
 import { Modal } from "@/components/ui";
 
 export default function Dashboard() {
+    if (localStorage.getItem('loginType') !== 'customer') {
+        return <Navigate to="/" replace />;
+    }
+
     // const logUname = JSON.parse(localStorage.getItem('user')).username;
     const [Advertisement, setAdvertisement] = useState([]);
     const [adCnt, setAdCnt] = useState(0);
     const [modalOpen, setModalOpen] = useState(false);
     const [greet, setGreet] = useState(false);
-    localStorage.getItem('firstLogin') ? null : localStorage.setItem('firstLogin', 'true');
-    if(localStorage.getItem('firstLogin') === 'true'){
-        setTimeout(() => {
-            setGreet(true);
-            setModalOpen(true);
-            localStorage.setItem('firstLogin', 'false');
-        }, 1000);
-    }
+
+    useEffect(() => {
+        if (!localStorage.getItem('firstLogin')) {
+            localStorage.setItem('firstLogin', 'true');
+        }
+        if (localStorage.getItem('firstLogin') === 'true') {
+            const timer = setTimeout(() => {
+                setGreet(true);
+                setModalOpen(true);
+                localStorage.setItem('firstLogin', 'false');
+            }, 1000);
+            return () => clearTimeout(timer);
+        }
+    }, []);
 
     useEffect(() => {
         getAds();
@@ -90,7 +100,7 @@ export default function Dashboard() {
                 {Advertisement.map(ad => (
                   <SwiperSlide key={ad.id} style={{ width: adCnt > 1 ? '90%' : '100%' }}>
                     <a href={ad.redirectlink} target="_blank" rel="noopener noreferrer" className="block bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden">
-                      <img src={proxyImageUrl(ad.content)} alt={ad.description} className="h-32 w-full object-cover" />
+                      <img src={proxyImageUrl(ad.content)} alt={ad.description} className="h-32 w-full object-cover" loading="lazy" />
                       {/* <div className="p-3">
                         <p className="font-medium">{ad.description}</p>
                       </div> */}
@@ -139,16 +149,22 @@ export default function Dashboard() {
                 <>
                 <h2 className="text-xl font-semibold text-center text-green-500 mb-2">Warm Welcome!</h2>
                 <img src={import.meta.env.VITE_API_APP_DIR_PATH + 'img/welcome.png'} alt="Modal Info" className="w-70 h-70 mx-auto" />
-                <p className="text-center text-blue-600 mt-1">We’re thrilled to introduce our new platform independent app — designed to bring you a faster, smarter, and more seamless experience!</p>
+                <p className="text-center text-blue-600 mt-1">We're thrilled to introduce our new platform independent app — designed to bring you a faster, smarter, and more seamless experience!</p>
                 </>
               ):(
                 <>
                 <h2 className="text-xl font-semibold text-center text-red-500 mb-2">Coming Soon!</h2>
                 <img src={import.meta.env.VITE_API_APP_DIR_PATH + 'img/under_dev.jpg'} alt="Modal Info" className="w-70 h-70 mx-auto" />
-                <p className="text-center text-violet-900 mt-1">We’re working on this feature — check back soon!</p>
+                <p className="text-center text-violet-900 mt-1">We're working on this feature — check back soon!</p>
                 </>
               )
               }
+              <button
+                onClick={() => setModalOpen(false)}
+                className="mt-4 w-full py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium transition"
+              >
+                Cancel
+              </button>
             </Modal>
       
           </div>

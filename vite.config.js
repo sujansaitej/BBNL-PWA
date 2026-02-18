@@ -64,6 +64,8 @@ export default ({ mode }) => {
             'maps': ['leaflet', 'leaflet-geometryutil'],
             'pdf': ['jspdf', 'html2canvas'],
             'swiper': ['swiper'],
+            'animations': ['framer-motion'],
+            'vendor-react': ['react', 'react-dom', 'react-router-dom'],
           }
         }
       }

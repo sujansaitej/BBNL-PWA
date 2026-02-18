@@ -1,52 +1,61 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Volume2, VolumeX, Maximize, Minimize, Tv, ExternalLink, RefreshCw, Play, Pause, ChevronUp } from "lucide-react";
+import { ArrowLeft, Volume2, VolumeX, Maximize, Minimize, Tv, RefreshCw, Play, Pause, ChevronUp } from "lucide-react";
 import Hls from "hls.js";
 import { getChannelStream, getChannelList, getIptvMobile } from "../../services/iptvApi";
 import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
 import { proxyImageUrl } from "../../services/iptvImage";
 
-// Convert proxy-format URLs to direct stream URLs
-// e.g. "/stream/livestream.bbnl.in/ddchandana/index.m3u8" → "https://livestream.bbnl.in/ddchandana/index.m3u8"
-// e.g. "https://bbnlnetmon.bbnl.in/stream/livestream.bbnl.in/path" → "https://livestream.bbnl.in/path"
-// Already-direct URLs pass through unchanged.
-function resolveStreamUrl(url) {
+// Convert API streamlink to direct HTTPS URL for HTTP/2 connections
+// Handles: /stream/livestream.bbnl.in/path → https://livestream.bbnl.in/path
+// Handles: https://livestream.bbnl.in/path → https://livestream.bbnl.in/path (no change)
+function normalizeStreamUrl(url) {
   if (!url) return url;
-  const match = url.match(/\/stream\/([^/]+)(\/.*)/);
-  if (match) return `https://${match[1]}${match[2]}`;
+  
+  // If already a full HTTPS URL, return as-is
+  if (url.startsWith('https://')) return url;
+  
+  // If it's a proxy path format: /stream/hostname/path
+  const proxyMatch = url.match(/^\/stream\/([^/]+)(\/.*)$/);
+  if (proxyMatch) {
+    const [, hostname, path] = proxyMatch;
+    return `https://${hostname}${path}`;
+  }
+  
+  // Default: return as-is (shouldn't happen)
   return url;
 }
 
 function loadWithHlsJs(video, streamUrl, isCancelled, tryPlay, setStatus, setErrorMsg, hlsRef) {
   const hls = new Hls({
     enableWorker: true,
-    lowLatencyMode: false,
+    lowLatencyMode: true,
     startFragPrefetch: true,
     backBufferLength: 0,
-    liveSyncDuration: 3,
-    liveMaxLatencyDuration: 10,
+    liveSyncDuration: 1,
+    liveMaxLatencyDuration: 6,
     liveDurationInfinity: true,
-    maxBufferLength: 10,
-    maxMaxBufferLength: 20,
-    maxBufferSize: 20 * 1000 * 1000,
-    maxBufferHole: 0.5,
-    startLevel: 0,
+    maxBufferLength: 6,
+    maxMaxBufferLength: 12,
+    maxBufferSize: 12 * 1000 * 1000,
+    maxBufferHole: 0.2,
+    startLevel: -1,
     capLevelToPlayerSize: true,
-    abrEwmaDefaultEstimate: 1000000,
-    abrBandWidthFactor: 0.9,
-    abrBandWidthUpFactor: 0.7,
+    abrEwmaDefaultEstimate: 3000000,
+    abrBandWidthFactor: 0.95,
+    abrBandWidthUpFactor: 0.8,
     initialLiveManifestSize: 1,
     fragLoadingTimeOut: 8000,
     fragLoadingMaxRetry: 4,
     fragLoadingRetryDelay: 500,
-    fragLoadingMaxRetryTimeout: 6000,
+    fragLoadingMaxRetryTimeout: 8000,
     manifestLoadingTimeOut: 8000,
-    manifestLoadingMaxRetry: 3,
+    manifestLoadingMaxRetry: 4,
     manifestLoadingRetryDelay: 500,
     levelLoadingTimeOut: 8000,
-    levelLoadingMaxRetry: 3,
+    levelLoadingMaxRetry: 4,
     levelLoadingRetryDelay: 500,
   });
   hlsRef.current = hls;
@@ -54,17 +63,24 @@ function loadWithHlsJs(video, streamUrl, isCancelled, tryPlay, setStatus, setErr
   let firstBuffered = false;
   hls.on(Hls.Events.FRAG_BUFFERED, () => { if (!firstBuffered && !isCancelled()) { firstBuffered = true; tryPlay(); } });
   let networkRetries = 0;
-  const MAX_NETWORK_RETRIES = 4;
+  const MAX_NETWORK_RETRIES = 6;
   hls.on(Hls.Events.ERROR, (_, data) => {
     if (isCancelled() || !data.fatal) return;
     switch (data.type) {
       case Hls.ErrorTypes.NETWORK_ERROR:
         networkRetries++;
-        if (networkRetries <= MAX_NETWORK_RETRIES) { setTimeout(() => { if (!isCancelled()) hls.startLoad(); }, networkRetries * 1500); }
+        if (networkRetries <= MAX_NETWORK_RETRIES) {
+          setTimeout(() => {
+            if (isCancelled()) return;
+            // After several retries, try reloading the source entirely
+            if (networkRetries > 3) { hls.loadSource(streamUrl); hls.startLoad(); }
+            else { hls.startLoad(); }
+          }, Math.min(networkRetries * 1000, 4000));
+        }
         else { if (!isCancelled()) { setStatus("error"); setErrorMsg("Network error — stream unavailable."); } }
         break;
       case Hls.ErrorTypes.MEDIA_ERROR: hls.recoverMediaError(); break;
-      default: if (!isCancelled()) { setStatus("error"); setErrorMsg(data.details || "Stream playback failed."); } break;
+      default: if (!isCancelled()) { setStatus("error"); setErrorMsg("Stream playback failed."); } break;
     }
   });
   hls.on(Hls.Events.FRAG_LOADED, () => { networkRetries = 0; });
@@ -122,7 +138,7 @@ export default function PlayerPage() {
 
   const [videoKey, setVideoKey] = useState(0);
   // Use streamlink from channel object immediately if available (skip API call)
-  const [streamUrl, setStreamUrl] = useState(resolveStreamUrl(channel?.streamlink) || null);
+  const [streamUrl, setStreamUrl] = useState(normalizeStreamUrl(channel?.streamlink) || null);
   const [status, setStatus] = useState(channel?.streamlink ? "loading" : "loading");
   const [errorMsg, setErrorMsg] = useState("");
   const [muted, setMuted] = useState(false);
@@ -156,11 +172,33 @@ export default function PlayerPage() {
 
   useEffect(() => {
     if (!currentChannel) return;
+
+    // Check cache first for instant loading
+    const cacheKey = `stream_${currentChannel.chid}`;
+    const cached = sessionStorage.getItem(cacheKey);
+
     // If channel already has streamlink, use it directly (no API call needed)
     if (currentChannel.streamlink) {
-      setStreamUrl(resolveStreamUrl(currentChannel.streamlink));
+      const normalized = normalizeStreamUrl(currentChannel.streamlink);
+      // Cache it for future use
+      sessionStorage.setItem(cacheKey, JSON.stringify({ url: normalized, timestamp: Date.now() }));
+      setStreamUrl(normalized);
       return;
     }
+
+    // Check cache (valid for 30 minutes)
+    if (cached) {
+      try {
+        const { url, timestamp } = JSON.parse(cached);
+        if (Date.now() - timestamp < 30 * 60 * 1000) {
+          setStreamUrl(url);
+          return;
+        }
+      } catch (e) {
+        sessionStorage.removeItem(cacheKey);
+      }
+    }
+
     // Fallback: fetch stream URL from API only when streamlink is missing
     const mobile = getIptvMobile();
     let cancelled = false;
@@ -169,7 +207,12 @@ export default function PlayerPage() {
         const data = await getChannelStream({ mobile, chid: currentChannel.chid || "", chno: currentChannel.chno || "" });
         const stream = data?.body?.[0]?.stream?.[0];
         if (!stream || !stream.streamlink) throw new Error("No stream available for this channel.");
-        if (!cancelled) setStreamUrl(resolveStreamUrl(stream.streamlink));
+        const normalized = normalizeStreamUrl(stream.streamlink);
+        if (!cancelled) {
+          // Cache the result
+          sessionStorage.setItem(cacheKey, JSON.stringify({ url: normalized, timestamp: Date.now() }));
+          setStreamUrl(normalized);
+        }
       } catch (err) {
         if (!cancelled) {
           const msg = err.message || "Failed to load stream.";
@@ -183,6 +226,58 @@ export default function PlayerPage() {
   }, [currentChannel]);
 
   useEffect(() => { return () => { unlockOrientation(); exitFullscreen(); }; }, []);
+
+  // Pre-fetch adjacent channels for instant switching
+  useEffect(() => {
+    if (!currentChannel || channelList.length === 0 || status !== "playing") return;
+
+    const currentIdx = channelList.findIndex((ch) => ch.chid === currentChannel.chid);
+    if (currentIdx < 0) return;
+
+    const mobile = getIptvMobile();
+    const prefetchChannel = async (channel) => {
+      if (!channel) return;
+
+      const cacheKey = `stream_${channel.chid}`;
+      const cached = sessionStorage.getItem(cacheKey);
+
+      // Skip if already cached
+      if (cached) {
+        try {
+          const { timestamp } = JSON.parse(cached);
+          if (Date.now() - timestamp < 30 * 60 * 1000) return;
+        } catch (e) {}
+      }
+
+      // If channel has streamlink, cache it
+      if (channel.streamlink) {
+        const normalized = normalizeStreamUrl(channel.streamlink);
+        sessionStorage.setItem(cacheKey, JSON.stringify({ url: normalized, timestamp: Date.now() }));
+        return;
+      }
+
+      // Otherwise, fetch and cache in background
+      try {
+        const data = await getChannelStream({ mobile, chid: channel.chid || "", chno: channel.chno || "" });
+        const stream = data?.body?.[0]?.stream?.[0];
+        if (stream?.streamlink) {
+          const normalized = normalizeStreamUrl(stream.streamlink);
+          sessionStorage.setItem(cacheKey, JSON.stringify({ url: normalized, timestamp: Date.now() }));
+        }
+      } catch (e) {
+        // Silent fail - just won't be cached
+      }
+    };
+
+    // Pre-fetch next and previous channels
+    const timer = setTimeout(() => {
+      if (currentIdx > 0) prefetchChannel(channelList[currentIdx - 1]);
+      if (currentIdx < channelList.length - 1) prefetchChannel(channelList[currentIdx + 1]);
+    }, 1000); // Wait 1s after stream starts playing
+
+    return () => clearTimeout(timer);
+  }, [currentChannel, channelList, status]);
+
 
   const resetHideTimer = useCallback(() => {
     setShowControls(true);
@@ -222,7 +317,7 @@ export default function PlayerPage() {
     const video = videoRef.current;
     if (!video || status !== "playing") return;
     let stallCount = 0;
-    const MAX_STALL_RETRIES = 5;
+    const MAX_STALL_RETRIES = 8;
     const pendingTimeouts = new Set();
     const recover = () => {
       stallCount++;
@@ -313,13 +408,47 @@ export default function PlayerPage() {
 
   const handleChannelSwitch = useCallback((newChannel) => {
     if (newChannel.chid === currentChannel?.chid) return;
-    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
-    setVideoKey((k) => k + 1);
-    setStatus("loading"); setErrorMsg(""); setLogoError(false); setPaused(false);
-    // Set streamUrl directly if available — avoids API round-trip
-    setStreamUrl(newChannel.streamlink || null);
+
+    // Clean up current HLS instance for smooth transition
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+
+    // Immediately show the new channel UI
     setCurrentChannel(newChannel);
+    setLogoError(false);
+    setPaused(false);
     closeSheet();
+
+    // Reset stream state - the useEffect will handle loading
+    setStatus("loading");
+    setErrorMsg("");
+
+    // Check cache first for instant switch
+    const cacheKey = `stream_${newChannel.chid}`;
+    const cached = sessionStorage.getItem(cacheKey);
+
+    if (newChannel.streamlink) {
+      // Instant switch if streamlink is in channel object
+      setStreamUrl(normalizeStreamUrl(newChannel.streamlink));
+    } else if (cached) {
+      // Try cached URL first
+      try {
+        const { url, timestamp } = JSON.parse(cached);
+        if (Date.now() - timestamp < 30 * 60 * 1000) {
+          setStreamUrl(url);
+          return;
+        }
+      } catch (e) {
+        sessionStorage.removeItem(cacheKey);
+      }
+      // Let useEffect handle the fetch
+      setStreamUrl(null);
+    } else {
+      // Let useEffect handle the fetch
+      setStreamUrl(null);
+    }
   }, [currentChannel, closeSheet]);
 
   const togglePlayPause = () => { const video = videoRef.current; if (!video) return; if (video.paused) video.play().catch(() => {}); else video.pause(); resetHideTimer(); };
@@ -328,14 +457,13 @@ export default function PlayerPage() {
   const handleGoBack = async (e) => { if (e) e.stopPropagation(); await exitFullscreen(); await unlockOrientation(); navigate(-1); };
   const handleScreenTap = () => { if (showSheet) { setShowSheet(false); return; } if (status === "playing") { setShowControls((prev) => !prev); if (!showControls) resetHideTimer(); } };
   const retry = () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } setVideoKey((k) => k + 1); setStatus("loading"); setErrorMsg(""); setStreamUrl(null); setCurrentChannel({ ...currentChannel }); };
-  const openExternal = () => { if (streamUrl) window.open(streamUrl, "_blank"); };
 
   if (!channel) return null;
   const controlsVisible = showControls || status !== "playing";
 
   return (
-    <div ref={containerRef} className="fixed inset-0 bg-black z-50 select-none" onMouseMove={() => status === "playing" && resetHideTimer()} onClick={() => status === "playing" && handleScreenTap()} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
-      <video key={videoKey} ref={videoRef} className={`absolute inset-0 w-full h-full ${isFullscreen ? "object-cover" : "object-contain"}`} playsInline autoPlay preload="auto" />
+    <div ref={containerRef} className="fixed inset-0 bg-black z-50 select-none overflow-hidden" onMouseMove={() => status === "playing" && resetHideTimer()} onClick={() => status === "playing" && handleScreenTap()} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+      <video key={videoKey} ref={videoRef} className="absolute inset-0 w-full h-full object-contain" playsInline autoPlay preload="auto" />
 
       <AnimatePresence>
         {controlsVisible && !showSheet && (<>
@@ -346,7 +474,7 @@ export default function PlayerPage() {
 
       <AnimatePresence>
         {controlsVisible && !showSheet && (
-          <motion.div key="top-bar" initial={{ opacity: 0, y: -30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -30 }} transition={{ duration: 0.3, ease: "easeOut" }} className="absolute top-0 left-0 right-0 z-30 px-4 pt-4 pb-2">
+          <motion.div key="top-bar" initial={{ opacity: 0, y: -30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -30 }} transition={{ duration: 0.3, ease: "easeOut" }} className="absolute top-0 left-0 right-0 z-30 px-4 pt-4 pb-2" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top, 1rem))', paddingLeft: 'max(1rem, env(safe-area-inset-left, 1rem))', paddingRight: 'max(1rem, env(safe-area-inset-right, 1rem))' }}>
             <div className="flex items-center gap-3">
               <button onClick={handleGoBack} className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center hover:bg-black/60 active:scale-95 transition-all flex-shrink-0"><ArrowLeft className="w-5 h-5 text-white" /></button>
               {hasLogo && logoSrc && !logoError ? (<img src={logoSrc} alt={currentChannel.chtitle} onError={() => setLogoError(true)} className="w-9 h-9 rounded-lg object-contain bg-white/10 backdrop-blur-sm p-0.5 flex-shrink-0" />) : (<div className="w-9 h-9 rounded-lg bg-white/10 backdrop-blur-sm flex items-center justify-center flex-shrink-0"><Tv className="w-4 h-4 text-white/60" /></div>)}
@@ -372,7 +500,7 @@ export default function PlayerPage() {
 
       <AnimatePresence>
         {controlsVisible && status === "playing" && !showSheet && (
-          <motion.div key="bottom-bar" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 30 }} transition={{ duration: 0.3, ease: "easeOut" }} className="absolute bottom-0 left-0 right-0 z-30 px-4 pb-4 pt-2">
+          <motion.div key="bottom-bar" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 30 }} transition={{ duration: 0.3, ease: "easeOut" }} className="absolute bottom-0 left-0 right-0 z-30 px-4 pb-4 pt-2" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 1rem))', paddingLeft: 'max(1rem, env(safe-area-inset-left, 1rem))', paddingRight: 'max(1rem, env(safe-area-inset-right, 1rem))' }}>
             <div className="w-full h-[3px] bg-white/15 rounded-full mb-4 overflow-hidden"><div className="h-full bg-red-500 rounded-full w-full relative"><div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-red-500 rounded-full shadow-lg shadow-red-500/50" /></div></div>
             <div className="flex items-center justify-between">
               {channelList.length > 0 && (<button onClick={(e) => { e.stopPropagation(); setShowSheet(true); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 active:bg-white/20 transition-all"><ChevronUp className="w-3.5 h-3.5 text-white/60" /><span className="text-[11px] text-white/60 font-medium">Channels</span></button>)}
@@ -389,7 +517,7 @@ export default function PlayerPage() {
         {showSheet && channelList.length > 0 && (
           <motion.div key="channel-strip" initial={{ opacity: 0, y: 80 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 80 }} transition={{ type: "spring", damping: 28, stiffness: 300 }} className="absolute bottom-0 left-0 right-0 z-[35]" onClick={(e) => e.stopPropagation()}>
             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent pointer-events-none" />
-            <div ref={stripScrollRef} className="relative flex gap-2 overflow-x-auto px-3 pb-4 hide-scrollbar" onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
+            <div ref={stripScrollRef} className="relative flex gap-2 overflow-x-auto px-3 pb-4 hide-scrollbar" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 1rem))' }} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
               {channelList.map((ch) => (<ChannelCard key={ch.chid} channel={ch} isActive={ch.chid === currentChannel?.chid} onSelect={handleChannelSwitch} />))}
             </div>
           </motion.div>
@@ -422,7 +550,6 @@ export default function PlayerPage() {
             <p className="text-sm text-white/40 text-center max-w-xs mb-8 leading-relaxed">{errorMsg}</p>
             <div className="flex items-center gap-3 w-full max-w-xs">
               <button onClick={retry} className="flex-1 flex items-center justify-center gap-2 py-3 bg-white/10 hover:bg-white/15 rounded-xl text-sm text-white font-semibold transition-all active:scale-95 backdrop-blur-sm"><RefreshCw className="w-4 h-4" />Retry</button>
-              <button onClick={openExternal} className="flex-1 flex items-center justify-center gap-2 py-3 bg-red-600 hover:bg-red-700 rounded-xl text-sm text-white font-semibold transition-all active:scale-95"><ExternalLink className="w-4 h-4" />External</button>
             </div>
             <button onClick={handleGoBack} className="mt-5 text-xs text-white/30 hover:text-white/60 transition-colors font-medium">Back to channels</button>
           </motion.div>

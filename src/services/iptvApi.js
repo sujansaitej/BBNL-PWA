@@ -56,7 +56,7 @@ async function iptvFetch(endpoint, options = {}) {
   let data;
   try {
     data = JSON.parse(text);
-  } catch {
+  } catch (_e) {
     logger.error("IPTV", `Invalid JSON response from ${endpoint}`);
     throw new Error("Server returned an invalid response. Please try again.");
   }
@@ -92,27 +92,54 @@ export function getChannelList({ mobile, grid = "", bcid = "", langid = "subs", 
   });
 }
 
-export function getAdvertisements({ mobile, adclient = "fofi", srctype = "Image", displayarea = "homepage", displaytype = "multiple" }) {
+export async function getAdvertisements({ mobile, adclient = "fofi", srctype = "Image", displayarea = "homepage", displaytype = "multiple" }) {
   requireMobile(mobile);
-  return iptvFetch("/ftauserads", {
+  const cacheKey = `ads_${mobile}_${adclient}`;
+  try {
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) {
+      const { data, ts } = JSON.parse(cached);
+      if (Date.now() - ts < 10 * 60 * 1000) return data; // 10 min TTL
+      sessionStorage.removeItem(cacheKey);
+    }
+  } catch (_e) { /* ignore */ }
+  const data = await iptvFetch("/ftauserads", {
     method: "POST",
     body: JSON.stringify({ mobile, adclient, srctype, displayarea, displaytype }),
   });
+  try { sessionStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() })); } catch (_e) { /* ignore */ }
+  return data;
 }
 
+let _cachedIP = null;
+let _ipFetchPromise = null;
+
 export async function getPublicIP() {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
-    const res = await fetch("https://api.ipify.org?format=json", { signal: controller.signal });
-    clearTimeout(timeout);
-    const data = await res.json();
-    logger.debug("IPTV", `Public IP resolved: ${data.ip}`);
-    return data.ip;
-  } catch {
-    logger.warn("IPTV", "Failed to resolve public IP, using fallback 0.0.0.0");
-    return "0.0.0.0";
-  }
+  if (_cachedIP) return _cachedIP;
+  if (_ipFetchPromise) return _ipFetchPromise;
+  _ipFetchPromise = (async () => {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2000);
+      const res = await fetch("https://api.ipify.org?format=json", { signal: controller.signal });
+      clearTimeout(timeout);
+      const data = await res.json();
+      _cachedIP = data.ip;
+      logger.debug("IPTV", `Public IP resolved: ${data.ip}`);
+      return data.ip;
+    } catch (_e) {
+      logger.warn("IPTV", "Failed to resolve public IP, using fallback 0.0.0.0");
+      return "0.0.0.0";
+    } finally {
+      _ipFetchPromise = null;
+    }
+  })();
+  return _ipFetchPromise;
+}
+
+/** Call early (e.g. on IPTV page mount) so the IP is ready before first channel play */
+export function prefetchPublicIP() {
+  if (!_cachedIP && !_ipFetchPromise) getPublicIP();
 }
 
 export function addFtaUser({ name, mobile }) {

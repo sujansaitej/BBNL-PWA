@@ -12,30 +12,12 @@ import { fetchImage } from "./iptvImage";
 
 const LS_PREFIX = "lc_";
 const TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
-const MAX_CONCURRENT = 4;
+const MAX_CONCURRENT = 20;
 
-// L1 — in-memory: url → base64 dataUrl
+// L1 — in-memory: url → base64 dataUrl (populated lazily from L2 on first access)
 const mem = new Map();
 const loading = new Set();
 const listeners = new Map();
-
-// ── Startup: hydrate L1 from L2 ──
-try {
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (!key || !key.startsWith(LS_PREFIX)) continue;
-    try {
-      const { d, t } = JSON.parse(localStorage.getItem(key));
-      if (Date.now() - t > TTL) {
-        localStorage.removeItem(key);
-      } else {
-        mem.set(key.slice(LS_PREFIX.length), d);
-      }
-    } catch {
-      localStorage.removeItem(key);
-    }
-  }
-} catch { /* localStorage unavailable */ }
 
 // ── localStorage helpers ──
 function lsGet(url) {
@@ -48,7 +30,7 @@ function lsGet(url) {
       return null;
     }
     return d;
-  } catch {
+  } catch (_e) {
     return null;
   }
 }
@@ -56,12 +38,12 @@ function lsGet(url) {
 function lsSet(url, dataUrl) {
   try {
     localStorage.setItem(LS_PREFIX + url, JSON.stringify({ d: dataUrl, t: Date.now() }));
-  } catch {
+  } catch (_e) {
     // Quota exceeded — evict oldest entries and retry
-    evictOldest(10);
+    evictOldest(20);
     try {
       localStorage.setItem(LS_PREFIX + url, JSON.stringify({ d: dataUrl, t: Date.now() }));
-    } catch { /* still full, skip */ }
+    } catch (_e2) { /* still full, skip */ }
   }
 }
 
@@ -74,47 +56,52 @@ function evictOldest(count) {
       try {
         const { t } = JSON.parse(localStorage.getItem(key));
         entries.push({ key, t });
-      } catch {
+      } catch (_e) {
         localStorage.removeItem(key);
       }
     }
-  } catch { return; }
+  } catch (_e) { return; }
   entries.sort((a, b) => a.t - b.t);
   for (let i = 0; i < Math.min(count, entries.length); i++) {
-    try { localStorage.removeItem(entries[i].key); } catch {}
+    try { localStorage.removeItem(entries[i].key); } catch (_e) {}
   }
 }
 
-// ── Core fetch: download image → base64 → store both tiers ──
+// ── Core fetch: download → objectURL for instant display → base64 in background for L2 ──
 async function fetchAndCache(url) {
-  try {
-    const res = await fetchImage(url, { cache: "force-cache" });
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    // Skip very large images (>500KB) to avoid filling localStorage
-    if (blob.size > 500 * 1024) {
-      // Still decode for in-memory use
+  // Retry once on failure for network resilience
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetchImage(url);
+      if (!res.ok) continue;
+      const blob = await res.blob();
+      if (!blob.size) continue;
+
+      // Create an object URL for instant display (no base64 wait)
       const objUrl = URL.createObjectURL(blob);
-      const img = new Image();
-      img.src = objUrl;
-      await img.decode().catch(() => {});
       mem.set(url, objUrl);
+
+      // Persist to localStorage in the background (non-blocking)
+      if (blob.size <= 500 * 1024) {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const dataUrl = reader.result;
+          if (dataUrl) {
+            mem.set(url, dataUrl);  // upgrade L1 to data URL
+            lsSet(url, dataUrl);    // persist to L2
+            notifySubs(url, dataUrl); // update any mounted components
+            URL.revokeObjectURL(objUrl); // free the blob URL
+          }
+        };
+        reader.readAsDataURL(blob);
+      }
+
       return objUrl;
+    } catch (_e) {
+      // retry on next iteration
     }
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const dataUrl = reader.result;
-        mem.set(url, dataUrl);
-        lsSet(url, dataUrl);
-        resolve(dataUrl);
-      };
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(blob);
-    });
-  } catch {
-    return null;
   }
+  return null;
 }
 
 // ── Notify subscribers ──
@@ -122,7 +109,6 @@ function notifySubs(url, dataUrl) {
   const cbs = listeners.get(url);
   if (cbs) {
     cbs.forEach((cb) => cb(dataUrl));
-    listeners.delete(url);
   }
 }
 
@@ -183,7 +169,8 @@ export function preloadLogos(urls) {
     loading.add(url);
     enqueue(url).then((dataUrl) => {
       loading.delete(url);
-      if (dataUrl) notifySubs(url, dataUrl);
+      // Always notify — even null cleans up orphaned listeners
+      notifySubs(url, dataUrl);
     });
   });
 }

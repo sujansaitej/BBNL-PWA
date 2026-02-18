@@ -238,7 +238,7 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 px-4">
       {!isInstalled ? (
         <InstallInstructions deferredPrompt={deferredPrompt} />
-      ) : (isInstalled && isStandalone) ? (
+      ) : (
       <div className="w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl shadow-xl p-8">
         {/* Logo */}
         <div className="flex justify-center mb-6">
@@ -379,16 +379,7 @@ export default function Login() {
           </a>
         </p> */}
       </div>
-      ) : (<ThankYouMessage />)
-      // : (
-      //   <>
-      //   <div className="max-w-2xl mx-auto space-y-6 mb-6">
-      //     <ThankYouMessage />
-      //     <InstallInstructions deferredPrompt={deferredPrompt} />
-      //   </div>
-      //   </>
-      // )
-      }
+      )}
     </div>
   );
 }

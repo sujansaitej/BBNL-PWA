@@ -12,35 +12,17 @@ const AD_IMG_PREFIX = "ad_img_";
 const META_TTL = 30 * 60 * 1000;      // 30 minutes
 const IMG_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-// In-memory cache for ad images (L1)
+// In-memory cache for ad images (L1, populated lazily from L2 on first access)
 const adImageMem = new Map();
-
-// ── Startup: hydrate ad images from localStorage ──
-try {
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (!key || !key.startsWith(AD_IMG_PREFIX)) continue;
-    try {
-      const { d, t } = JSON.parse(localStorage.getItem(key));
-      if (Date.now() - t > IMG_TTL) {
-        localStorage.removeItem(key);
-      } else {
-        adImageMem.set(key.slice(AD_IMG_PREFIX.length), d);
-      }
-    } catch {
-      localStorage.removeItem(key);
-    }
-  }
-} catch {}
 
 // ── localStorage helpers ──
 function safeLsSet(key, value) {
   try {
     localStorage.setItem(key, value);
-  } catch {
+  } catch (_e) {
     // Quota exceeded — evict some ad images and retry
     evictOldAdImages(5);
-    try { localStorage.setItem(key, value); } catch {}
+    try { localStorage.setItem(key, value); } catch (_e) {}
   }
 }
 
@@ -53,14 +35,14 @@ function evictOldAdImages(count) {
       try {
         const { t } = JSON.parse(localStorage.getItem(key));
         entries.push({ key, t });
-      } catch {
+      } catch (_e) {
         localStorage.removeItem(key);
       }
     }
-  } catch { return; }
+  } catch (_e) { return; }
   entries.sort((a, b) => a.t - b.t);
   for (let i = 0; i < Math.min(count, entries.length); i++) {
-    try { localStorage.removeItem(entries[i].key); } catch {}
+    try { localStorage.removeItem(entries[i].key); } catch (_e) {}
   }
 }
 
@@ -76,7 +58,7 @@ export function getCachedAds(page) {
       return [];
     }
     return ads;
-  } catch {
+  } catch (_e) {
     return [];
   }
 }
@@ -84,7 +66,7 @@ export function getCachedAds(page) {
 export function setCachedAds(page, ads) {
   try {
     localStorage.setItem(AD_META_PREFIX + page, JSON.stringify({ ads, ts: Date.now() }));
-  } catch {}
+  } catch (_e) {}
 }
 
 // ── Ad images ──
@@ -105,7 +87,7 @@ export function getCachedAdImage(adpath) {
     }
     adImageMem.set(adpath, d);
     return d;
-  } catch {
+  } catch (_e) {
     return null;
   }
 }
@@ -114,7 +96,7 @@ export function getCachedAdImage(adpath) {
 async function fetchAndCacheAdImage(url, adpath) {
   if (!url || adImageMem.has(adpath)) return;
   try {
-    const res = await fetchImage(url, { cache: "force-cache" });
+    const res = await fetchImage(url);
     if (!res.ok) return;
     const blob = await res.blob();
     // Skip images > 500KB to protect localStorage
@@ -134,7 +116,7 @@ async function fetchAndCacheAdImage(url, adpath) {
       reader.onerror = () => resolve();
       reader.readAsDataURL(blob);
     });
-  } catch {}
+  } catch (_e) {}
 }
 
 /**

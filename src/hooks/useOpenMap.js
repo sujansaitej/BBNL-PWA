@@ -82,7 +82,7 @@ export function useOpenMap() {
           }
           document.body.removeChild(iframe);
         }, 1200);
-      } catch {
+      } catch (_e) {
         window.open(webUrl, "_blank");
       }
 

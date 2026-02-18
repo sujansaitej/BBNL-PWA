@@ -204,7 +204,7 @@ export default function useVoiceSearch(onResult, { parseNumbers = false } = {}) 
 
     try {
       recognition.start();
-    } catch {
+    } catch (_e) {
       setListening(false);
       setVoiceError("Could not start voice search");
       setTimeout(() => setVoiceError(""), 3000);

@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Loader, ConfirmDialog, TicketDialog } from "@/components/ui";
 import { useToast } from "../components/ui/Toast";
 import { Search, MapPin, ClipboardList } from "lucide-react";
-import { tktTabs, formatTo12Hour, formatCustomerId } from "../services/helpers";
+import { tktTabs, formatTo12Hour } from "../services/helpers";
 import { useOpenMap } from "../hooks/useOpenMap";
 import { getTktDepartments, getTickets, pickTicket } from "../services/generalApis";
 
@@ -430,52 +430,6 @@ const Tickets = () => {
             ))}
           </div>
         )}
-        {!tickets.map((t, i) => (
-          <div
-            key={i}
-            className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-2 mb-3 transition-transform duration-200 hover:scale-[1.01]"
-          >
-            <div className="flex items-center text-blue-800 font-medium">
-              <ClipboardList className="w-5 h-5 text-blue-600 font-semibold mr-2" />
-              Job #{t.ticketId}
-            </div>
-
-            <div className="text-sm text-gray-600 space-y-1">
-              <p>
-                <span className="w-32 font-semibold">Customer ID:</span>{" "}
-                {formatCustomerId(t.customerId)}
-              </p>
-              <p>
-                <span className="font-semibold">Mobile:</span> {t.mobile}
-              </p>
-              <p>
-                <span className="font-semibold">Complaint:</span> {t.complaint}
-              </p>
-              <p>
-                <span className="font-semibold">Raised Time:</span>{" "}
-                {t.raisedTime}
-              </p>
-              <p>
-                <span className="font-semibold">Department:</span>{" "}
-                {t.department}
-              </p>
-            </div>
-
-            <div className="flex gap-3 pt-1">
-              {/* <button className="flex-1 bg-purple-500 hover:bg-orange-600 text-white rounded-lg py-2 text-sm font-medium">
-                Pick Ticket
-              </button> 
-              <button className="flex-1 flex items-center justify-center gap-2 bg-orange-100 hover:bg-orange-200 text-orange-600 rounded-lg py-2 text-sm font-medium">
-                <MapPin className="w-4 h-4" /> View Map
-              </button> */}
-              <button className="flex-1 bg-transparent text-sm font-medium text-blue-700 hover:text-white hover:bg-indigo-500 border border-blue-500 hover:border-transparent rounded p-1.5">Pick Job</button>
-              <button className="flex-1 flex items-center justify-center gap-2 text-sm font-medium text-blue-700 hover:text-white hover:bg-indigo-500 border border-blue-500 hover:border-transparent rounded p-1.5">
-                <MapPin className="w-4 h-4" /> View Map
-              </button>
-            </div>
-          </div>
-
-        ))}
       </main>
 
       {/* Confirmation Dialog */}

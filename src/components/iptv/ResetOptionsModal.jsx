@@ -10,7 +10,7 @@ export default function ResetOptionsModal({ isOpen, onClose, onSelectOption }) {
 
     return (
         <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 px-4"
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-40 px-4"
             onClick={onClose}
         >
             <div
@@ -18,8 +18,18 @@ export default function ResetOptionsModal({ isOpen, onClose, onSelectOption }) {
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="px-5 py-4 border-b border-gray-200">
+                <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
                     <h2 className="text-lg font-semibold text-gray-900">Reset Settings</h2>
+                    {/* Close Button */}
+                    <button
+                        onClick={onClose}
+                        className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full p-1 transition-colors"
+                        aria-label="Close"
+                    >
+                        <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
                 </div>
 
                 {/* Options List */}

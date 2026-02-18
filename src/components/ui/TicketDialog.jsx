@@ -58,13 +58,14 @@ const TicketDialog = ({
 
       {/* Dialog container */}
       <div
+        onClick={onCancel}
         className={`fixed inset-0 z-50 flex items-center justify-center p-4 transition-all duration-300 ${
           open
             ? "opacity-100 scale-100 translate-y-0 visible"
             : "opacity-0 scale-95 translate-y-4 invisible"
         }`}
       >
-        <div className="bg-white w-full max-w-md rounded-2xl shadow-xl p-6 flex flex-col gap-2">
+        <div onClick={(e) => e.stopPropagation()} className="bg-white w-full max-w-md rounded-2xl shadow-xl p-6 flex flex-col gap-2">
           <h2 className="text-lg font-semibold text-blue-600 dark:text-blue-500 mb-2 justify-center flex">
             <TicketIcon className="h-6 w-6 text-indigo-700 dark:text-indigo-500 mt-0.5 mr-2" />
             {type === "close" ? "Close Job" : "Transfer Job"}

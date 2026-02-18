@@ -120,11 +120,21 @@ export async function resendOTP(username) {
 }
 
 export async function getWalBal(payload) {
+  const cacheKey = `walbal_${payload.loginuname}_${payload.servicekey || 'internet'}`;
+  try {
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) {
+      const { data, ts } = JSON.parse(cached);
+      if (Date.now() - ts < 5 * 60 * 1000) return data; // 5 min TTL
+      sessionStorage.removeItem(cacheKey);
+    }
+  } catch (_e) { /* ignore */ }
   const url = `${getBaseUrl()}ServiceApis/myWallet`;
   const headers = getHeadersJson();
   const resp = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "getWalBal");
   if (!resp.ok) throw new Error(`Failed to get wallet balance ${resp.status}`);
   const data = await resp.json();
+  try { sessionStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() })); } catch (_e) { /* ignore */ }
   return data;
 }
 
@@ -138,6 +148,16 @@ export async function getCustList(payload, status) {
 }
 
 export async function getServiceList() {
+  const cacheKey = 'svclist_all';
+  try {
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) {
+      const { data, ts } = JSON.parse(cached);
+      if (Date.now() - ts < 10 * 60 * 1000) return data; // 10 min TTL
+      sessionStorage.removeItem(cacheKey);
+    }
+  } catch (_e) { /* ignore */ }
+
   const params = new URLSearchParams({ servtype: 'all', iskirana: 'false' });
   const url = `${getBaseUrl()}ServiceApis/servServiceList?${params.toString()}`;
 
@@ -161,6 +181,7 @@ export async function getServiceList() {
 
   const data = await resp.json();
   logger.debug("API", "getServiceList response", { errCode: data.status?.err_code, bodyCount: data.body?.length });
+  try { sessionStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() })); } catch (_e) { /* ignore */ }
   return data;
 }
 

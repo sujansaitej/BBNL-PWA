@@ -15,30 +15,18 @@ export default function Sidebar({ open, onClose }) {
   const photo  = (user?.photo && user?.photo !='path') ? import.meta.env.VITE_API_BASE_URL + import.meta.env.VITE_API_APP_USER_IMG_PATH + user?.photo : import.meta.env.VITE_API_APP_DIR_PATH + import.meta.env.VITE_API_APP_DEFAULT_USER_IMG_PATH;
 
   const logUname = user?.username || '';
-  const [servkey, setServkey] = useState('');
   const [intWB, setIntWB] = useState(0);
-  // const [fofiWB, setFofiWB] = useState(0);
   const isCustomer = localStorage.getItem('loginType') === 'customer'? true : false;
   useEffect(() => {
-    if (logUname) getWalBalance();
-  }, []);
-
-  async function getWalBalance() {
-    try {
-      const payload = { loginuname: logUname, servicekey: servkey || 'internet' };
-      const data = await getWalBal(payload);
-      if (data?.status?.err_code === 0) {
-        if(payload.servicekey === 'internet')
-          setIntWB((data?.body?.wallet_balance || 0).toFixed(2));
-        // console.log("Wallet Balance:", data?.body?.wallet_balance);
-      } else {
-        console.error("Failed to fetch wallet balance:", data?.status?.err_msg || "Unknown error");
-      }
-      setServkey('fofi');
-    } catch (err) {
-      console.error("Error fetching wallet balance:", err);
+    if (logUname) {
+      getWalBal({ loginuname: logUname, servicekey: 'internet' })
+        .then(data => {
+          if (data?.status?.err_code === 0)
+            setIntWB((data?.body?.wallet_balance || 0).toFixed(2));
+        })
+        .catch(() => {});
     }
-  }
+  }, []);
 
   function logout() {
     localStorage.removeItem('user');
@@ -49,6 +37,7 @@ export default function Sidebar({ open, onClose }) {
     setModalOpen(true);
   }
   return (
+    <>
     <div className={`fixed inset-0 z-50 ${open ? '' : 'pointer-events-none'}`}>
       <div onClick={onClose} className={`absolute inset-0 bg-black/40 transition-opacity ${open ? 'opacity-100' : 'opacity-0'}`} />
       <aside className={`absolute left-0 top-0 h-full w-70 bg-white dark:bg-gray-900 shadow-xl transform transition-transform ${open ? 'translate-x-0' : '-translate-x-full'}`}>
@@ -163,13 +152,19 @@ export default function Sidebar({ open, onClose }) {
           </div>
         </div>
       </aside>
+    </div>
 
       <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)}>
         <h2 className="text-xl font-semibold text-center text-red-500 mb-2">Coming Soon!</h2>
         <img src={import.meta.env.VITE_API_APP_DIR_PATH + 'img/under_dev.jpg'} alt="Modal Info" className="w-70 h-70 mx-auto" />
-        <p className="text-center text-violet-900 mt-1">We’re working on this feature — check back soon!</p>
+        <p className="text-center text-violet-900 mt-1">We're working on this feature — check back soon!</p>
+        <button
+          onClick={() => setModalOpen(false)}
+          className="mt-4 w-full py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium transition"
+        >
+          Cancel
+        </button>
       </Modal>
-      
-    </div>
+    </>
   )
 }

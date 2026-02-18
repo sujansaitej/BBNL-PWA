@@ -122,6 +122,12 @@ export default function BottomBar() {
       <h2 className="text-xl font-semibold text-center text-red-500 mb-2">Coming Soon!</h2>
       <img src={import.meta.env.VITE_API_APP_DIR_PATH + 'img/under_dev.jpg'} alt="Modal Info" className="w-70 h-70 mx-auto" />
       <p className="text-center text-violet-900 mt-1">We're working on this feature — check back soon!</p>
+      <button
+        onClick={() => setModalOpen(false)}
+        className="mt-4 w-full py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium transition"
+      >
+        Cancel
+      </button>
     </Modal>
     </>
   );

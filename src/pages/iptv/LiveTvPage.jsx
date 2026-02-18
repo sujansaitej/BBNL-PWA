@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Search, Play, Tv, Radio, AlertCircle, X, Languages, Globe, ArrowLeft, Mic, MicOff } from "lucide-react";
 import Layout from "../../layout/Layout";
 import { ChannelListSkeleton } from "../../components/iptv/Loader";
-import { getChannelList, getLanguageList, getAdvertisements, getIptvMobile } from "../../services/iptvApi";
+import { getChannelList, getLanguageList, getAdvertisements, getIptvMobile, prefetchPublicIP } from "../../services/iptvApi";
 import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
 import { proxyImageUrl } from "../../services/iptvImage";
@@ -304,6 +304,7 @@ export default function LiveTvPage() {
   const [ads, setAds] = useState([]);
 
   useEffect(() => {
+    prefetchPublicIP();
     fetchChannels();
     fetchLanguages();
     getAdvertisements({ mobile: iptvMobile }).then(data => {
@@ -313,12 +314,36 @@ export default function LiveTvPage() {
   }, []);
 
   const fetchChannels = async () => {
-    setLoading(true);
     setError("");
     setUserNotFound(false);
+
+    // Check cache first — avoid loading flicker on cache hit
+    const cacheKey = `livetv_channels_${iptvMobile}`;
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) {
+      try {
+        const { channels: cachedChannels, timestamp } = JSON.parse(cached);
+        // Cache valid for 5 minutes
+        if (Date.now() - timestamp < 5 * 60 * 1000) {
+          setChannels(cachedChannels);
+          preloadLogos(cachedChannels.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage")));
+          setLoading(false);
+          return;
+        }
+      } catch (e) {
+        sessionStorage.removeItem(cacheKey);
+      }
+    }
+
+    setLoading(true);
+
     try {
       const data = await getChannelList({ mobile: iptvMobile, langid: "subs" });
       const chnls = data?.body?.[0]?.channels || [];
+
+      // Cache the results
+      sessionStorage.setItem(cacheKey, JSON.stringify({ channels: chnls, timestamp: Date.now() }));
+
       preloadLogos(chnls.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage")));
       setChannels(chnls);
     } catch (err) {
@@ -334,9 +359,30 @@ export default function LiveTvPage() {
   };
 
   const fetchLanguages = async () => {
+    // Check cache first
+    const cacheKey = `livetv_languages_${iptvMobile}`;
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) {
+      try {
+        const { languages: cachedLangs, timestamp } = JSON.parse(cached);
+        // Cache valid for 10 minutes
+        if (Date.now() - timestamp < 10 * 60 * 1000) {
+          setLanguages(cachedLangs);
+          preloadLogos(cachedLangs.map((l) => proxyImageUrl(l.langlogomob)).filter((u) => u && !u.includes("chnlnoimage")));
+          return;
+        }
+      } catch (e) {
+        sessionStorage.removeItem(cacheKey);
+      }
+    }
+
     try {
       const data = await getLanguageList({ mobile: iptvMobile });
       const langs = data?.body?.[0]?.languages || [];
+
+      // Cache the results
+      sessionStorage.setItem(cacheKey, JSON.stringify({ languages: langs, timestamp: Date.now() }));
+
       preloadLogos(langs.map((l) => proxyImageUrl(l.langlogomob)).filter((u) => u && !u.includes("chnlnoimage")));
       setLanguages(langs);
     } catch (_) {}

@@ -193,6 +193,18 @@ function parseStreamUrl(url) {
   return { host, streamPath };
 }
 
+// Rewrite .m3u8 playlists so all URLs route through the dev proxy
+function rewriteM3u8(body, streamHost) {
+  const proxyBase = "/stream";
+  for (const host of ALLOWED_HOSTS) {
+    const re = new RegExp(`https?://${host.replace(/\./g, "\\.")}(/[^\\s"']*)`, "g");
+    body = body.replace(re, `${proxyBase}/${host}$1`);
+  }
+  body = body.replace(/^(\/\S+)$/gm, `${proxyBase}/${streamHost}$1`);
+  body = body.replace(/URI="(\/[^"]+)"/gi, `URI="${proxyBase}/${streamHost}$1"`);
+  return body;
+}
+
 export default function streamProxyPlugin() {
   return {
     name: "stream-proxy",
@@ -328,29 +340,50 @@ function handleStreamRequest(req, res) {
   res.on("close", cancelH2);
   res.on("error", cancelH2);
 
+  const isM3u8 = streamPath.endsWith(".m3u8") || streamPath.endsWith(".m3u");
+
   h2Req.on("response", (headers) => {
     try {
       if (res.headersSent || res.writableEnded) return;
 
       const status = headers[":status"] || 502;
+      const contentType = headers["content-type"] || "application/octet-stream";
 
       const outHeaders = {
-        "Content-Type": headers["content-type"] || "application/octet-stream",
+        "Content-Type": contentType,
         "Access-Control-Allow-Origin": corsOrigin,
         "Access-Control-Allow-Methods": "GET, OPTIONS",
         "Cache-Control": "no-store",
       };
-      if (headers["content-length"]) {
-        outHeaders["Content-Length"] = headers["content-length"];
-      }
 
-      safeWriteHead(res, status, outHeaders);
-
-      pipeline(h2Req, res, (err) => {
-        if (err && !isBenign(err)) {
-          console.error(`[Stream Proxy:${streamHost}] pipeline error:`, err.code || err.message);
+      if (isM3u8 || contentType.includes("mpegurl")) {
+        // Buffer .m3u8 playlists and rewrite URLs so segments go through the proxy
+        const chunks = [];
+        h2Req.on("data", (chunk) => chunks.push(chunk));
+        h2Req.on("end", () => {
+          try {
+            let body = Buffer.concat(chunks).toString("utf-8");
+            body = rewriteM3u8(body, streamHost);
+            outHeaders["Content-Length"] = Buffer.byteLength(body);
+            safeWriteHead(res, status, outHeaders);
+            safeEnd(res, body);
+          } catch (e) {
+            if (!isBenign(e)) console.error(`[Stream Proxy:${streamHost}] m3u8 rewrite error:`, e.message);
+            send502(res);
+          }
+        });
+      } else {
+        // Binary segments — stream directly with backpressure
+        if (headers["content-length"]) {
+          outHeaders["Content-Length"] = headers["content-length"];
         }
-      });
+        safeWriteHead(res, status, outHeaders);
+        pipeline(h2Req, res, (err) => {
+          if (err && !isBenign(err)) {
+            console.error(`[Stream Proxy:${streamHost}] pipeline error:`, err.code || err.message);
+          }
+        });
+      }
     } catch (err) {
       if (!isBenign(err)) {
         console.error(`[Stream Proxy:${streamHost}] response handler error:`, err.message);

@@ -1993,13 +1993,14 @@ function FoFiSmartBox() {
                 {/* Zero Price Plan Popup */}
                 <AnimatePresence>
                     {showZeroPricePopup && (
-                        <div className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50 px-4">
+                        <div className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50 px-4" onClick={() => setShowZeroPricePopup(false)}>
                             <motion.div
                                 initial={{ opacity: 0, scale: 0.9, y: -20 }}
                                 animate={{ opacity: 1, scale: 1, y: 0 }}
                                 exit={{ opacity: 0, scale: 0.9, y: 20 }}
                                 transition={{ duration: 0.3, ease: "easeOut" }}
                                 className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
+                                onClick={(e) => e.stopPropagation()}
                             >
                                 {/* Gradient Header */}
                                 <div className="bg-gradient-to-r from-orange-500 to-red-500 px-6 py-4 flex items-center justify-between">
@@ -2255,13 +2256,14 @@ function FoFiSmartBox() {
                 {/* Error Message Popup Modal */}
                 <AnimatePresence>
                     {validationError && (
-                        <div className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50 px-4">
+                        <div className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50 px-4" onClick={() => setValidationError('')}>
                             <motion.div
                                 initial={{ opacity: 0, scale: 0.9, y: -20 }}
                                 animate={{ opacity: 1, scale: 1, y: 0 }}
                                 exit={{ opacity: 0, scale: 0.9, y: 20 }}
                                 transition={{ duration: 0.3, ease: "easeOut" }}
                                 className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+                                onClick={(e) => e.stopPropagation()}
                             >
                                 {/* Gradient Header */}
                                 <div className="bg-gradient-to-r from-red-500 to-red-600 px-6 py-4 flex items-center justify-between">

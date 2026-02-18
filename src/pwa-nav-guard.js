@@ -35,7 +35,7 @@ export function setupPwaNavGuard() {
           e.preventDefault();
           window.open(href, "_blank", "noopener,noreferrer");
         }
-      } catch {
+      } catch (_e) {
         // Invalid URL (e.g. relative fragment), let browser handle it
       }
     },

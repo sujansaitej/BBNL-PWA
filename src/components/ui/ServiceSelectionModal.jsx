@@ -30,7 +30,7 @@ export default function ServiceSelectionModal({ isOpen, onClose, onSelectService
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex flex-col bg-white">
+        <div className="fixed inset-0 z-[70] flex flex-col bg-white">
             {/* Blue Gradient Header */}
             <header className="flex items-center px-4 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg">
                 <button onClick={() => navigate('/customers')} className="p-1 mr-3">
@@ -38,7 +38,17 @@ export default function ServiceSelectionModal({ isOpen, onClose, onSelectService
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                     </svg>
                 </button>
-                <h1 className="text-lg font-medium text-white">Customer OverView</h1>
+                <h1 className="text-lg font-medium text-white flex-1">Customer OverView</h1>
+                {/* Close Button */}
+                <button
+                    onClick={onClose}
+                    className="p-1 hover:bg-white/20 rounded-full transition-colors"
+                    aria-label="Close"
+                >
+                    <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
             </header>
 
             {/* Content */}

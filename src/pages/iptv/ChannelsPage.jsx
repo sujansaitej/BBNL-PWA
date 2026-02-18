@@ -5,7 +5,7 @@ import { LayoutGrid, Search, AlertCircle, Play, Tv, ArrowLeft, X, Mic, MicOff } 
 import Layout from "../../layout/Layout";
 import useVoiceSearch from "../../hooks/useVoiceSearch";
 import { ChannelGridSkeleton } from "../../components/iptv/Loader";
-import { getChannelList, getAdvertisements, getIptvMobile } from "../../services/iptvApi";
+import { getChannelList, getAdvertisements, getIptvMobile, prefetchPublicIP } from "../../services/iptvApi";
 import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
 import { proxyImageUrl } from "../../services/iptvImage";
@@ -13,7 +13,7 @@ import IptvSignup from "../../components/iptv/IptvSignup";
 
 const container = {
   hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.03 } },
+  show: { opacity: 1, transition: { staggerChildren: 0.015 } },
 };
 
 const item = {
@@ -98,6 +98,7 @@ export default function ChannelsPage() {
   const [ads, setAds] = useState([]);
 
   useEffect(() => {
+    prefetchPublicIP();
     fetchChannels();
     getAdvertisements({ mobile: iptvMobile }).then(data => {
       const list = (data?.body?.[0]?.ads || []).filter(a => a.content);
@@ -106,12 +107,40 @@ export default function ChannelsPage() {
   }, [langid]);
 
   const fetchChannels = async () => {
-    setLoading(true);
     setError("");
     setUserNotFound(false);
+
+    // Use shared cache key with LiveTvPage for "subs" langid
+    const cacheKey = langid === "subs"
+      ? `livetv_channels_${iptvMobile}`
+      : `channels_${iptvMobile}_${langid}`;
+    const cached = sessionStorage.getItem(cacheKey);
+
+    // Check cache first — avoid loading flicker on cache hit
+    if (cached) {
+      try {
+        const { channels: cachedChannels, timestamp } = JSON.parse(cached);
+        // Cache valid for 5 minutes
+        if (Date.now() - timestamp < 5 * 60 * 1000) {
+          setChannels(cachedChannels);
+          preloadLogos(cachedChannels.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage")));
+          setLoading(false);
+          return;
+        }
+      } catch (e) {
+        sessionStorage.removeItem(cacheKey);
+      }
+    }
+
+    setLoading(true);
+
     try {
       const data = await getChannelList({ mobile: iptvMobile, langid });
       const chnls = data?.body?.[0]?.channels || [];
+
+      // Cache the results
+      sessionStorage.setItem(cacheKey, JSON.stringify({ channels: chnls, timestamp: Date.now() }));
+
       preloadLogos(chnls.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage")));
       setChannels(chnls);
     } catch (err) {

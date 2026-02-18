@@ -12,7 +12,6 @@ import { Modal } from "@/components/ui";
 
 export default function Dashboard() {
   const logUname = JSON.parse(localStorage.getItem('user')).username;
-  const [servkey, setServkey] = useState('');
   const [intWB, setIntWB] = useState(0);
   const [fofiWB, setFofiWB] = useState(0);
   const [adList, setAdList] = useState([]);
@@ -26,38 +25,23 @@ export default function Dashboard() {
       localStorage.setItem('firstLogin', 'false');
     }, 1000);
   }
-  useEffect(() => {
-    getWalBalance();
-  }, [servkey]);
 
   useEffect(() => {
+    // Fetch everything in parallel — wallet balances + ads all at once
     const mobile = getIptvMobile();
-    if (mobile) {
-      getAdvertisements({ mobile }).then(data => {
-        const list = (data?.body?.[0]?.ads || []).filter(a => a.content);
-        if (list.length > 0) setAdList(list);
-      }).catch(() => {});
-    }
+    Promise.all([
+      getWalBal({ loginuname: logUname, servicekey: 'internet' }).catch(() => null),
+      getWalBal({ loginuname: logUname, servicekey: 'fofi' }).catch(() => null),
+      mobile ? getAdvertisements({ mobile }).catch(() => null) : Promise.resolve(null),
+    ]).then(([intData, fofiData, adData]) => {
+      if (intData?.status?.err_code === 0)
+        setIntWB((intData?.body?.wallet_balance || 0).toFixed(2));
+      if (fofiData?.status?.err_code === 0)
+        setFofiWB((fofiData?.body?.wallet_balance || 0).toFixed(2));
+      const list = (adData?.body?.[0]?.ads || []).filter(a => a.content);
+      if (list.length > 0) setAdList(list);
+    });
   }, []);
-
-  async function getWalBalance() {
-    try {
-      const payload = { loginuname: logUname, servicekey: servkey || 'internet' };
-      const data = await getWalBal(payload);
-      if (data?.status?.err_code === 0) {
-        if(payload.servicekey === 'internet') 
-          setIntWB((data?.body?.wallet_balance || 0).toFixed(2));
-        else
-          setFofiWB((data?.body?.wallet_balance || 0).toFixed(2));
-        // console.log("Wallet Balance:", data?.body?.wallet_balance);
-      } else {
-        console.error("Failed to fetch wallet balance:", data?.status?.err_msg || "Unknown error");
-      }
-      setServkey('fofi');
-    } catch (err) {
-      console.error("Error fetching wallet balance:", err);
-    }
-  }
 
   const cardItems = [
     { id: 'addUser', title: 'Add User', Icon: UsersIcon, path: '/register' },
@@ -114,7 +98,7 @@ export default function Dashboard() {
           {adList.map(ad => (
             <SwiperSlide key={ad.id} style={{ width: adList.length > 1 ? '90%' : '100%' }}>
               <a href={ad.redirectlink} target="_blank" rel="noopener noreferrer" className="block bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden">
-                <img src={proxyImageUrl(ad.content)} alt={ad.description} className="h-32 w-full object-cover" />
+                <img src={proxyImageUrl(ad.content)} alt={ad.description} className="h-32 w-full object-cover" loading="lazy" />
               </a>
             </SwiperSlide>
           ))}

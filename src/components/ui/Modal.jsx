@@ -7,13 +7,14 @@ const Modal = ({ isOpen, onClose, children, title }) => {
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] px-4" onClick={onClose}>
         <motion.div
-          className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+          className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] overflow-y-auto"
           initial={{ opacity: 0, scale: 0.9, y: -20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.9, y: 20 }}
           transition={{ duration: 0.3, ease: "easeOut" }}
+          onClick={(e) => e.stopPropagation()}
         >
           {/* Gradient Header */}
           {title && (
@@ -37,7 +38,7 @@ const Modal = ({ isOpen, onClose, children, title }) => {
           {!title && (
             <button
               onClick={onClose}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full p-2 transition-all duration-200"
+              className="absolute top-4 right-4 z-10 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full p-2 transition-all duration-200"
             >
               <XMarkIcon className="h-6 w-6" />
             </button>

@@ -46,7 +46,7 @@ export default function VerifyOtpPage() {
     setError(msg);
     try {
       if (navigator && navigator.vibrate) navigator.vibrate(150);
-    } catch {}
+    } catch (_e) {}
     if (containerRef.current) {
       containerRef.current.classList.remove("shake");
       // force reflow so animation retriggers

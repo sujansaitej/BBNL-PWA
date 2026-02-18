@@ -264,7 +264,7 @@ export default function QRScanner({ onScan, onClose, onError }) {
     };
 
     return (
-        <div className="fixed inset-0 z-50 bg-black flex flex-col">
+        <div className="fixed inset-0 z-[60] bg-black flex flex-col">
             {/* Header */}
             <div className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-4 py-3 flex items-center justify-between shadow-lg">
                 <h2 className="text-lg font-medium">Scan QR Code</h2>
