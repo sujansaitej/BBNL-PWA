@@ -53,7 +53,7 @@ export default ({ mode }) => {
     base: env.VITE_API_APP_DIR_PATH,
     esbuild: {
       drop: mode === 'production' ? ['debugger'] : [],
-      pure: mode === 'production' ? ['console.log', 'console.debug'] : [],
+      pure: mode === 'production' ? ['console.log', 'console.debug', 'console.info', 'console.warn', 'console.error'] : [],
     },
     build: {
       chunkSizeWarningLimit: 1500,

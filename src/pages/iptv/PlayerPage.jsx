@@ -8,6 +8,25 @@ import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
 import { proxyImageUrl } from "../../services/iptvImage";
 
+// Obfuscated stream URL cache — prevents plain-text URLs in sessionStorage
+const _XK = 0x5A;
+function _sc(s) { return btoa(Array.from(s, c => String.fromCharCode(c.charCodeAt(0) ^ _XK)).join('')); }
+function _ds(s) { try { return Array.from(atob(s), c => String.fromCharCode(c.charCodeAt(0) ^ _XK)).join(''); } catch { return null; } }
+
+function storeStreamCache(chid, url) {
+  try { sessionStorage.setItem(`s_${chid}`, _sc(JSON.stringify({ u: url, t: Date.now() }))); } catch {}
+}
+
+function loadStreamCache(chid, maxAge = 30 * 60 * 1000) {
+  try {
+    const raw = sessionStorage.getItem(`s_${chid}`);
+    if (!raw) return null;
+    const { u, t } = JSON.parse(_ds(raw));
+    if (Date.now() - t > maxAge) { sessionStorage.removeItem(`s_${chid}`); return null; }
+    return u;
+  } catch { sessionStorage.removeItem(`s_${chid}`); return null; }
+}
+
 // Convert API streamlink to direct HTTPS URL for HTTP/2 connections
 // Handles: /stream/livestream.bbnl.in/path → https://livestream.bbnl.in/path
 // Handles: https://livestream.bbnl.in/path → https://livestream.bbnl.in/path (no change)
@@ -41,27 +60,31 @@ function loadWithHlsJs(video, streamUrl, isCancelled, tryPlay, setStatus, setErr
     maxMaxBufferLength: 12,
     maxBufferSize: 12 * 1000 * 1000,
     maxBufferHole: 0.2,
-    startLevel: -1,
+    startLevel: 0,
     capLevelToPlayerSize: true,
-    abrEwmaDefaultEstimate: 3000000,
+    abrEwmaDefaultEstimate: 500000,
     abrBandWidthFactor: 0.95,
     abrBandWidthUpFactor: 0.8,
     initialLiveManifestSize: 1,
-    fragLoadingTimeOut: 8000,
+    progressive: true,
+    highBufferWatchdogPeriod: 1,
+    fragLoadingTimeOut: 5000,
     fragLoadingMaxRetry: 4,
     fragLoadingRetryDelay: 500,
-    fragLoadingMaxRetryTimeout: 8000,
-    manifestLoadingTimeOut: 8000,
+    fragLoadingMaxRetryTimeout: 5000,
+    manifestLoadingTimeOut: 5000,
     manifestLoadingMaxRetry: 4,
     manifestLoadingRetryDelay: 500,
-    levelLoadingTimeOut: 8000,
+    levelLoadingTimeOut: 5000,
     levelLoadingMaxRetry: 4,
     levelLoadingRetryDelay: 500,
   });
   hlsRef.current = hls;
   hls.on(Hls.Events.MANIFEST_PARSED, () => { if (!isCancelled()) tryPlay(); });
-  let firstBuffered = false;
-  hls.on(Hls.Events.FRAG_BUFFERED, () => { if (!firstBuffered && !isCancelled()) { firstBuffered = true; tryPlay(); } });
+  let firstPlayAttempted = false;
+  const earlyPlay = () => { if (!firstPlayAttempted && !isCancelled()) { firstPlayAttempted = true; tryPlay(); } };
+  hls.on(Hls.Events.BUFFER_APPENDED, earlyPlay);
+  hls.on(Hls.Events.FRAG_BUFFERED, earlyPlay);
   let networkRetries = 0;
   const MAX_NETWORK_RETRIES = 6;
   hls.on(Hls.Events.ERROR, (_, data) => {
@@ -95,10 +118,16 @@ async function unlockOrientation() {
   try { if (screen.orientation?.unlock) screen.orientation.unlock(); } catch (_) {}
 }
 async function enterFullscreen(el) {
-  try { const fn = el.requestFullscreen || el.webkitRequestFullscreen; if (fn) await fn.call(el); } catch (_) {}
+  try {
+    const fn = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+    if (fn) await fn.call(el, { navigationUI: 'hide' });
+  } catch (_) {}
 }
 async function exitFullscreen() {
-  try { if (document.fullscreenElement) await document.exitFullscreen(); } catch (_) {}
+  try {
+    const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+    if (fsEl) await (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  } catch (_) {}
 }
 
 function ChannelCard({ channel, isActive, onSelect }) {
@@ -149,6 +178,7 @@ export default function PlayerPage() {
 
   const hasLogo = currentChannel?.chlogo && !currentChannel.chlogo.includes("chnlnoimage");
   const logoSrc = proxyImageUrl(currentChannel?.chlogo);
+  const cachedPosterUrl = useCachedLogo(hasLogo ? logoSrc : null);
 
   useEffect(() => {
     if (!channel) navigate("/cust/livetv/channels", { replace: true });
@@ -173,30 +203,19 @@ export default function PlayerPage() {
   useEffect(() => {
     if (!currentChannel) return;
 
-    // Check cache first for instant loading
-    const cacheKey = `stream_${currentChannel.chid}`;
-    const cached = sessionStorage.getItem(cacheKey);
-
     // If channel already has streamlink, use it directly (no API call needed)
     if (currentChannel.streamlink) {
       const normalized = normalizeStreamUrl(currentChannel.streamlink);
-      // Cache it for future use
-      sessionStorage.setItem(cacheKey, JSON.stringify({ url: normalized, timestamp: Date.now() }));
+      storeStreamCache(currentChannel.chid, normalized);
       setStreamUrl(normalized);
       return;
     }
 
-    // Check cache (valid for 30 minutes)
-    if (cached) {
-      try {
-        const { url, timestamp } = JSON.parse(cached);
-        if (Date.now() - timestamp < 30 * 60 * 1000) {
-          setStreamUrl(url);
-          return;
-        }
-      } catch (e) {
-        sessionStorage.removeItem(cacheKey);
-      }
+    // Check obfuscated cache (valid for 30 minutes)
+    const cachedUrl = loadStreamCache(currentChannel.chid);
+    if (cachedUrl) {
+      setStreamUrl(cachedUrl);
+      return;
     }
 
     // Fallback: fetch stream URL from API only when streamlink is missing
@@ -209,8 +228,7 @@ export default function PlayerPage() {
         if (!stream || !stream.streamlink) throw new Error("No stream available for this channel.");
         const normalized = normalizeStreamUrl(stream.streamlink);
         if (!cancelled) {
-          // Cache the result
-          sessionStorage.setItem(cacheKey, JSON.stringify({ url: normalized, timestamp: Date.now() }));
+          storeStreamCache(currentChannel.chid, normalized);
           setStreamUrl(normalized);
         }
       } catch (err) {
@@ -225,7 +243,24 @@ export default function PlayerPage() {
     return () => { cancelled = true; };
   }, [currentChannel]);
 
-  useEffect(() => { return () => { unlockOrientation(); exitFullscreen(); }; }, []);
+  // On mount: immersive fullscreen, black body background to fill any gaps
+  useEffect(() => {
+    const origBodyBg = document.body.style.background;
+    const origHtmlBg = document.documentElement.style.background;
+    document.body.style.background = '#000';
+    document.documentElement.style.background = '#000';
+
+    // Auto-enter fullscreen for a true edge-to-edge experience
+    const el = containerRef.current;
+    if (el) enterFullscreen(el).then(() => lockLandscape()).catch(() => {});
+
+    return () => {
+      document.body.style.background = origBodyBg;
+      document.documentElement.style.background = origHtmlBg;
+      unlockOrientation();
+      exitFullscreen();
+    };
+  }, []);
 
   // Pre-fetch adjacent channels for instant switching
   useEffect(() => {
@@ -238,21 +273,12 @@ export default function PlayerPage() {
     const prefetchChannel = async (channel) => {
       if (!channel) return;
 
-      const cacheKey = `stream_${channel.chid}`;
-      const cached = sessionStorage.getItem(cacheKey);
-
       // Skip if already cached
-      if (cached) {
-        try {
-          const { timestamp } = JSON.parse(cached);
-          if (Date.now() - timestamp < 30 * 60 * 1000) return;
-        } catch (e) {}
-      }
+      if (loadStreamCache(channel.chid)) return;
 
       // If channel has streamlink, cache it
       if (channel.streamlink) {
-        const normalized = normalizeStreamUrl(channel.streamlink);
-        sessionStorage.setItem(cacheKey, JSON.stringify({ url: normalized, timestamp: Date.now() }));
+        storeStreamCache(channel.chid, normalizeStreamUrl(channel.streamlink));
         return;
       }
 
@@ -261,8 +287,7 @@ export default function PlayerPage() {
         const data = await getChannelStream({ mobile, chid: channel.chid || "", chno: channel.chno || "" });
         const stream = data?.body?.[0]?.stream?.[0];
         if (stream?.streamlink) {
-          const normalized = normalizeStreamUrl(stream.streamlink);
-          sessionStorage.setItem(cacheKey, JSON.stringify({ url: normalized, timestamp: Date.now() }));
+          storeStreamCache(channel.chid, normalizeStreamUrl(stream.streamlink));
         }
       } catch (e) {
         // Silent fail - just won't be cached
@@ -426,28 +451,12 @@ export default function PlayerPage() {
     setErrorMsg("");
 
     // Check cache first for instant switch
-    const cacheKey = `stream_${newChannel.chid}`;
-    const cached = sessionStorage.getItem(cacheKey);
-
     if (newChannel.streamlink) {
-      // Instant switch if streamlink is in channel object
       setStreamUrl(normalizeStreamUrl(newChannel.streamlink));
-    } else if (cached) {
-      // Try cached URL first
-      try {
-        const { url, timestamp } = JSON.parse(cached);
-        if (Date.now() - timestamp < 30 * 60 * 1000) {
-          setStreamUrl(url);
-          return;
-        }
-      } catch (e) {
-        sessionStorage.removeItem(cacheKey);
-      }
-      // Let useEffect handle the fetch
-      setStreamUrl(null);
     } else {
-      // Let useEffect handle the fetch
-      setStreamUrl(null);
+      const cachedUrl = loadStreamCache(newChannel.chid);
+      if (cachedUrl) { setStreamUrl(cachedUrl); return; }
+      setStreamUrl(null); // Let useEffect handle the fetch
     }
   }, [currentChannel, closeSheet]);
 
@@ -462,8 +471,8 @@ export default function PlayerPage() {
   const controlsVisible = showControls || status !== "playing";
 
   return (
-    <div ref={containerRef} className="fixed inset-0 bg-black z-50 select-none overflow-hidden" onMouseMove={() => status === "playing" && resetHideTimer()} onClick={() => status === "playing" && handleScreenTap()} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
-      <video key={videoKey} ref={videoRef} className="absolute inset-0 w-full h-full object-contain" playsInline autoPlay preload="auto" />
+    <div ref={containerRef} className="fixed inset-0 bg-black z-50 select-none overflow-hidden" style={{ width: '100dvw', height: '100dvh', minWidth: '100vw', minHeight: '100vh' }} onMouseMove={() => status === "playing" && resetHideTimer()} onClick={() => status === "playing" && handleScreenTap()} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+      <video key={videoKey} ref={videoRef} className="absolute inset-0 w-full h-full object-contain" playsInline autoPlay preload="auto" poster={cachedPosterUrl || undefined} onContextMenu={(e) => e.preventDefault()} />
 
       <AnimatePresence>
         {controlsVisible && !showSheet && (<>
@@ -477,7 +486,7 @@ export default function PlayerPage() {
           <motion.div key="top-bar" initial={{ opacity: 0, y: -30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -30 }} transition={{ duration: 0.3, ease: "easeOut" }} className="absolute top-0 left-0 right-0 z-30 px-4 pt-4 pb-2" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top, 1rem))', paddingLeft: 'max(1rem, env(safe-area-inset-left, 1rem))', paddingRight: 'max(1rem, env(safe-area-inset-right, 1rem))' }}>
             <div className="flex items-center gap-3">
               <button onClick={handleGoBack} className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center hover:bg-black/60 active:scale-95 transition-all flex-shrink-0"><ArrowLeft className="w-5 h-5 text-white" /></button>
-              {hasLogo && logoSrc && !logoError ? (<img src={logoSrc} alt={currentChannel.chtitle} onError={() => setLogoError(true)} className="w-9 h-9 rounded-lg object-contain bg-white/10 backdrop-blur-sm p-0.5 flex-shrink-0" />) : (<div className="w-9 h-9 rounded-lg bg-white/10 backdrop-blur-sm flex items-center justify-center flex-shrink-0"><Tv className="w-4 h-4 text-white/60" /></div>)}
+              {hasLogo && (cachedPosterUrl || logoSrc) && !logoError ? (<img src={cachedPosterUrl || logoSrc} alt={currentChannel.chtitle} onError={() => setLogoError(true)} className="w-9 h-9 rounded-lg object-contain bg-white/10 backdrop-blur-sm p-0.5 flex-shrink-0" />) : (<div className="w-9 h-9 rounded-lg bg-white/10 backdrop-blur-sm flex items-center justify-center flex-shrink-0"><Tv className="w-4 h-4 text-white/60" /></div>)}
               <div className="flex-1 min-w-0">
                 <h3 className="text-[15px] font-bold text-white truncate drop-shadow-lg">{currentChannel.chtitle}</h3>
                 <p className="text-[11px] text-white/40 font-medium">{currentChannel.chno ? `CH ${currentChannel.chno}` : ""}{currentChannel.chno && currentChannel.chprice !== undefined ? " · " : ""}{currentChannel.chprice !== undefined ? parseFloat(currentChannel.chprice) === 0 ? "Free" : `₹${currentChannel.chprice}` : ""}</p>
@@ -528,7 +537,7 @@ export default function PlayerPage() {
         {status === "loading" && (
           <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ exit: { duration: 0.4 } }} className="absolute inset-0 flex flex-col items-center justify-center z-30 bg-black/70 backdrop-blur-sm">
             <div className="flex flex-col items-center">
-              {hasLogo && logoSrc && !logoError ? (<div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center p-1.5 shadow-2xl mb-4"><img src={logoSrc} alt={currentChannel.chtitle} className="w-full h-full object-contain" onError={() => setLogoError(true)} /></div>) : (<div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center shadow-2xl mb-4"><Tv className="w-7 h-7 text-white/30" /></div>)}
+              {hasLogo && (cachedPosterUrl || logoSrc) && !logoError ? (<div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center p-1.5 shadow-2xl mb-4"><img src={cachedPosterUrl || logoSrc} alt={currentChannel.chtitle} className="w-full h-full object-contain" onError={() => setLogoError(true)} /></div>) : (<div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center shadow-2xl mb-4"><Tv className="w-7 h-7 text-white/30" /></div>)}
               <h3 className="text-sm font-bold text-white mb-3">{currentChannel.chtitle}</h3>
               <div className="relative w-8 h-8"><div className="absolute inset-0 rounded-full border-2 border-white/10" /><div className="absolute inset-0 rounded-full border-2 border-transparent border-t-red-500 animate-spin" /></div>
             </div>
@@ -541,7 +550,7 @@ export default function PlayerPage() {
           <motion.div key="error" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 flex flex-col items-center justify-center z-30 bg-black/95 px-6">
             <div className="relative mb-5">
               <div className="w-20 h-20 rounded-full bg-red-500/10 flex items-center justify-center ring-2 ring-red-500/20">
-                {hasLogo && logoSrc && !logoError ? (<img src={logoSrc} alt={currentChannel.chtitle} className="w-12 h-12 rounded-lg object-contain" onError={() => setLogoError(true)} />) : (<Tv className="w-8 h-8 text-red-400" />)}
+                {hasLogo && (cachedPosterUrl || logoSrc) && !logoError ? (<img src={cachedPosterUrl || logoSrc} alt={currentChannel.chtitle} className="w-12 h-12 rounded-lg object-contain" onError={() => setLogoError(true)} />) : (<Tv className="w-8 h-8 text-red-400" />)}
               </div>
               <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-red-500 flex items-center justify-center ring-4 ring-black"><span className="text-white text-xs font-bold">!</span></div>
             </div>

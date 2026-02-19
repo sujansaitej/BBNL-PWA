@@ -127,3 +127,18 @@ white-icon { color: #ffffff !important; }
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
+
+/* Player fullscreen — extend behind all system UI, lock to black */
+.player-fullscreen-active,
+.player-fullscreen-active body {
+  background: #000 !important;
+  overflow: hidden !important;
+}
+
+/* Ensure fixed player covers everything including safe areas on all devices */
+@supports (height: 100dvh) {
+  .fixed.inset-0[style*="dvw"] {
+    width: 100dvw !important;
+    height: 100dvh !important;
+  }
+}

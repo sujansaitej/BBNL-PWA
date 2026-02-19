@@ -475,7 +475,7 @@ export default function LiveTvPage() {
           <>
             {/* Languages horizontal scroll */}
             {!search && languages.length > 0 && (
-              <div className="mb-4">
+              <div className="mb-4 sticky top-16 z-10 bg-gray-50 dark:bg-gray-900 -mx-4 px-4 pt-1 pb-1 shadow-[0_2px_4px_-1px_rgba(0,0,0,0.06)]">
                 <div className="flex items-center justify-between mb-2.5 px-0.5">
                   <div className="flex items-center gap-2">
                     <Languages className="w-3.5 h-3.5 text-emerald-500" />

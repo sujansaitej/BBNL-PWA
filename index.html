@@ -5,6 +5,7 @@
     <meta charset="utf-8" />
     <!-- <meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport" /> -->
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
 
     <title>Fo-Fi - CRM</title>
     <meta name="description" content="Fo-Fi CRM" />
@@ -28,7 +29,15 @@
       media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)">
     <!-- manifest injected by vite-plugin-pwa at build time -->
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    
+
+    <!-- Pre-establish connections to stream servers for faster first segment load -->
+    <link rel="preconnect" href="https://livestream.bbnl.in" crossorigin />
+    <link rel="preconnect" href="https://livestream2.bbnl.in" crossorigin />
+    <link rel="dns-prefetch" href="https://livestream.bbnl.in" />
+    <link rel="dns-prefetch" href="https://livestream2.bbnl.in" />
+    <link rel="preconnect" href="https://api.ipify.org" crossorigin />
+    <link rel="dns-prefetch" href="https://api.ipify.org" />
+
   </head>
   <body class="bg-gray-50 dark:bg-gray-900">
     <div id="root"></div>
