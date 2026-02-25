@@ -5,6 +5,22 @@ function getBaseUrl() {
   return '/api/'; // Use proxy in development to avoid CORS issues
 }
 
+const API_TIMEOUT = 15000; // 15 seconds
+
+/** Fetch with AbortController timeout — prevents indefinite hangs on slow networks */
+async function apiFetchWithTimeout(url, options) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT);
+    try {
+        return await fetch(url, { ...options, signal: ctrl.signal });
+    } catch (err) {
+        if (err.name === "AbortError") throw new Error("Request timed out. Please check your network and try again.");
+        throw err;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 /**
  * Get Order/Payment History
  * API: apis/custpayhistory
@@ -18,6 +34,16 @@ function getBaseUrl() {
  * Body: apiopid=BBNL_OP49&cid=iptvuser&servicekey=fofi
  */
 export async function getOrderHistory({ apiopid, cid, servicekey }) {
+  const cacheKey = `orderhist_${cid}_${servicekey || 'all'}`;
+  try {
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      const { data, ts } = JSON.parse(cached);
+      if (Date.now() - ts < 5 * 60 * 1000) return data; // 5 min TTL
+      localStorage.removeItem(cacheKey);
+    }
+  } catch (_e) { /* ignore */ }
+
   const url = `${getBaseUrl()}apis/custpayhistory`;
 
   // Headers matching client documentation exactly
@@ -36,27 +62,19 @@ export async function getOrderHistory({ apiopid, cid, servicekey }) {
   }
   const body = new URLSearchParams(bodyParams).toString();
 
-  console.log('🔵 [custpayhistory] URL:', url);
-  console.log('🔵 [custpayhistory] Headers:', headers);
-  console.log('🔵 [custpayhistory] Body:', body);
-  console.log('🔵 [custpayhistory] ServiceKey:', servicekey || 'not specified');
-
-  const resp = await fetch(url, {
+  const resp = await apiFetchWithTimeout(url, {
     method: 'POST',
     headers,
     body,
   });
 
-  console.log('🔵 [custpayhistory] Response status:', resp.status, resp.statusText);
-
   if (!resp.ok) {
     const errorText = await resp.text();
-    console.error('❌ [custpayhistory] Error:', errorText);
     throw new Error(`HTTP ${resp.status}: ${errorText}`);
   }
 
   const result = await resp.json();
-  console.log('🟢 [custpayhistory] Response:', JSON.stringify(result, null, 2));
+  try { localStorage.setItem(cacheKey, JSON.stringify({ data: result, ts: Date.now() })); } catch (_e) { /* quota full */ }
   return result;
 }
 
@@ -89,7 +107,7 @@ export async function getFofiOrderHistory({ userid, fofiboxid }) {
   console.log('🔵 [fofiOrderHistory] URL:', url);
   console.log('🔵 [fofiOrderHistory] Payload:', JSON.stringify(payload, null, 2));
 
-  const resp = await fetch(url, {
+  const resp = await apiFetchWithTimeout(url, {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),

@@ -16,6 +16,12 @@
 import "./api-connectivity-test";
 import { cleanupStalePWA } from "./pwa-cleanup";
 import { setupPwaNavGuard } from "./pwa-nav-guard";
+// Start IndexedDB → L1 hydration early so IPTV data is ready before
+// lazy chunks load.  channelStore self-hydrates on import (~5 ms).
+import "./services/channelStore";
+// Background-prefetch IPTV channels, languages, and logos on app startup.
+// By the time the user taps "Live TV", data + logos are already cached.
+import "./services/iptvPrefetch";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
@@ -30,6 +36,14 @@ const basename = import.meta.env.VITE_API_APP_DIR_PATH || '/'
 cleanupStalePWA();
 // In standalone PWA mode, intercept external links so they open in browser
 setupPwaNavGuard();
+
+// Request persistent storage so Android doesn't evict our caches
+// (CacheStorage, localStorage, IndexedDB) when the phone is low on space.
+// Without this, all cached logos, channels, and Workbox precache can be
+// silently wiped by the OS. persist() is a no-op on iOS Safari.
+if (navigator.storage?.persist) {
+  navigator.storage.persist().catch(() => {});
+}
 // if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
 //   document.documentElement.classList.add('dark')
 // }

@@ -75,7 +75,7 @@ function ToastItem({ toast, onClose }) {
   return (
     <div
       role="status"
-      className={`pointer-events-auto max-w-sm w-full transform transition-all duration-180
+      className={`pointer-events-auto max-w-sm w-full transform transition-[opacity,transform] duration-180
         ${show ? "opacity-100 translate-y-0 scale-100" : "opacity-0 -translate-y-2 scale-95"}
         ${bg} ring-1 ring-opacity-80 rounded-xl shadow-lg p-2 flex items-start gap-1`}
     >

@@ -33,6 +33,22 @@ function getBasicAuthHeader() {
     };
 }
 
+const API_TIMEOUT = 15000; // 15 seconds
+
+/** Fetch with AbortController timeout — prevents indefinite hangs on slow networks */
+async function fofiApiFetch(url, options) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT);
+    try {
+        return await fetch(url, { ...options, signal: ctrl.signal });
+    } catch (err) {
+        if (err.name === "AbortError") throw new Error("Request timed out. Please check your network and try again.");
+        throw err;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 /**
  * Generate FoFi Payment Order - Called when user clicks "PROCEED TO PAY"
  * @param {Object} payload - Payment order details
@@ -77,7 +93,7 @@ export async function generateFofiOrder(payload) {
     console.log('🔵 [generateFofiOrder] Full Payload:', JSON.stringify(orderPayload, null, 2));
     console.log('🔵 [generateFofiOrder] Key Fields - planid:', orderPayload.planid, 'priceid:', orderPayload.priceid, 'fofiboxid:', orderPayload.fofiboxid);
 
-    const resp = await fetch(url, {
+    const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(orderPayload),
@@ -102,7 +118,7 @@ export async function getSpecialInternetPlans(payload) {
     const url = `${getBaseUrl()}ServiceApis/specialInternetPlans`;
     const headers = getHeadersJson();
 
-    const resp = await fetch(url, {
+    const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -128,7 +144,7 @@ export async function validateBeforeFofiBoxReg(payload) {
     console.log('🔵 [validateBeforeFofiBoxReg] Calling API:', url);
     console.log('🔵 [validateBeforeFofiBoxReg] Payload:', payload);
 
-    const resp = await fetch(url, {
+    const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -155,7 +171,7 @@ export async function getFofiUpgradePlans(payload) {
     console.log('🔵 [getFofiUpgradePlans] Calling API:', url);
     console.log('🔵 [getFofiUpgradePlans] Payload:', payload);
 
-    const resp = await fetch(url, {
+    const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -182,7 +198,7 @@ export async function upgradeRegistration(payload) {
     console.log('🔵 [upgradeRegistration] Calling API:', url);
     console.log('🔵 [upgradeRegistration] Payload:', payload);
 
-    const resp = await fetch(url, {
+    const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -209,7 +225,7 @@ export async function getFofiPaymentInfo(payload) {
     console.log('🔵 [getFofiPaymentInfo] Calling API:', url);
     console.log('🔵 [getFofiPaymentInfo] Payload:', payload);
 
-    const resp = await fetch(url, {
+    const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -236,7 +252,7 @@ export async function validateFoFiAsset(payload) {
     console.log('🔵 [validateFoFiAsset] Calling API:', url);
     console.log('🔵 [validateFoFiAsset] Payload:', payload);
 
-    const resp = await fetch(url, {
+    const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -259,7 +275,7 @@ export async function linkFoFiBox(payload) {
     const url = `${getBaseUrl()}ServiceApis/freeOTAService`;
     const headers = getHeadersJson();
 
-    const resp = await fetch(url, {
+    const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -281,7 +297,7 @@ export async function getFoFiPlans() {
     const url = `${getBaseUrl()}ServiceApis/getFoFiPlans`;
     const headers = getHeadersJson();
 
-    const resp = await fetch(url, {
+    const resp = await fofiApiFetch(url, {
         method: "GET",
         headers,
     });
@@ -305,7 +321,7 @@ export async function validateDeviceByQR(payload) {
     const url = `${getBaseUrl()}ServiceApis/validateDeviceByQR`;
     const headers = getHeadersJson();
 
-    const resp = await fetch(url, {
+    const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -345,7 +361,7 @@ export async function fetchMACBySerial(payload) {
     const url = `${getBaseUrl()}ServiceApis/fetchMACBySerial`;
     const headers = getHeadersJson();
 
-    const resp = await fetch(url, {
+    const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -386,7 +402,7 @@ export async function validateDeviceAvailability(payload) {
     const url = `${getBaseUrl()}ServiceApis/validateDeviceAvailability`;
     const headers = getHeadersJson();
 
-    const resp = await fetch(url, {
+    const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -429,7 +445,7 @@ export async function registerFoFiDevice(payload) {
     const url = `${getBaseUrl()}ServiceApis/registerFoFiDevice`;
     const headers = getHeadersJson();
 
-    const resp = await fetch(url, {
+    const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -468,7 +484,7 @@ export async function getFoFiDeviceDetails(payload) {
     const url = `${getBaseUrl()}ServiceApis/getFoFiDeviceDetails`;
     const headers = getHeadersJson();
 
-    const resp = await fetch(url, {
+    const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -521,7 +537,7 @@ export async function changeFoFiPlan(payload) {
     const url = `${getBaseUrl()}ServiceApis/changeFoFiPlan`;
     const headers = getHeadersJson();
 
-    const resp = await fetch(url, {
+    const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -565,7 +581,7 @@ export async function createFoFiPaymentOrder(payload) {
     const url = `${getBaseUrl()}ServiceApis/createFoFiPaymentOrder`;
     const headers = getHeadersJson();
 
-    const resp = await fetch(url, {
+    const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -607,7 +623,7 @@ export async function verifyFoFiPayment(payload) {
     const url = `${getBaseUrl()}ServiceApis/verifyFoFiPayment`;
     const headers = getHeadersJson();
 
-    const resp = await fetch(url, {
+    const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -650,7 +666,7 @@ export async function processFoFiBillPayment(payload) {
     const url = `${getBaseUrl()}ServiceApis/processFoFiBillPayment`;
     const headers = getHeadersJson();
 
-    const resp = await fetch(url, {
+    const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -696,7 +712,7 @@ export async function getFoFiPaymentHistory(payload) {
     const url = `${getBaseUrl()}ServiceApis/getFoFiPaymentHistory?${query}`;
     const headers = getHeadersJson();
 
-    const resp = await fetch(url, {
+    const resp = await fofiApiFetch(url, {
         method: "GET",
         headers,
     });

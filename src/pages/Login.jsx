@@ -167,7 +167,7 @@ export default function Login() {
         {/* Install button */}
         <button
           onClick={handleInstallClick}
-          className="inline-flex items-center justify-center gap-2 px-5 py-3 mb-1 bg-blue-600 hover:bg-blue-700 text-sm text-white font-semibold rounded-xl shadow transition-all"
+          className="inline-flex items-center justify-center gap-2 px-5 py-3 mb-1 bg-blue-600 hover:bg-blue-700 text-sm text-white font-semibold rounded-xl shadow transition-colors"
         >
           <Download className="w-5 h-5" />
           Install App

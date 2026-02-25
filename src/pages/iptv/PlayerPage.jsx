@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, Volume2, VolumeX, Maximize, Minimize, Tv, RefreshCw, Play, Pause, ChevronUp } from "lucide-react";
@@ -53,21 +53,23 @@ function loadWithHlsJs(video, streamUrl, isCancelled, tryPlay, setStatus, setErr
     lowLatencyMode: true,
     startFragPrefetch: true,
     backBufferLength: 0,
-    liveSyncDuration: 1,
-    liveMaxLatencyDuration: 6,
+    liveSyncDuration: 0.5,           // Play as close to live edge as possible
+    liveMaxLatencyDuration: 4,       // Max 4s behind live (was 6)
     liveDurationInfinity: true,
-    maxBufferLength: 6,
-    maxMaxBufferLength: 12,
-    maxBufferSize: 12 * 1000 * 1000,
-    maxBufferHole: 0.2,
-    startLevel: 0,
+    maxBufferLength: 2,              // Only need 2s buffered to start (was 6)
+    maxMaxBufferLength: 8,           // Don't buffer too far ahead (was 12)
+    maxBufferSize: 8 * 1000 * 1000,  // 8MB max buffer (was 12MB)
+    maxBufferHole: 0.3,              // Tolerate small gaps, play sooner (was 0.2)
+    startLevel: 0,                   // Always start with lowest quality = smallest first segment
     capLevelToPlayerSize: true,
-    abrEwmaDefaultEstimate: 500000,
+    abrEwmaDefaultEstimate: 500000,  // Conservative 500kbps estimate
     abrBandWidthFactor: 0.95,
     abrBandWidthUpFactor: 0.8,
-    initialLiveManifestSize: 1,
-    progressive: true,
+    initialLiveManifestSize: 1,      // Only need 1 segment in manifest to start
+    progressive: true,               // Stream chunks via ReadableStream (don't wait for full segment)
     highBufferWatchdogPeriod: 1,
+    nudgeOffset: 0.2,                // Faster stall recovery nudge
+    nudgeMaxRetry: 5,                // More nudge retries before error
     fragLoadingTimeOut: 5000,
     fragLoadingMaxRetry: 4,
     fragLoadingRetryDelay: 500,
@@ -80,11 +82,14 @@ function loadWithHlsJs(video, streamUrl, isCancelled, tryPlay, setStatus, setErr
     levelLoadingRetryDelay: 500,
   });
   hlsRef.current = hls;
-  hls.on(Hls.Events.MANIFEST_PARSED, () => { if (!isCancelled()) tryPlay(); });
+
+  // Queue play() as early as possible — browser auto-starts when first frame is decodable
   let firstPlayAttempted = false;
   const earlyPlay = () => { if (!firstPlayAttempted && !isCancelled()) { firstPlayAttempted = true; tryPlay(); } };
-  hls.on(Hls.Events.BUFFER_APPENDED, earlyPlay);
-  hls.on(Hls.Events.FRAG_BUFFERED, earlyPlay);
+  hls.on(Hls.Events.MANIFEST_PARSED, earlyPlay);   // Try on manifest (before any data)
+  hls.on(Hls.Events.BUFFER_APPENDED, earlyPlay);    // Try when first chunk arrives
+  hls.on(Hls.Events.FRAG_BUFFERED, earlyPlay);      // Safety fallback
+
   let networkRetries = 0;
   const MAX_NETWORK_RETRIES = 6;
   hls.on(Hls.Events.ERROR, (_, data) => {
@@ -95,7 +100,6 @@ function loadWithHlsJs(video, streamUrl, isCancelled, tryPlay, setStatus, setErr
         if (networkRetries <= MAX_NETWORK_RETRIES) {
           setTimeout(() => {
             if (isCancelled()) return;
-            // After several retries, try reloading the source entirely
             if (networkRetries > 3) { hls.loadSource(streamUrl); hls.startLoad(); }
             else { hls.startLoad(); }
           }, Math.min(networkRetries * 1000, 4000));
@@ -111,32 +115,20 @@ function loadWithHlsJs(video, streamUrl, isCancelled, tryPlay, setStatus, setErr
   hls.attachMedia(video);
 }
 
-async function lockLandscape() {
-  try { if (screen.orientation?.lock) await screen.orientation.lock("landscape"); } catch (_) {}
-}
-async function unlockOrientation() {
-  try { if (screen.orientation?.unlock) screen.orientation.unlock(); } catch (_) {}
-}
-async function enterFullscreen(el) {
-  try {
-    const fn = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
-    if (fn) await fn.call(el, { navigationUI: 'hide' });
-  } catch (_) {}
-}
-async function exitFullscreen() {
-  try {
-    const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
-    if (fsEl) await (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-  } catch (_) {}
-}
+// NOTE: We intentionally do NOT use the browser Fullscreen API (requestFullscreen)
+// NOR screen.orientation.lock(). Both cause the browser to display the domain name
+// ("example.com – to exit full screen...") which exposes the domain to the user.
+// screen.orientation.lock() on Chrome/Android implicitly activates Fullscreen API.
+// Instead, we rely on CSS (fixed inset-0 + 100dvw/100dvh) for a true edge-to-edge
+// experience without any browser notifications. Users rotate their device manually.
 
-function ChannelCard({ channel, isActive, onSelect }) {
+const ChannelCard = memo(function ChannelCard({ channel, isActive, onSelect }) {
   const hasLogo = channel.chlogo && !channel.chlogo.includes("chnlnoimage");
   const imgSrc = proxyImageUrl(channel.chlogo);
   const cachedSrc = useCachedLogo(hasLogo ? imgSrc : null);
 
   return (
-    <button onClick={() => onSelect(channel)} className={`flex-shrink-0 flex flex-col items-center gap-1.5 w-20 p-2 rounded-2xl transition-all active:scale-95 ${isActive ? "bg-white/15 ring-1.5 ring-red-500/70" : "bg-white/5 active:bg-white/10"}`}>
+    <button onClick={() => onSelect(channel)} className={`flex-shrink-0 flex flex-col items-center gap-1.5 w-20 p-2 rounded-2xl transition-colors active:scale-95 ${isActive ? "bg-white/15 ring-1.5 ring-red-500/70" : "bg-white/5 active:bg-white/10"}`} style={{ willChange: 'transform', contain: 'layout style' }}>
       <div className={`w-13 h-13 rounded-xl flex items-center justify-center overflow-hidden ${isActive ? "bg-white/20" : "bg-white/10"}`}>
         {cachedSrc ? (<img src={cachedSrc} alt={channel.chtitle} className="w-full h-full object-contain p-1" />) : (<Tv className="w-5 h-5 text-white/30" />)}
       </div>
@@ -144,7 +136,7 @@ function ChannelCard({ channel, isActive, onSelect }) {
       {isActive && (<div className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /><span className="text-[8px] text-red-400 font-bold uppercase tracking-wider">Live</span></div>)}
     </button>
   );
-}
+});
 
 export default function PlayerPage() {
   const navigate = useNavigate();
@@ -173,8 +165,10 @@ export default function PlayerPage() {
   const [muted, setMuted] = useState(false);
   const [paused, setPaused] = useState(false);
   const [showControls, setShowControls] = useState(true);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [logoError, setLogoError] = useState(false);
+  const [isNaturalLandscape, setIsNaturalLandscape] = useState(() => window.innerWidth > window.innerHeight);
+  // Auto-enter fullscreen (forced landscape) when opening in portrait mode
+  const [forceLandscape, setForceLandscape] = useState(() => !(window.innerWidth > window.innerHeight));
 
   const hasLogo = currentChannel?.chlogo && !currentChannel.chlogo.includes("chnlnoimage");
   const logoSrc = proxyImageUrl(currentChannel?.chlogo);
@@ -194,7 +188,9 @@ export default function PlayerPage() {
         if (cancelled) return;
         const chnls = data?.body?.[0]?.channels || [];
         setChannelList(chnls);
-        preloadLogos(chnls.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage")));
+        const urls = chnls.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
+        preloadLogos(urls.slice(0, 15));
+        if (urls.length > 15) setTimeout(() => preloadLogos(urls.slice(15)), 300);
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -243,22 +239,16 @@ export default function PlayerPage() {
     return () => { cancelled = true; };
   }, [currentChannel]);
 
-  // On mount: immersive fullscreen, black body background to fill any gaps
+  // On mount: black body background to fill any gaps
   useEffect(() => {
     const origBodyBg = document.body.style.background;
     const origHtmlBg = document.documentElement.style.background;
     document.body.style.background = '#000';
     document.documentElement.style.background = '#000';
 
-    // Auto-enter fullscreen for a true edge-to-edge experience
-    const el = containerRef.current;
-    if (el) enterFullscreen(el).then(() => lockLandscape()).catch(() => {});
-
     return () => {
       document.body.style.background = origBodyBg;
       document.documentElement.style.background = origHtmlBg;
-      unlockOrientation();
-      exitFullscreen();
     };
   }, []);
 
@@ -315,18 +305,22 @@ export default function PlayerPage() {
     return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
   }, [status, resetHideTimer]);
 
+  // Track natural orientation and auto-exit forced landscape when device rotates
+  useEffect(() => {
+    const onResize = () => {
+      const landscape = window.innerWidth > window.innerHeight;
+      setIsNaturalLandscape(landscape);
+      if (landscape) setForceLandscape(false); // Already landscape naturally, no need for CSS rotation
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
   useEffect(() => {
     if (status !== "loading") return;
     const timeout = setTimeout(() => { setStatus("error"); setErrorMsg("Stream took too long to load. Please retry."); }, 20000);
     return () => clearTimeout(timeout);
   }, [status]);
-
-  useEffect(() => {
-    const onFsChange = () => { const fs = !!document.fullscreenElement; setIsFullscreen(fs); if (fs) lockLandscape(); else unlockOrientation(); };
-    document.addEventListener("fullscreenchange", onFsChange);
-    document.addEventListener("webkitfullscreenchange", onFsChange);
-    return () => { document.removeEventListener("fullscreenchange", onFsChange); document.removeEventListener("webkitfullscreenchange", onFsChange); };
-  }, []);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -462,16 +456,17 @@ export default function PlayerPage() {
 
   const togglePlayPause = () => { const video = videoRef.current; if (!video) return; if (video.paused) video.play().catch(() => {}); else video.pause(); resetHideTimer(); };
   const toggleMute = (e) => { e.stopPropagation(); if (videoRef.current) { videoRef.current.muted = !videoRef.current.muted; setMuted(videoRef.current.muted); } resetHideTimer(); };
-  const toggleFullscreen = async (e) => { e.stopPropagation(); const el = containerRef.current; if (!el) return; if (!document.fullscreenElement) await enterFullscreen(el); else await exitFullscreen(); resetHideTimer(); };
-  const handleGoBack = async (e) => { if (e) e.stopPropagation(); await exitFullscreen(); await unlockOrientation(); navigate(-1); };
+  const toggleFullscreen = (e) => { e.stopPropagation(); setForceLandscape((prev) => !prev); resetHideTimer(); };
+  const handleGoBack = (e) => { if (e) e.stopPropagation(); if (forceLandscape) { setForceLandscape(false); return; } navigate(-1); };
   const handleScreenTap = () => { if (showSheet) { setShowSheet(false); return; } if (status === "playing") { setShowControls((prev) => !prev); if (!showControls) resetHideTimer(); } };
   const retry = () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } setVideoKey((k) => k + 1); setStatus("loading"); setErrorMsg(""); setStreamUrl(null); setCurrentChannel({ ...currentChannel }); };
 
   if (!channel) return null;
   const controlsVisible = showControls || status !== "playing";
+  const isRotated = forceLandscape && !isNaturalLandscape;
 
   return (
-    <div ref={containerRef} className="fixed inset-0 bg-black z-50 select-none overflow-hidden" style={{ width: '100dvw', height: '100dvh', minWidth: '100vw', minHeight: '100vh' }} onMouseMove={() => status === "playing" && resetHideTimer()} onClick={() => status === "playing" && handleScreenTap()} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+    <div ref={containerRef} className={`fixed bg-black z-50 select-none overflow-hidden ${isRotated ? 'top-0 left-0' : 'inset-0'}`} style={isRotated ? { width: '100vh', height: '100vw', transformOrigin: 'top left', transform: 'rotate(90deg) translateY(-100%)' } : undefined} onMouseMove={() => status === "playing" && resetHideTimer()} onClick={() => status === "playing" && handleScreenTap()} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
       <video key={videoKey} ref={videoRef} className="absolute inset-0 w-full h-full object-contain" playsInline autoPlay preload="auto" poster={cachedPosterUrl || undefined} onContextMenu={(e) => e.preventDefault()} />
 
       <AnimatePresence>
@@ -485,10 +480,10 @@ export default function PlayerPage() {
         {controlsVisible && !showSheet && (
           <motion.div key="top-bar" initial={{ opacity: 0, y: -30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -30 }} transition={{ duration: 0.3, ease: "easeOut" }} className="absolute top-0 left-0 right-0 z-30 px-4 pt-4 pb-2" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top, 1rem))', paddingLeft: 'max(1rem, env(safe-area-inset-left, 1rem))', paddingRight: 'max(1rem, env(safe-area-inset-right, 1rem))' }}>
             <div className="flex items-center gap-3">
-              <button onClick={handleGoBack} className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center hover:bg-black/60 active:scale-95 transition-all flex-shrink-0"><ArrowLeft className="w-5 h-5 text-white" /></button>
+              <button onClick={handleGoBack} className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center hover:bg-black/60 active:scale-95 transition-transform flex-shrink-0"><ArrowLeft className="w-5 h-5 text-white" /></button>
               {hasLogo && (cachedPosterUrl || logoSrc) && !logoError ? (<img src={cachedPosterUrl || logoSrc} alt={currentChannel.chtitle} onError={() => setLogoError(true)} className="w-9 h-9 rounded-lg object-contain bg-white/10 backdrop-blur-sm p-0.5 flex-shrink-0" />) : (<div className="w-9 h-9 rounded-lg bg-white/10 backdrop-blur-sm flex items-center justify-center flex-shrink-0"><Tv className="w-4 h-4 text-white/60" /></div>)}
               <div className="flex-1 min-w-0">
-                <h3 className="text-[15px] font-bold text-white truncate drop-shadow-lg">{currentChannel.chtitle}</h3>
+                <h3 className="text-[15px] font-bold text-white truncate" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>{currentChannel.chtitle}</h3>
                 <p className="text-[11px] text-white/40 font-medium">{currentChannel.chno ? `CH ${currentChannel.chno}` : ""}{currentChannel.chno && currentChannel.chprice !== undefined ? " · " : ""}{currentChannel.chprice !== undefined ? parseFloat(currentChannel.chprice) === 0 ? "Free" : `₹${currentChannel.chprice}` : ""}</p>
               </div>
               {status === "playing" && (<div className="flex items-center gap-1.5 bg-red-600 px-3 py-1.5 rounded-md flex-shrink-0"><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" /><span className="relative inline-flex rounded-full h-2 w-2 bg-white" /></span><span className="text-[11px] font-bold text-white tracking-widest">LIVE</span></div>)}
@@ -500,7 +495,7 @@ export default function PlayerPage() {
       <AnimatePresence>
         {controlsVisible && status === "playing" && !showSheet && (
           <motion.div key="center-btn" initial={{ opacity: 0, scale: 0.7 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.7 }} transition={{ duration: 0.2 }} className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
-            <button onClick={(e) => { e.stopPropagation(); togglePlayPause(); }} className="w-[72px] h-[72px] rounded-full bg-black/50 backdrop-blur-lg flex items-center justify-center hover:bg-black/70 active:scale-90 transition-all pointer-events-auto shadow-2xl">
+            <button onClick={(e) => { e.stopPropagation(); togglePlayPause(); }} className="w-[72px] h-[72px] rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center hover:bg-black/70 active:scale-90 transition-transform pointer-events-auto shadow-2xl">
               {paused ? <Play className="w-8 h-8 text-white ml-1" /> : <Pause className="w-8 h-8 text-white" />}
             </button>
           </motion.div>
@@ -512,10 +507,10 @@ export default function PlayerPage() {
           <motion.div key="bottom-bar" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 30 }} transition={{ duration: 0.3, ease: "easeOut" }} className="absolute bottom-0 left-0 right-0 z-30 px-4 pb-4 pt-2" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 1rem))', paddingLeft: 'max(1rem, env(safe-area-inset-left, 1rem))', paddingRight: 'max(1rem, env(safe-area-inset-right, 1rem))' }}>
             <div className="w-full h-[3px] bg-white/15 rounded-full mb-4 overflow-hidden"><div className="h-full bg-red-500 rounded-full w-full relative"><div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-red-500 rounded-full shadow-lg shadow-red-500/50" /></div></div>
             <div className="flex items-center justify-between">
-              {channelList.length > 0 && (<button onClick={(e) => { e.stopPropagation(); setShowSheet(true); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 active:bg-white/20 transition-all"><ChevronUp className="w-3.5 h-3.5 text-white/60" /><span className="text-[11px] text-white/60 font-medium">Channels</span></button>)}
+              {channelList.length > 0 && (<button onClick={(e) => { e.stopPropagation(); setShowSheet(true); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 active:bg-white/20 transition-colors"><ChevronUp className="w-3.5 h-3.5 text-white/60" /><span className="text-[11px] text-white/60 font-medium">Channels</span></button>)}
               <div className="flex items-center gap-0.5">
-                <button onClick={toggleMute} className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-white/10 active:scale-90 transition-all">{muted ? <VolumeX className="w-[22px] h-[22px] text-white" /> : <Volume2 className="w-[22px] h-[22px] text-white" />}</button>
-                <button onClick={toggleFullscreen} className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-white/10 active:scale-90 transition-all">{isFullscreen ? <Minimize className="w-[22px] h-[22px] text-white" /> : <Maximize className="w-[22px] h-[22px] text-white" />}</button>
+                <button onClick={toggleMute} className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-white/10 active:scale-90 transition-transform">{muted ? <VolumeX className="w-[22px] h-[22px] text-white" /> : <Volume2 className="w-[22px] h-[22px] text-white" />}</button>
+                <button onClick={toggleFullscreen} className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-white/10 active:scale-90 transition-transform">{forceLandscape || isNaturalLandscape ? <Minimize className="w-[22px] h-[22px] text-white" /> : <Maximize className="w-[22px] h-[22px] text-white" />}</button>
               </div>
             </div>
           </motion.div>
@@ -558,7 +553,7 @@ export default function PlayerPage() {
             <p className="text-xs text-white/30 font-medium text-center mb-1">{currentChannel.chtitle}</p>
             <p className="text-sm text-white/40 text-center max-w-xs mb-8 leading-relaxed">{errorMsg}</p>
             <div className="flex items-center gap-3 w-full max-w-xs">
-              <button onClick={retry} className="flex-1 flex items-center justify-center gap-2 py-3 bg-white/10 hover:bg-white/15 rounded-xl text-sm text-white font-semibold transition-all active:scale-95 backdrop-blur-sm"><RefreshCw className="w-4 h-4" />Retry</button>
+              <button onClick={retry} className="flex-1 flex items-center justify-center gap-2 py-3 bg-white/10 hover:bg-white/15 rounded-xl text-sm text-white font-semibold transition-colors active:scale-95 backdrop-blur-sm"><RefreshCw className="w-4 h-4" />Retry</button>
             </div>
             <button onClick={handleGoBack} className="mt-5 text-xs text-white/30 hover:text-white/60 transition-colors font-medium">Back to channels</button>
           </motion.div>

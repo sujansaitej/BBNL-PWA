@@ -9,9 +9,9 @@ export default {
       },
       keyframes: {
         wave: {
-          '0%': { boxShadow: '0 0 0 0 rgba(6, 182, 212, 0.4)' },
-          '70%': { boxShadow: '0 0 0 10px rgba(6, 182, 212, 0)' },
-          '100%': { boxShadow: '0 0 0 0 rgba(6, 182, 212, 0)' },
+          '0%':   { transform: 'scale(1)',   opacity: '0.4' },
+          '70%':  { transform: 'scale(1.5)', opacity: '0' },
+          '100%': { transform: 'scale(1.5)', opacity: '0' },
         },
       },
       animation: {

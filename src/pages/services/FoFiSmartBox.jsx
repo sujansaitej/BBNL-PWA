@@ -1746,13 +1746,13 @@ function FoFiSmartBox() {
                                 <button
                                     onClick={handleUploadDocument}
                                     disabled={isLoading}
-                                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-[background-color,box-shadow] duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {isLoading ? 'Loading...' : 'Upload Document'}
                                 </button>
                                 <button
                                     onClick={handleOrderHistory}
-                                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-all duration-200 shadow-md hover:shadow-lg"
+                                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-[background-color,box-shadow] duration-200 shadow-md hover:shadow-lg"
                                 >
                                     Order History
                                 </button>
@@ -1783,7 +1783,7 @@ function FoFiSmartBox() {
                                     <button
                                         onClick={handleUpgradeClick}
                                         disabled={upgradePlansLoading}
-                                        className="bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-semibold py-3 px-10 rounded-lg text-sm uppercase tracking-wide transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                                        className="bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-semibold py-3 px-10 rounded-lg text-sm uppercase tracking-wide transition-shadow duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         {upgradePlansLoading ? 'Loading...' : 'UPGRADE'}
                                     </button>
@@ -1858,7 +1858,7 @@ function FoFiSmartBox() {
                                                 <button
                                                     onClick={handleUpgradeClick}
                                                     disabled={upgradePlansLoading}
-                                                    className="w-full bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-semibold py-3 px-4 rounded-lg transition-all duration-200 text-sm shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    className="w-full bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-semibold py-3 px-4 rounded-lg transition-shadow duration-200 text-sm shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                                                 >
                                                     {upgradePlansLoading ? 'Loading...' : 'Upgrade Plan'}
                                                 </button>
@@ -1946,7 +1946,7 @@ function FoFiSmartBox() {
                                     <div
                                         key={uniqueKey}
                                         onClick={() => handleUpgradePlanSelect(plan)}
-                                        className="relative flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 cursor-pointer hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-700 transition-all duration-200 overflow-hidden"
+                                        className="relative flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 cursor-pointer hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-700 transition-[box-shadow,border-color] duration-200 overflow-hidden"
                                     >
                                         {/* Special Offer Ribbon - Always shown */}
                                         <div className="absolute top-0 right-0">
@@ -2007,7 +2007,7 @@ function FoFiSmartBox() {
                                     <h3 className="text-lg font-semibold text-white">Alert</h3>
                                     <button
                                         onClick={() => setShowZeroPricePopup(false)}
-                                        className="text-white/80 hover:text-white hover:bg-white/20 rounded-full p-1 transition-all duration-200"
+                                        className="text-white/80 hover:text-white hover:bg-white/20 rounded-full p-1 transition-colors duration-200"
                                     >
                                         <XMarkIcon className="h-6 w-6" />
                                     </button>
@@ -2033,7 +2033,7 @@ function FoFiSmartBox() {
                                     {/* Action Button */}
                                     <button
                                         onClick={() => setShowZeroPricePopup(false)}
-                                        className="w-full px-6 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
+                                        className="w-full px-6 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold rounded-lg transition-shadow duration-200 shadow-md hover:shadow-lg"
                                     >
                                         OK, Select Other Plan
                                     </button>
@@ -2111,7 +2111,7 @@ function FoFiSmartBox() {
                         <button
                             onClick={handleSubscriptionSubmit}
                             disabled={isLoading}
-                            className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold rounded-xl shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                            className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold rounded-xl shadow-lg transition-opacity duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                         >
                             {isLoading ? (
                                 <>
@@ -2189,7 +2189,7 @@ function FoFiSmartBox() {
                         <button
                             onClick={handleQRScan}
                             disabled={isLoading}
-                            className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 disabled:from-gray-300 disabled:to-gray-400 text-white font-semibold py-3 px-6 rounded-lg flex items-center gap-2 transition-all duration-200 shadow-md hover:shadow-lg"
+                            className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 disabled:from-gray-300 disabled:to-gray-400 text-white font-semibold py-3 px-6 rounded-lg flex items-center gap-2 transition-shadow duration-200 shadow-md hover:shadow-lg"
                         >
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
@@ -2211,7 +2211,7 @@ function FoFiSmartBox() {
                                 value={boxId}
                                 onChange={(e) => setBoxId(e.target.value)}
                                 placeholder="FOFI Box Id*"
-                                className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-800 dark:text-white bg-white dark:bg-gray-700 placeholder-gray-400 transition-all duration-200"
+                                className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-800 dark:text-white bg-white dark:bg-gray-700 placeholder-gray-400 transition-[border-color,box-shadow] duration-200"
                             />
                             <button type="button" onClick={handleQRScan} className="absolute right-3 top-1/2 transform -translate-y-1/2 cursor-pointer">
                                 {/* Barcode Icon */}
@@ -2227,7 +2227,7 @@ function FoFiSmartBox() {
                         <button
                             onClick={handleFetchMAC}
                             disabled={isLoading || !boxId}
-                            className={`bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-bold py-3 px-10 rounded-full transition-all duration-200 uppercase text-sm shadow-md hover:shadow-lg ${isLoading || !boxId ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            className={`bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-bold py-3 px-10 rounded-full transition-shadow duration-200 uppercase text-sm shadow-md hover:shadow-lg ${isLoading || !boxId ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
                             {isLoading ? 'Getting MAC...' : 'GET MAC ID'}
                         </button>
@@ -2241,7 +2241,7 @@ function FoFiSmartBox() {
                                 value={macAddress}
                                 onChange={(e) => setMacAddress(e.target.value)}
                                 placeholder="FOFI MAC ID*"
-                                className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-800 dark:text-white bg-white dark:bg-gray-700 font-mono text-sm placeholder-gray-400 transition-all duration-200"
+                                className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-800 dark:text-white bg-white dark:bg-gray-700 font-mono text-sm placeholder-gray-400 transition-[border-color,box-shadow] duration-200"
                             />
                             <button type="button" onClick={handleQRScan} className="absolute right-3 top-1/2 transform -translate-y-1/2 cursor-pointer">
                                 {/* Barcode Icon */}
@@ -2270,7 +2270,7 @@ function FoFiSmartBox() {
                                     <h3 className="text-lg font-semibold text-white">Error</h3>
                                     <button
                                         onClick={() => setValidationError('')}
-                                        className="text-white/80 hover:text-white hover:bg-white/20 rounded-full p-1 transition-all duration-200"
+                                        className="text-white/80 hover:text-white hover:bg-white/20 rounded-full p-1 transition-colors duration-200"
                                     >
                                         <XMarkIcon className="h-6 w-6" />
                                     </button>
@@ -2296,7 +2296,7 @@ function FoFiSmartBox() {
                                     {/* Action Button */}
                                     <button
                                         onClick={() => setValidationError('')}
-                                        className="w-full px-6 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
+                                        className="w-full px-6 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold rounded-lg transition-shadow duration-200 shadow-md hover:shadow-lg"
                                     >
                                         OK
                                     </button>
@@ -2329,7 +2329,7 @@ function FoFiSmartBox() {
                     <button
                         onClick={handleLinkFoFiBox}
                         disabled={isLoading || !macAddress || !selectedPlan}
-                        className={`bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-bold py-4 px-20 rounded-full transition-all duration-200 uppercase text-sm shadow-lg hover:shadow-xl tracking-wide ${isLoading || !macAddress || !selectedPlan ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        className={`bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-bold py-4 px-20 rounded-full transition-shadow duration-200 uppercase text-sm shadow-lg hover:shadow-xl tracking-wide ${isLoading || !macAddress || !selectedPlan ? 'opacity-50 cursor-not-allowed' : ''}`}
                         title={!selectedPlan ? 'Please select a plan first' : !macAddress ? 'Please get MAC ID first' : 'Click to submit'}
                     >
                         {isLoading ? 'Submitting...' : 'SUBMIT'}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, memo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { LayoutGrid, Search, AlertCircle, Play, Tv, ArrowLeft, X, Mic, MicOff } from "lucide-react";
@@ -9,17 +9,19 @@ import { getChannelList, getAdvertisements, getIptvMobile, prefetchPublicIP } fr
 import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
 import { proxyImageUrl } from "../../services/iptvImage";
+import { getEntry, getEntryAsync, setEntry, getAdaptiveTTL } from "../../services/channelStore";
 import IptvSignup from "../../components/iptv/IptvSignup";
 
-const container = {
-  hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.015 } },
-};
-
-const item = {
-  hidden: { opacity: 0, y: 15 },
-  show: { opacity: 1, y: 0 },
-};
+/** Filter master channel list by language.
+ *  The "subs" endpoint returns all subscribed channels; each channel
+ *  carries its language id.  We match against the passed langid. */
+function filterByLang(allChannels, langid) {
+  if (!langid || langid === "subs") return allChannels;
+  const id = String(langid);
+  return allChannels.filter(
+    (ch) => String(ch.langid ?? "") === id || String(ch.chlangid ?? "") === id
+  );
+}
 
 const AD_ZOOM_DURATION = 5;
 
@@ -31,11 +33,11 @@ function getNextAdIndex(langid, totalAds) {
   return next;
 }
 
-function AdBanner({ ad }) {
+const AdBanner = memo(function AdBanner({ ad }) {
   if (!ad?.content) return null;
 
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="mb-4 rounded-xl overflow-hidden relative col-span-2">
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="mb-4 rounded-xl overflow-hidden relative col-span-2" style={{ willChange: 'transform, opacity' }}>
       <div className="aspect-[16/7] bg-gray-50 overflow-hidden">
         <a href={ad.redirectlink || "#"} target="_blank" rel="noopener noreferrer">
           <motion.img src={proxyImageUrl(ad.content)} alt={ad.description || "Ad"} initial={{ scale: 1.15 }} animate={{ scale: 1 }} transition={{ duration: AD_ZOOM_DURATION, ease: "easeOut" }} className="w-full h-full object-cover" onError={(e) => { e.target.closest(".rounded-xl").style.display = "none"; }} />
@@ -44,24 +46,25 @@ function AdBanner({ ad }) {
       <span className="absolute top-2 right-2 text-[9px] font-semibold text-white/70 bg-black/30 px-1.5 py-0.5 rounded backdrop-blur-sm">Ad</span>
     </motion.div>
   );
-}
+});
 
-function ChannelCard({ channel, onPlay }) {
+// Plain div instead of motion.div — eliminates framer-motion JS overhead
+// for 275 DOM nodes. CSS active:scale-[0.98] gives the same tap feedback
+// via the GPU compositor (zero JS cost).
+// content-visibility: auto — Chrome skips layout/paint for off-screen cards,
+// cutting initial render from 200+ items to ~6 visible ones.
+const ChannelCard = memo(function ChannelCard({ channel, onPlay }) {
   const hasLogo = channel.chlogo && !channel.chlogo.includes("chnlnoimage");
   const imgSrc = proxyImageUrl(channel.chlogo);
   const cachedSrc = useCachedLogo(hasLogo ? imgSrc : null);
 
-  const handlePlay = () => {
-    onPlay(channel);
-  };
-
   return (
-    <motion.div variants={item} whileTap={{ scale: 0.98 }} onClick={handlePlay} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden cursor-pointer hover:shadow-md transition-shadow">
+    <div onClick={() => onPlay(channel)} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden cursor-pointer hover:shadow-md active:scale-[0.98] transition-[shadow,transform] duration-150" style={{ contain: 'layout style', contentVisibility: 'auto', containIntrinsicSize: 'auto 185px' }}>
       <div className="relative aspect-video bg-gray-50 flex items-center justify-center">
         {cachedSrc ? (<img src={cachedSrc} alt={channel.chtitle} className="w-full h-full object-contain p-3" />) : (
           <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-100 to-cyan-100 flex items-center justify-center"><Tv className="w-7 h-7 text-blue-500" /></div>
         )}
-        <div className="absolute inset-0 bg-black/0 hover:bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-all">
+        <div className="absolute inset-0 bg-black/0 hover:bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
           <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg"><Play className="w-5 h-5 text-blue-600 ml-0.5" /></div>
         </div>
       </div>
@@ -71,9 +74,9 @@ function ChannelCard({ channel, onPlay }) {
           <p className="text-[10px] text-gray-400 mt-0.5">{parseFloat(channel.chprice) === 0 ? "Free" : `₹${channel.chprice}`}</p>
         )}
       </div>
-    </motion.div>
+    </div>
   );
-}
+});
 
 export default function ChannelsPage() {
   const navigate = useNavigate();
@@ -83,11 +86,22 @@ export default function ChannelsPage() {
   const langid = location.state?.langid || "subs";
   const langTitle = location.state?.langTitle || "";
 
-  const [channels, setChannels] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // ── Local-first: filter the "subs" master list client-side ──
+  // LiveTvPage already fetched ALL channels via langid="subs" and stored
+  // them in channelStore.  We read that list and .filter() by language —
+  // zero per-language API calls, instant render (<10 ms).
+  const masterKey = `channels_${iptvMobile}_subs`;
+  const masterEntry = getEntry(masterKey);
+  const initialChannels = masterEntry?.data?.length
+    ? filterByLang(masterEntry.data, langid)
+    : [];
+
+  const [channels, setChannels] = useState(initialChannels);
+  const [loading, setLoading] = useState(!initialChannels.length);
   const [error, setError] = useState("");
   const [userNotFound, setUserNotFound] = useState(false);
   const [search, setSearch] = useState("");
+  const [retrying, setRetrying] = useState(false);
 
   const onVoiceResult = useCallback((text) => setSearch(text), []);
   const {
@@ -97,53 +111,66 @@ export default function ChannelsPage() {
 
   const [ads, setAds] = useState([]);
 
+  // Preload logos for channels loaded from memory
+  useEffect(() => {
+    if (initialChannels.length) {
+      const urls = initialChannels.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
+      preloadLogos(urls.slice(0, 12));
+      if (urls.length > 12) setTimeout(() => preloadLogos(urls.slice(12)), 300);
+    }
+  }, []); // run once on mount
+
   useEffect(() => {
     prefetchPublicIP();
-    fetchChannels();
+    loadChannels();
     getAdvertisements({ mobile: iptvMobile }).then(data => {
       const list = (data?.body?.[0]?.ads || []).filter(a => a.content);
       if (list.length > 0) setAds(list);
     }).catch(() => {});
   }, [langid]);
 
-  const fetchChannels = async () => {
+  const loadChannels = async () => {
     setError("");
     setUserNotFound(false);
 
-    // Use shared cache key with LiveTvPage for "subs" langid
-    const cacheKey = langid === "subs"
-      ? `livetv_channels_${iptvMobile}`
-      : `channels_${iptvMobile}_${langid}`;
-    const cached = sessionStorage.getItem(cacheKey);
+    // L1 check: already populated via useState initializer from master list
+    const ttl = getAdaptiveTTL();
+    let hasCachedData = channels.length > 0;
+    let dataIsFresh = masterEntry && (Date.now() - masterEntry.ts < ttl);
 
-    // Check cache first — avoid loading flicker on cache hit
-    if (cached) {
-      try {
-        const { channels: cachedChannels, timestamp } = JSON.parse(cached);
-        // Cache valid for 5 minutes
-        if (Date.now() - timestamp < 5 * 60 * 1000) {
-          setChannels(cachedChannels);
-          preloadLogos(cachedChannels.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage")));
+    // L2 fallback: if memory was empty, try IndexedDB for the master list
+    if (!hasCachedData) {
+      const idbEntry = await getEntryAsync(masterKey);
+      if (idbEntry?.data?.length > 0) {
+        const filtered = filterByLang(idbEntry.data, langid);
+        if (filtered.length > 0) {
+          setChannels(filtered);
           setLoading(false);
-          return;
+          hasCachedData = true;
+          dataIsFresh = Date.now() - idbEntry.ts < ttl;
+          const urls = filtered.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
+          preloadLogos(urls.slice(0, 12));
+          if (urls.length > 12) setTimeout(() => preloadLogos(urls.slice(12)), 300);
         }
-      } catch (e) {
-        sessionStorage.removeItem(cacheKey);
       }
     }
 
-    setLoading(true);
+    if (dataIsFresh) return;
+    if (!hasCachedData) setLoading(true);
 
+    // L3/L4: fetch ALL channels once via langid="subs", then filter client-side
     try {
-      const data = await getChannelList({ mobile: iptvMobile, langid });
-      const chnls = data?.body?.[0]?.channels || [];
+      const data = await getChannelList({ mobile: iptvMobile, langid: "subs" });
+      const allChnls = data?.body?.[0]?.channels || [];
 
-      // Cache the results
-      sessionStorage.setItem(cacheKey, JSON.stringify({ channels: chnls, timestamp: Date.now() }));
-
-      preloadLogos(chnls.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage")));
+      setEntry(masterKey, allChnls);
+      const chnls = filterByLang(allChnls, langid);
+      const freshUrls = chnls.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
+      preloadLogos(freshUrls.slice(0, 12));
+      if (freshUrls.length > 12) setTimeout(() => preloadLogos(freshUrls.slice(12)), 300);
       setChannels(chnls);
     } catch (err) {
+      if (hasCachedData) return;
       const msg = err.message || "Failed to load channels.";
       if (msg.toLowerCase().includes("user not found")) {
         setUserNotFound(true);
@@ -187,7 +214,7 @@ export default function ChannelsPage() {
         </motion.div>
 
         <div className="relative mb-4">
-          <div className={`flex items-center bg-white border rounded-xl px-3 py-3 shadow-sm transition-all min-h-[48px] ${listening ? 'border-blue-400 ring-2 ring-blue-200' : 'border-gray-200 focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-200'}`}>
+          <div className={`flex items-center bg-white border rounded-xl px-3 py-3 shadow-sm transition-[border-color,box-shadow] min-h-[48px] ${listening ? 'border-blue-400 ring-2 ring-blue-200' : 'border-gray-200 focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-200'}`}>
             <Search className="w-4 h-4 text-gray-400 mr-2 flex-shrink-0" />
             <input type="text" placeholder={listening ? "Listening..." : "Search by name or channel number..."} value={search} onChange={(e) => setSearch(e.target.value)} className="w-full outline-none text-sm text-gray-700 bg-transparent placeholder-gray-400" />
             {search && (<button onClick={() => setSearch("")} className="ml-2 flex-shrink-0"><X className="w-4 h-4 text-gray-400" /></button>)}
@@ -224,7 +251,7 @@ export default function ChannelsPage() {
           <IptvSignup
             name={(() => { const u = JSON.parse(localStorage.getItem("user") || "{}"); return [u.firstname, u.lastname].filter(Boolean).join(" ") || u.username || ""; })()}
             mobile={iptvMobile}
-            onSuccess={() => { setUserNotFound(false); fetchChannels(); }}
+            onSuccess={() => { setUserNotFound(false); loadChannels(); }}
           />
         )}
 
@@ -232,14 +259,14 @@ export default function ChannelsPage() {
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center justify-center py-16">
             <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-red-400" /></div>
             <p className="text-sm text-gray-600 mb-1 font-medium">{error}</p>
-            <button onClick={() => fetchChannels()} className="mt-3 text-sm text-blue-600 font-semibold hover:underline">Try again</button>
+            <button onClick={() => { setRetrying(true); setError(''); loadChannels().finally(() => setRetrying(false)); }} disabled={retrying} className="mt-3 text-sm text-blue-600 font-semibold hover:underline disabled:opacity-50">{retrying ? 'Retrying...' : 'Try again'}</button>
           </motion.div>
         )}
 
         {!loading && !error && filteredChannels.length > 0 && (
-          <motion.div variants={container} initial="hidden" animate="show" className="grid grid-cols-2 gap-2.5 sm:gap-3">
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
             {filteredChannels.map((ch, idx) => (<ChannelCard key={ch.chid || idx} channel={ch} onPlay={handlePlayChannel} />))}
-          </motion.div>
+          </div>
         )}
 
         {!loading && !error && filteredChannels.length === 0 && (

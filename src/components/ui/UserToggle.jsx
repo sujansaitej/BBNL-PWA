@@ -27,7 +27,7 @@ export default function UserToggle({ loginType, setLoginType }) {
       >
         {/* Moving Pill */}
         <div
-          className="absolute top-1 bottom-1 bg-blue-600 rounded-full transition-all duration-300 ease-out"
+          className="absolute top-1 bottom-1 bg-blue-600 rounded-full transition-[left] duration-300 ease-out"
           style={{
             left: pillPosition,
             width: "50%",

@@ -366,7 +366,7 @@ export default function FofiPayment() {
             <button
               onClick={handleProceedToPay}
               disabled={submitting}
-              className="bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-semibold text-sm py-3 px-16 rounded-full shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wider transition-all duration-200"
+              className="bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-semibold text-sm py-3 px-16 rounded-full shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wider transition-shadow duration-200"
             >
               {submitting ? 'Processing...' : 'PROCEED TO PAY'}
             </button>

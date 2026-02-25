@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, memo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Languages, Globe, AlertCircle, ArrowLeft, Search, X, Mic, MicOff } from "lucide-react";
@@ -8,12 +8,13 @@ import { getLanguageList, getIptvMobile } from "../../services/iptvApi";
 import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
 import { proxyImageUrl } from "../../services/iptvImage";
+import { getEntry, getEntryAsync, setEntry, getAdaptiveTTL } from "../../services/channelStore";
 import useVoiceSearch from "../../hooks/useVoiceSearch";
 import IptvSignup from "../../components/iptv/IptvSignup";
 
 const container = {
   hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.02 } },
+  show: { opacity: 1, transition: { staggerChildren: 0.015 } },
 };
 
 const item = {
@@ -21,16 +22,20 @@ const item = {
   show: { opacity: 1, y: 0 },
 };
 
-function LangCard({ lang, onClick }) {
+const LangCard = memo(function LangCard({ lang, onClick }) {
   const hasLogo = lang.langlogomob && !lang.langlogomob.includes("chnlnoimage");
   const imgSrc = proxyImageUrl(lang.langlogomob);
   const cachedSrc = useCachedLogo(hasLogo ? imgSrc : null);
+  const [imgError, setImgError] = useState(false);
+
+  // Reset error when a new cached src arrives (e.g. cache finishes loading)
+  useEffect(() => { if (cachedSrc) setImgError(false); }, [cachedSrc]);
 
   return (
-    <motion.div variants={item} whileTap={{ scale: 0.95 }} onClick={onClick} className="flex flex-col items-center cursor-pointer group">
+    <motion.div variants={item} whileTap={{ scale: 0.95 }} onClick={onClick} className="flex flex-col items-center cursor-pointer group" style={{ willChange: 'transform, opacity' }}>
       <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-md mb-2 bg-gray-100 flex items-center justify-center group-active:shadow-sm transition-shadow">
-        {cachedSrc ? (
-          <img src={cachedSrc} alt={lang.langtitle} className="w-full h-full object-cover" />
+        {cachedSrc && !imgError ? (
+          <img src={cachedSrc} alt={lang.langtitle} className="w-full h-full object-cover" onError={() => setImgError(true)} />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center">
             <Globe className="w-7 h-7 text-emerald-600" />
@@ -40,17 +45,21 @@ function LangCard({ lang, onClick }) {
       <span className="text-[11px] font-semibold text-gray-700 text-center leading-tight">{lang.langtitle}</span>
     </motion.div>
   );
-}
+});
 
 export default function LanguagesPage() {
   const navigate = useNavigate();
   const iptvMobile = getIptvMobile();
 
-  const [languages, setLanguages] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const storeKey = `languages_${iptvMobile}`;
+  const memEntry = getEntry(storeKey);
+
+  const [languages, setLanguages] = useState(memEntry?.data || []);
+  const [loading, setLoading] = useState(!memEntry?.data?.length);
   const [error, setError] = useState("");
   const [userNotFound, setUserNotFound] = useState(false);
   const [search, setSearch] = useState("");
+  const [retrying, setRetrying] = useState(false);
 
   const onVoiceResult = useCallback((text) => setSearch(text), []);
   const {
@@ -59,44 +68,48 @@ export default function LanguagesPage() {
   } = useVoiceSearch(onVoiceResult);
 
   useEffect(() => {
-    fetchLanguages();
+    if (memEntry?.data?.length) {
+      preloadLogos(memEntry.data.map((l) => proxyImageUrl(l.langlogomob)).filter((u) => u && !u.includes("chnlnoimage")), true);
+    }
   }, []);
 
-  const fetchLanguages = async () => {
+  useEffect(() => {
+    loadLanguages();
+  }, []);
+
+  const loadLanguages = async () => {
     setError("");
     setUserNotFound(false);
 
-    // Check cache first — avoid loading flicker on cache hit
-    // Uses same key as LiveTvPage so data is shared between pages
-    const cacheKey = `livetv_languages_${iptvMobile}`;
-    const cached = sessionStorage.getItem(cacheKey);
-    if (cached) {
-      try {
-        const { languages: cachedLangs, timestamp } = JSON.parse(cached);
-        // Cache valid for 10 minutes
-        if (Date.now() - timestamp < 10 * 60 * 1000) {
-          setLanguages(cachedLangs);
-          preloadLogos(cachedLangs.map((l) => proxyImageUrl(l.langlogomob)).filter((u) => u && !u.includes("chnlnoimage")));
-          setLoading(false);
-          return;
-        }
-      } catch (e) {
-        sessionStorage.removeItem(cacheKey);
+    // Languages change rarely — use 2× adaptive TTL
+    const ttl = getAdaptiveTTL() * 2;
+    let hasCachedData = languages.length > 0;
+    let dataIsFresh = memEntry && (Date.now() - memEntry.ts < ttl);
+
+    // L2 fallback: IndexedDB
+    if (!hasCachedData) {
+      const idbEntry = await getEntryAsync(storeKey);
+      if (idbEntry?.data?.length > 0) {
+        setLanguages(idbEntry.data);
+        setLoading(false);
+        hasCachedData = true;
+        dataIsFresh = Date.now() - idbEntry.ts < ttl;
+        preloadLogos(idbEntry.data.map((l) => proxyImageUrl(l.langlogomob)).filter((u) => u && !u.includes("chnlnoimage")), true);
       }
     }
 
-    setLoading(true);
+    if (dataIsFresh) return;
+    if (!hasCachedData) setLoading(true);
 
     try {
       const data = await getLanguageList({ mobile: iptvMobile });
       const langs = data?.body?.[0]?.languages || [];
 
-      // Cache the results
-      sessionStorage.setItem(cacheKey, JSON.stringify({ languages: langs, timestamp: Date.now() }));
-
-      preloadLogos(langs.map((l) => proxyImageUrl(l.langlogomob)).filter((u) => u && !u.includes("chnlnoimage")));
+      setEntry(storeKey, langs);
+      preloadLogos(langs.map((l) => proxyImageUrl(l.langlogomob)).filter((u) => u && !u.includes("chnlnoimage")), true);
       setLanguages(langs);
     } catch (err) {
+      if (hasCachedData) return;
       const msg = err.message || "Failed to load languages.";
       if (msg.toLowerCase().includes("user not found")) {
         setUserNotFound(true);
@@ -130,7 +143,7 @@ export default function LanguagesPage() {
 
         {/* Search bar with voice */}
         <div className="relative mb-4">
-          <div className={`flex items-center bg-white border rounded-xl px-3 py-3 shadow-sm transition-all min-h-[48px] ${listening ? 'border-emerald-400 ring-2 ring-emerald-200' : 'border-gray-200 focus-within:border-emerald-300 focus-within:ring-1 focus-within:ring-emerald-200'}`}>
+          <div className={`flex items-center bg-white border rounded-xl px-3 py-3 shadow-sm transition-[border-color,box-shadow] min-h-[48px] ${listening ? 'border-emerald-400 ring-2 ring-emerald-200' : 'border-gray-200 focus-within:border-emerald-300 focus-within:ring-1 focus-within:ring-emerald-200'}`}>
             <Search className="w-4 h-4 text-gray-400 mr-2 flex-shrink-0" />
             <input type="text" placeholder={listening ? "Listening..." : "Search languages..."} value={search} onChange={(e) => setSearch(e.target.value)} className="w-full outline-none text-sm text-gray-700 bg-transparent placeholder-gray-400" />
             {search && (<button onClick={() => setSearch("")} className="ml-2 flex-shrink-0"><X className="w-4 h-4 text-gray-400" /></button>)}
@@ -165,7 +178,7 @@ export default function LanguagesPage() {
           <IptvSignup
             name={(() => { const u = JSON.parse(localStorage.getItem("user") || "{}"); return [u.firstname, u.lastname].filter(Boolean).join(" ") || u.username || ""; })()}
             mobile={iptvMobile}
-            onSuccess={() => { setUserNotFound(false); fetchLanguages(); }}
+            onSuccess={() => { setUserNotFound(false); loadLanguages(); }}
           />
         )}
 
@@ -173,7 +186,7 @@ export default function LanguagesPage() {
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center justify-center py-16">
             <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center mb-4"><AlertCircle className="w-7 h-7 text-red-400" /></div>
             <p className="text-sm text-gray-600 mb-1 font-medium">{error}</p>
-            <button onClick={fetchLanguages} className="mt-3 text-sm text-purple-600 font-semibold hover:underline">Try again</button>
+            <button onClick={() => { setRetrying(true); setError(''); loadLanguages().finally(() => setRetrying(false)); }} disabled={retrying} className="mt-3 text-sm text-purple-600 font-semibold hover:underline disabled:opacity-50">{retrying ? 'Retrying...' : 'Try again'}</button>
           </motion.div>
         )}
 

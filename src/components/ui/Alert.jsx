@@ -78,7 +78,7 @@ const Alert = ({ isOpen, onClose, type = "success", title, message, autoClose = 
                         <div className="p-4 bg-white">
                             <button
                                 onClick={onClose}
-                                className={`w-full bg-gradient-to-r ${gradients[type]} hover:opacity-90 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg`}
+                                className={`w-full bg-gradient-to-r ${gradients[type]} hover:opacity-90 text-white font-semibold py-3 px-6 rounded-lg transition-[opacity,box-shadow] duration-200 shadow-md hover:shadow-lg`}
                             >
                                 OK
                             </button>

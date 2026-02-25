@@ -93,7 +93,7 @@ export default function ServiceSelectionModal({ isOpen, onClose, onSelectService
                         {services.map((service, index) => (
                             <div
                                 key={service.id}
-                                className="flex items-center px-5 py-3.5 cursor-pointer hover:bg-indigo-50 transition-all duration-200 border-b border-gray-100 last:border-b-0"
+                                className="flex items-center px-5 py-3.5 cursor-pointer hover:bg-indigo-50 transition-colors duration-200 border-b border-gray-100 last:border-b-0"
                                 onClick={() => handleServiceClick(service)}
                             >
                                 {/* Radio Button */}

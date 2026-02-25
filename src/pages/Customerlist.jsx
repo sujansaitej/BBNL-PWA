@@ -139,7 +139,7 @@ export default function Customerlist() {
           <input
             type="text"
             placeholder="Search customer..."
-            className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-700 bg-white rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200"
+            className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-700 bg-white rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-[border-color,box-shadow] duration-200"
             // onChange={(e) => setPlans(filterPlans(e.target.value))}
             onChange={(e) => filterCustomers(e.target.value)}
             disabled={loading}
@@ -153,7 +153,7 @@ export default function Customerlist() {
           <div className="space-y-3">
             {customercount === 0 && <div className="text-center text-gray-500 dark:text-gray-400 py-10">No customers found</div>}
             {paginatedCustomers.map(d => (
-              <div key={d.customer_id} className="flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md hover:shadow-lg transition-all duration-300 cursor-pointer border border-gray-100 dark:border-gray-700" onClick={() => selectCustomer(d)}>
+              <div key={d.customer_id} className="flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 cursor-pointer border border-gray-100 dark:border-gray-700" onClick={() => selectCustomer(d)}>
                 <div className="flex flex-col gap-2 text-sm min-w-0 flex-1">
                   <div className={`flex`}>
                     <span className={`w-28 flex-shrink-0 text-gray-700 dark:text-gray-400 font-semibold`}>Username</span>

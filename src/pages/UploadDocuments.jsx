@@ -541,7 +541,7 @@ export default function UploadDocuments() {
                 {documents.photoProof.allowupdate === 1 && documents.photoProof.images.length > 0 && (
                   <button
                     onClick={() => handleFileUpload('photoProof')}
-                    className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-md hover:shadow-lg"
+                    className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold py-2.5 px-6 rounded-lg text-sm transition-shadow duration-200 shadow-md hover:shadow-lg"
                   >
                     Change Profile
                   </button>
@@ -567,7 +567,7 @@ export default function UploadDocuments() {
                 ) : (
                   <button
                     onClick={() => handleFileUpload('photoProof')}
-                    className="w-28 h-32 border-2 border-dashed border-indigo-300 rounded-xl flex items-center justify-center hover:border-indigo-500 hover:bg-indigo-50 transition-all bg-white shadow-sm"
+                    className="w-28 h-32 border-2 border-dashed border-indigo-300 rounded-xl flex items-center justify-center hover:border-indigo-500 hover:bg-indigo-50 transition-colors bg-white shadow-sm"
                   >
                     <span className="text-5xl text-indigo-600 font-light">+</span>
                   </button>
@@ -585,7 +585,7 @@ export default function UploadDocuments() {
                 {documents.addressProof.allowupdate === 1 && documents.addressProof.images.length > 0 && (
                   <button
                     onClick={() => handleFileUpload('addressProof')}
-                    className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-md hover:shadow-lg"
+                    className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold py-2.5 px-6 rounded-lg text-sm transition-shadow duration-200 shadow-md hover:shadow-lg"
                   >
                     Change Address
                   </button>
@@ -614,7 +614,7 @@ export default function UploadDocuments() {
                   <button
                     key={`add-${idx}`}
                     onClick={() => handleFileUpload('addressProof')}
-                    className="w-28 h-32 border-2 border-dashed border-indigo-300 rounded-xl flex items-center justify-center hover:border-indigo-500 hover:bg-indigo-50 transition-all bg-white shadow-sm"
+                    className="w-28 h-32 border-2 border-dashed border-indigo-300 rounded-xl flex items-center justify-center hover:border-indigo-500 hover:bg-indigo-50 transition-colors bg-white shadow-sm"
                   >
                     <span className="text-5xl text-indigo-600 font-light">+</span>
                   </button>
@@ -632,7 +632,7 @@ export default function UploadDocuments() {
                 {documents.idProof.allowupdate === 1 && documents.idProof.images.length > 0 && (
                   <button
                     onClick={() => handleFileUpload('idProof')}
-                    className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold py-2.5 px-6 rounded-lg text-sm transition-all duration-200 shadow-md hover:shadow-lg"
+                    className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold py-2.5 px-6 rounded-lg text-sm transition-shadow duration-200 shadow-md hover:shadow-lg"
                   >
                     Change Identity
                   </button>
@@ -661,7 +661,7 @@ export default function UploadDocuments() {
                   <button
                     key={`add-${idx}`}
                     onClick={() => handleFileUpload('idProof')}
-                    className="w-28 h-32 border-2 border-dashed border-indigo-300 rounded-xl flex items-center justify-center hover:border-indigo-500 hover:bg-indigo-50 transition-all bg-white shadow-sm"
+                    className="w-28 h-32 border-2 border-dashed border-indigo-300 rounded-xl flex items-center justify-center hover:border-indigo-500 hover:bg-indigo-50 transition-colors bg-white shadow-sm"
                   >
                     <span className="text-5xl text-indigo-600 font-light">+</span>
                   </button>
@@ -674,7 +674,7 @@ export default function UploadDocuments() {
               <button
                 onClick={handleFinalSubmission}
                 disabled={submitting || uploading}
-                className={`w-full font-bold py-4 rounded-lg text-base uppercase tracking-wider shadow-lg transition-all duration-200 ${submitting || uploading
+                className={`w-full font-bold py-4 rounded-lg text-base uppercase tracking-wider shadow-lg transition-shadow duration-200 ${submitting || uploading
                   ? 'bg-gray-400 cursor-not-allowed text-white'
                   : 'bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white hover:shadow-xl'
                   }`}

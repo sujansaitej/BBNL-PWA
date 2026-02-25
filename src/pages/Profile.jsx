@@ -54,13 +54,13 @@ export default function Profile() {
             Account Settings
           </h3>
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 border border-gray-100 dark:border-gray-700 overflow-hidden">
-            <button className="w-full flex items-center justify-between px-5 py-4 hover:bg-indigo-50 dark:hover:bg-gray-750 transition-all duration-200 border-b border-gray-200 dark:border-gray-700 group">
+            <button className="w-full flex items-center justify-between px-5 py-4 hover:bg-indigo-50 dark:hover:bg-gray-750 transition-colors duration-200 border-b border-gray-200 dark:border-gray-700 group">
               <span className="text-gray-700 dark:text-gray-300 font-medium">Change Password</span>
               <svg className="h-5 w-5 text-indigo-600 group-hover:translate-x-1 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </button>
-            <button className="w-full flex items-center justify-between px-5 py-4 hover:bg-red-50 dark:hover:bg-gray-750 transition-all duration-200 group">
+            <button className="w-full flex items-center justify-between px-5 py-4 hover:bg-red-50 dark:hover:bg-gray-750 transition-colors duration-200 group">
               <span className="text-gray-700 dark:text-gray-300 font-medium group-hover:text-red-600">Logout</span>
               <svg className="h-5 w-5 text-red-600 group-hover:translate-x-1 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />

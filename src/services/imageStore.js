@@ -15,6 +15,10 @@ const IMG_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 // In-memory cache for ad images (L1, populated lazily from L2 on first access)
 const adImageMem = new Map();
 
+// In-memory key registry: tracks our ad image localStorage keys + timestamps
+// so eviction never needs to scan the entire localStorage (main-thread blocker).
+const adKeyRegistry = new Map(); // AD_IMG_PREFIX+adpath → timestamp
+
 // ── localStorage helpers ──
 function safeLsSet(key, value) {
   try {
@@ -27,22 +31,11 @@ function safeLsSet(key, value) {
 }
 
 function evictOldAdImages(count) {
-  const entries = [];
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key || !key.startsWith(AD_IMG_PREFIX)) continue;
-      try {
-        const { t } = JSON.parse(localStorage.getItem(key));
-        entries.push({ key, t });
-      } catch (_e) {
-        localStorage.removeItem(key);
-      }
-    }
-  } catch (_e) { return; }
-  entries.sort((a, b) => a.t - b.t);
-  for (let i = 0; i < Math.min(count, entries.length); i++) {
-    try { localStorage.removeItem(entries[i].key); } catch (_e) {}
+  // Sort registry entries by timestamp (oldest first) — no localStorage scan needed
+  const sorted = [...adKeyRegistry.entries()].sort((a, b) => a[1] - b[1]);
+  for (let i = 0; i < Math.min(count, sorted.length); i++) {
+    try { localStorage.removeItem(sorted[i][0]); } catch (_e) {}
+    adKeyRegistry.delete(sorted[i][0]);
   }
 }
 
@@ -77,15 +70,18 @@ export function getCachedAdImage(adpath) {
   // L1
   if (adImageMem.has(adpath)) return adImageMem.get(adpath);
   // L2
+  const key = AD_IMG_PREFIX + adpath;
   try {
-    const raw = localStorage.getItem(AD_IMG_PREFIX + adpath);
+    const raw = localStorage.getItem(key);
     if (!raw) return null;
     const { d, t } = JSON.parse(raw);
     if (Date.now() - t > IMG_TTL) {
-      localStorage.removeItem(AD_IMG_PREFIX + adpath);
+      localStorage.removeItem(key);
+      adKeyRegistry.delete(key);
       return null;
     }
     adImageMem.set(adpath, d);
+    adKeyRegistry.set(key, t);
     return d;
   } catch (_e) {
     return null;
@@ -109,8 +105,11 @@ async function fetchAndCacheAdImage(url, adpath) {
       const reader = new FileReader();
       reader.onloadend = () => {
         const dataUrl = reader.result;
+        const now = Date.now();
+        const key = AD_IMG_PREFIX + adpath;
         adImageMem.set(adpath, dataUrl);
-        safeLsSet(AD_IMG_PREFIX + adpath, JSON.stringify({ d: dataUrl, t: Date.now() }));
+        safeLsSet(key, JSON.stringify({ d: dataUrl, t: now }));
+        adKeyRegistry.set(key, now);
         resolve();
       };
       reader.onerror = () => resolve();

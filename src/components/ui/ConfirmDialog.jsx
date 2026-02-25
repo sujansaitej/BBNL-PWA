@@ -20,7 +20,7 @@ export default function ConfirmDialog({ open, message, onConfirm, onCancel, titl
             <h3 className="text-lg font-semibold text-white">{title}</h3>
             <button
               onClick={onCancel}
-              className="text-white/80 hover:text-white hover:bg-white/20 rounded-full p-1 transition-all duration-200"
+              className="text-white/80 hover:text-white hover:bg-white/20 rounded-full p-1 transition-colors duration-200"
             >
               <XMarkIcon className="h-6 w-6" />
             </button>
@@ -47,13 +47,13 @@ export default function ConfirmDialog({ open, message, onConfirm, onCancel, titl
             <div className="flex gap-3">
               <button
                 onClick={onCancel}
-                className="flex-1 px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-lg transition-all duration-200 shadow-sm hover:shadow-md"
+                className="flex-1 px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-lg transition-[background-color,box-shadow] duration-200 shadow-sm hover:shadow-md"
               >
                 Cancel
               </button>
               <button
                 onClick={onConfirm}
-                className="flex-1 px-6 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
+                className="flex-1 px-6 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold rounded-lg transition-shadow duration-200 shadow-md hover:shadow-lg"
               >
                 Confirm
               </button>

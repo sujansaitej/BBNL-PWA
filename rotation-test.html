@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Rotation Test</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #111; font-family: system-ui; overflow: hidden; }
+
+  .player-normal {
+    position: fixed;
+    inset: 0;
+    background: #000;
+  }
+
+  .player-rotated {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vh;
+    height: 100vw;
+    transform-origin: top left;
+    transform: rotate(90deg) translateY(-100%);
+    background: #000;
+  }
+
+  .video-placeholder {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: white;
+  }
+
+  .border-check {
+    position: absolute;
+    inset: 0;
+    border: 3px solid #00ff00;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  .corner { position: absolute; width: 30px; height: 30px; background: red; z-index: 11; font-size: 10px; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+  .corner.tl { top: 0; left: 0; }
+  .corner.tr { top: 0; right: 0; }
+  .corner.bl { bottom: 0; left: 0; }
+  .corner.br { bottom: 0; right: 0; }
+
+  .info { text-align: center; color: #aaa; font-size: 14px; line-height: 1.8; }
+  .info strong { color: #fff; }
+  .btn { margin-top: 20px; padding: 12px 32px; background: #e53e3e; color: white; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; }
+  .status { position: absolute; top: 10px; left: 10px; right: 10px; background: rgba(0,0,0,0.8); color: #0f0; padding: 8px 12px; border-radius: 8px; font-size: 11px; z-index: 20; font-family: monospace; }
+</style>
+</head>
+<body>
+<div id="player" class="player-normal">
+  <!-- Green border to verify edge-to-edge coverage -->
+  <div class="border-check"></div>
+  <!-- Red corners to verify all 4 corners are visible -->
+  <div class="corner tl">TL</div>
+  <div class="corner tr">TR</div>
+  <div class="corner bl">BL</div>
+  <div class="corner br">BR</div>
+
+  <div id="status" class="status">Mode: Portrait | Tap button to toggle</div>
+
+  <div class="video-placeholder">
+    <div class="info">
+      <p><strong>Rotation Test</strong></p>
+      <p>Green border = container edges</p>
+      <p>Red squares = all 4 corners</p>
+      <p>If ALL corners visible + green border</p>
+      <p>touches screen edges = PERFECT</p>
+      <br>
+      <p id="dims"></p>
+    </div>
+    <button class="btn" onclick="toggle()">Toggle Landscape</button>
+  </div>
+</div>
+
+<script>
+let rotated = false;
+const player = document.getElementById('player');
+const status = document.getElementById('status');
+const dims = document.getElementById('dims');
+
+function updateInfo() {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  dims.textContent = `Viewport: ${w}×${h} | Container: ${rotated ? h+'×'+w+' (rotated)' : w+'×'+h}`;
+  status.textContent = `Mode: ${rotated ? 'LANDSCAPE (CSS rotated)' : 'PORTRAIT (normal)'} | ${w}×${h}`;
+}
+
+function toggle() {
+  rotated = !rotated;
+  player.className = rotated ? 'player-rotated' : 'player-normal';
+  updateInfo();
+}
+
+updateInfo();
+window.addEventListener('resize', updateInfo);
+</script>
+</body>
+</html>

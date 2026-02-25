@@ -17,6 +17,38 @@
   }
 }
 
+/* ── Android Chrome Performance ── */
+
+/* Remove 300ms tap delay on all interactive elements */
+a, button, input, select, textarea, [role="button"], [tabindex] {
+  touch-action: manipulation;
+}
+
+/* GPU-accelerate only elements that actually transform/fade.
+   .transition-colors and .transition-shadow don't benefit from
+   will-change: transform — it wastes GPU memory and creates
+   unintended stacking contexts. */
+.transition-transform { will-change: transform; }
+.transition-opacity  { will-change: opacity; }
+
+/* Contain layout recalc to animated cards / list items */
+[class*="rounded-xl"][class*="shadow"] {
+  contain: layout style;
+}
+
+/* Skip rendering off-screen list items on Android Chrome.
+   content-visibility:auto lets the browser skip layout+paint for elements
+   outside the viewport — huge win for long channel/ticket/payment lists.
+   contain-intrinsic-size gives the browser an estimated height so scroll
+   bars remain stable (avoids jumpiness). */
+.space-y-2 > *,
+.space-y-3 > *,
+.space-y-4 > *,
+.grid > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 80px;
+}
+
 :root { color-scheme: light dark; }
 body { @apply text-gray-900 dark:text-gray-100; }
 

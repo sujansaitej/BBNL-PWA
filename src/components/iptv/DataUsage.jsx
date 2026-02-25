@@ -53,7 +53,7 @@ export default function DataUsage({ customer, onBack }) {
                         </div>
                         <div className="w-full bg-gray-200 rounded-full h-3">
                             <div
-                                className="bg-orange-500 h-3 rounded-full transition-all duration-300"
+                                className="bg-orange-500 h-3 rounded-full transition-[width] duration-300"
                                 style={{ width: `${usageData.usagePercentage}%` }}
                             ></div>
                         </div>

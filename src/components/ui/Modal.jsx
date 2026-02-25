@@ -22,7 +22,7 @@ const Modal = ({ isOpen, onClose, children, title }) => {
               <h3 className="text-lg font-semibold text-white">{title}</h3>
               <button
                 onClick={onClose}
-                className="text-white/80 hover:text-white hover:bg-white/20 rounded-full p-1 transition-all duration-200"
+                className="text-white/80 hover:text-white hover:bg-white/20 rounded-full p-1 transition-colors duration-200"
               >
                 <XMarkIcon className="h-6 w-6" />
               </button>
@@ -38,7 +38,7 @@ const Modal = ({ isOpen, onClose, children, title }) => {
           {!title && (
             <button
               onClick={onClose}
-              className="absolute top-4 right-4 z-10 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full p-2 transition-all duration-200"
+              className="absolute top-4 right-4 z-10 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full p-2 transition-colors duration-200"
             >
               <XMarkIcon className="h-6 w-6" />
             </button>

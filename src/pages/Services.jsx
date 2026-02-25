@@ -172,7 +172,7 @@ export default function Services() {
                     <input
                         type="text"
                         placeholder="Search Plans"
-                        className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-500 transition-all duration-200"
+                        className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-500 transition-[border-color,box-shadow] duration-200"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />

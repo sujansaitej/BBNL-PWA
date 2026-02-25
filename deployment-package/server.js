@@ -1,4 +1,4 @@
-// Production server for BBNL CRM PWA
+  // Production server for BBNL CRM PWA
 // Serves static files + proxies /stream via HTTP/2 to stream hosts
 // The server itself runs on HTTP/2 (no HTTP/1.1).
 //
@@ -19,6 +19,7 @@
 import http2 from "node:http2";
 import fs from "node:fs";
 import path from "node:path";
+import zlib from "node:zlib";
 import { pipeline } from "node:stream";
 import { fileURLToPath } from "node:url";
 
@@ -380,6 +381,17 @@ function handleStreamRequest(req, res) {
   h2Req.end();
 }
 
+// ── Gzip-compressible extensions (text-based assets) ──
+const COMPRESSIBLE = new Set([
+  ".html", ".js", ".mjs", ".css", ".json", ".svg",
+  ".webmanifest", ".map", ".txt", ".m3u8",
+]);
+
+function acceptsGzip(req) {
+  const ae = req.headers["accept-encoding"] || req.headers["Accept-Encoding"] || "";
+  return ae.includes("gzip");
+}
+
 // ── Static file server ──
 function serveStatic(req, res) {
   let urlPath = decodeURIComponent(req.url.split("?")[0]);
@@ -414,11 +426,19 @@ function serveStatic(req, res) {
           res.end("Not Found");
           return;
         }
-        res.writeHead(200, {
+        const headers = {
           "Content-Type": "text/html; charset=utf-8",
           "Cache-Control": "no-cache",
-        });
-        fs.createReadStream(indexPath).pipe(res);
+        };
+        if (acceptsGzip(req)) {
+          headers["Content-Encoding"] = "gzip";
+          headers["Vary"] = "Accept-Encoding";
+          res.writeHead(200, headers);
+          pipeline(fs.createReadStream(indexPath), zlib.createGzip(), res, () => {});
+        } else {
+          res.writeHead(200, headers);
+          fs.createReadStream(indexPath).pipe(res);
+        }
       });
       return;
     }
@@ -431,12 +451,24 @@ function serveStatic(req, res) {
       ? "public, max-age=31536000, immutable"
       : "no-cache";
 
-    res.writeHead(200, {
-      "Content-Type": contentType,
-      "Content-Length": stats.size,
-      "Cache-Control": cacheControl,
-    });
-    fs.createReadStream(filePath).pipe(res);
+    const useGzip = COMPRESSIBLE.has(fileExt) && acceptsGzip(req) && stats.size > 1024;
+
+    if (useGzip) {
+      res.writeHead(200, {
+        "Content-Type": contentType,
+        "Cache-Control": cacheControl,
+        "Content-Encoding": "gzip",
+        "Vary": "Accept-Encoding",
+      });
+      pipeline(fs.createReadStream(filePath), zlib.createGzip(), res, () => {});
+    } else {
+      res.writeHead(200, {
+        "Content-Type": contentType,
+        "Content-Length": stats.size,
+        "Cache-Control": cacheControl,
+      });
+      fs.createReadStream(filePath).pipe(res);
+    }
   });
 }
 

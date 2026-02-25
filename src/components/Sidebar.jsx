@@ -29,6 +29,12 @@ export default function Sidebar({ open, onClose }) {
   }, []);
 
   function logout() {
+    // Clear user-specific API caches so the next user doesn't see stale data
+    const cachePrefixes = ['livetv_', 'channels_', 'ads_', 'walbal_', 'svclist_', 'custlist_', 'tktdepts', 'tkts_', 'regnec_', 'orderhist_'];
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (cachePrefixes.some(p => key.startsWith(p))) localStorage.removeItem(key);
+    }
     localStorage.removeItem('user');
     navigate("/login");
   }

@@ -247,13 +247,13 @@ export default function IPTVService() {
                 <div className="fixed bottom-16 left-0 right-0 p-3 bg-white border-t flex gap-3">
                     <button
                         onClick={() => toast.add('Coming Soon', { type: 'info' })}
-                        className="flex-1 bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-bold py-3 rounded-lg text-sm shadow-md hover:shadow-lg transition-all duration-200"
+                        className="flex-1 bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-bold py-3 rounded-lg text-sm shadow-md hover:shadow-lg transition-shadow duration-200"
                     >
                         Continue
                     </button>
                     <button
                         onClick={() => toast.add('Coming Soon', { type: 'info' })}
-                        className="flex-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold py-3 rounded-lg text-sm shadow-md hover:shadow-lg transition-all duration-200"
+                        className="flex-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold py-3 rounded-lg text-sm shadow-md hover:shadow-lg transition-shadow duration-200"
                     >
                         Skip and create new pack
                     </button>
@@ -323,12 +323,12 @@ export default function IPTVService() {
                     <button
                         onClick={handleUploadDocument}
                         disabled={uploadLoading}
-                        className="flex-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold py-3 px-4 rounded-lg text-sm transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold py-3 px-4 rounded-lg text-sm transition-shadow duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {uploadLoading ? 'Loading...' : 'Upload Document'}
                     </button>
                     <button
-                        className="flex-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold py-3 px-4 rounded-lg text-sm transition-all duration-200 shadow-md hover:shadow-lg"
+                        className="flex-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold py-3 px-4 rounded-lg text-sm transition-shadow duration-200 shadow-md hover:shadow-lg"
                         onClick={handleOrderHistory}
                     >
                         Order History

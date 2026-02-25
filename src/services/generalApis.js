@@ -27,19 +27,29 @@ function getHeadersForm() {
   };
 }
 
-/** Wrapper that adds timing + security logging to every API call */
-async function apiFetch(url, options, label) {
+const API_TIMEOUT = 15000; // 15 seconds default
+const UPLOAD_TIMEOUT = 60000; // 60 seconds for file uploads
+
+/** Wrapper that adds timing, security logging, and timeout to every API call */
+async function apiFetch(url, options, label, timeout = API_TIMEOUT) {
   const method = options.method || "GET";
   const start = performance.now();
   logger.debug("API", `${label} → ${method} ${url}`);
 
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeout);
+
   let resp;
   try {
-    resp = await fetch(url, options);
+    resp = await fetch(url, { ...options, signal: ctrl.signal });
   } catch (err) {
+    clearTimeout(timer);
     const duration = Math.round(performance.now() - start);
-    logger.error("API", `${label} network error: ${err.message}`, { method, url, duration: `${duration}ms` });
-    throw err;
+    const isTimeout = err.name === "AbortError";
+    logger.error("API", `${label} ${isTimeout ? "timeout" : "network error"}: ${err.message}`, { method, url, duration: `${duration}ms` });
+    throw new Error(isTimeout ? "Request timed out. Please check your network and try again." : `Network error: ${err.message}`);
+  } finally {
+    clearTimeout(timer);
   }
 
   const duration = Math.round(performance.now() - start);
@@ -122,11 +132,11 @@ export async function resendOTP(username) {
 export async function getWalBal(payload) {
   const cacheKey = `walbal_${payload.loginuname}_${payload.servicekey || 'internet'}`;
   try {
-    const cached = sessionStorage.getItem(cacheKey);
+    const cached = localStorage.getItem(cacheKey);
     if (cached) {
       const { data, ts } = JSON.parse(cached);
       if (Date.now() - ts < 5 * 60 * 1000) return data; // 5 min TTL
-      sessionStorage.removeItem(cacheKey);
+      localStorage.removeItem(cacheKey);
     }
   } catch (_e) { /* ignore */ }
   const url = `${getBaseUrl()}ServiceApis/myWallet`;
@@ -134,27 +144,37 @@ export async function getWalBal(payload) {
   const resp = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "getWalBal");
   if (!resp.ok) throw new Error(`Failed to get wallet balance ${resp.status}`);
   const data = await resp.json();
-  try { sessionStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() })); } catch (_e) { /* ignore */ }
+  try { localStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() })); } catch (_e) { /* ignore */ }
   return data;
 }
 
 export async function getCustList(payload, status) {
+  const cacheKey = `custlist_${status || 'all'}`;
+  try {
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      const { data, ts } = JSON.parse(cached);
+      if (Date.now() - ts < 10 * 60 * 1000) return data; // 10 min TTL
+      localStorage.removeItem(cacheKey);
+    }
+  } catch (_e) { /* ignore */ }
   const url = `${getBaseUrl()}ServiceApis/customersList?status=${encodeURIComponent(status || '')}`;
   const headers = getHeadersJson();
   const resp = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "getCustList");
   if (!resp.ok) throw new Error(`Failed to get customer data ${resp.status}`);
   const data = await resp.json();
+  try { localStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() })); } catch (_e) { /* quota full */ }
   return data;
 }
 
 export async function getServiceList() {
   const cacheKey = 'svclist_all';
   try {
-    const cached = sessionStorage.getItem(cacheKey);
+    const cached = localStorage.getItem(cacheKey);
     if (cached) {
       const { data, ts } = JSON.parse(cached);
       if (Date.now() - ts < 10 * 60 * 1000) return data; // 10 min TTL
-      sessionStorage.removeItem(cacheKey);
+      localStorage.removeItem(cacheKey);
     }
   } catch (_e) { /* ignore */ }
 
@@ -181,7 +201,7 @@ export async function getServiceList() {
 
   const data = await resp.json();
   logger.debug("API", "getServiceList response", { errCode: data.status?.err_code, bodyCount: data.body?.length });
-  try { sessionStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() })); } catch (_e) { /* ignore */ }
+  try { localStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() })); } catch (_e) { /* ignore */ }
   return data;
 }
 
@@ -274,15 +294,34 @@ export async function getMyPlanDetails(params) {
 
 /* Ticket APIs */
 export async function getTktDepartments() {
+  const cacheKey = 'tktdepts';
+  try {
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      const { data, ts } = JSON.parse(cached);
+      if (Date.now() - ts < 30 * 60 * 1000) return data; // 30 min TTL
+      localStorage.removeItem(cacheKey);
+    }
+  } catch (_e) { /* ignore */ }
   const url = `${getBaseUrl()}apis/getDepartments`;
   const headers = getHeadersJson();
   const resp = await apiFetch(url, { method: "GET", headers }, "getTktDepartments");
   if (!resp.ok) throw new Error(`Failed to get ticket stats ${resp.status}`);
   const data = await resp.json();
+  try { localStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() })); } catch (_e) { /* quota full */ }
   return data;
 }
 
 export async function getTickets(tabKey, allParams = {}) {
+  const cacheKey = `tkts_${tabKey}_${allParams.user || ''}_${allParams.dept || ''}`;
+  try {
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      const { data, ts } = JSON.parse(cached);
+      if (Date.now() - ts < 3 * 60 * 1000) return data; // 3 min TTL
+      localStorage.removeItem(cacheKey);
+    }
+  } catch (_e) { /* ignore */ }
   var ep = '';
   var inpParams = { apiopid: tabKey !== 'NEW CONNECTIONS' ? allParams.op_id : 'raghav' };
   switch (tabKey) {
@@ -316,6 +355,7 @@ export async function getTickets(tabKey, allParams = {}) {
   if (!resp.ok) throw new Error(`Failed to get tickets data ${resp.status}`);
 
   const data = await resp.json();
+  try { localStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() })); } catch (_e) { /* quota full */ }
   return data;
 }
 
@@ -398,7 +438,7 @@ export async function uploadCustKYC({ cid, prooftype, reqtype = 'update', file, 
 
   logger.info("API", `KYC upload: cid=${cid}, type=${prooftype}, file=${file.name} (${file.size} bytes)`);
 
-  const resp = await apiFetch(url, { method: 'POST', headers, body: formData }, "uploadCustKYC");
+  const resp = await apiFetch(url, { method: 'POST', headers, body: formData }, "uploadCustKYC", UPLOAD_TIMEOUT);
 
   if (!resp.ok) {
     const errorText = await resp.text();

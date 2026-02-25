@@ -135,7 +135,7 @@ export default function VerifyOtpPage() {
 
   return (
     <div className="min-h-screen flex flex-col items-center space-y-8 bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 p-4">
-      <div ref={containerRef} className="w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl shadow-xl p-8 mt-10 transition-all">
+      <div ref={containerRef} className="w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl shadow-xl p-8 mt-10">
         <div className="flex justify-center mb-6">
           <img src={logo} alt="App Logo" className="h-16" />
         </div>

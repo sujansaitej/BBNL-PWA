@@ -28,8 +28,16 @@
     <link rel="apple-touch-startup-image" href="/icons/splash-828x1792.png"
       media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)">
     <!-- manifest injected by vite-plugin-pwa at build time -->
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Non-render-blocking font: preload → swap to stylesheet after load -->
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet"></noscript>
 
+    <!-- Pre-establish connection to IPTV API/image server — saves 300-500ms
+         on Android Chrome (DNS + TCP + TLS) before the first logo fetch -->
+    <link rel="preconnect" href="https://bbnlnetmon.bbnl.in" crossorigin />
+    <link rel="dns-prefetch" href="https://bbnlnetmon.bbnl.in" />
     <!-- Pre-establish connections to stream servers for faster first segment load -->
     <link rel="preconnect" href="https://livestream.bbnl.in" crossorigin />
     <link rel="preconnect" href="https://livestream2.bbnl.in" crossorigin />

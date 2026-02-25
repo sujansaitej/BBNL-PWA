@@ -26,6 +26,23 @@ function getHeadersForm() {
     appversion: import.meta.env.VITE_API_APP_VERSION,
   };
 }
+const API_TIMEOUT = 15000; // 15 seconds
+const UPLOAD_TIMEOUT = 60000; // 60 seconds for file uploads
+
+/** Fetch with AbortController timeout — prevents indefinite hangs on slow networks */
+async function apiFetchWithTimeout(url, options, timeout = API_TIMEOUT) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeout);
+    try {
+        return await fetch(url, { ...options, signal: ctrl.signal });
+    } catch (err) {
+        if (err.name === "AbortError") throw new Error("Request timed out. Please check your network and try again.");
+        throw err;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 // device id helper: persist a uuid in localStorage
 import { v4 as uuidv4 } from "uuid";
 export function getDeviceId() {
@@ -42,7 +59,7 @@ export function getDeviceId() {
 async function postGeneralValidation(payload) {
   const url = `${getBaseUrl()}ServiceApis/generalValidation`;
   const headers = getHeadersJson();
-  const resp = await fetch(url, {
+  const resp = await apiFetchWithTimeout(url, {
     method: "POST",
     headers,
     body: JSON.stringify(payload),
@@ -138,11 +155,11 @@ export async function uploadKycFile(username, file, fieldName) {
   formData.append("username", username);
   formData.append(fieldName, file, file.name);
 
-  const resp = await fetch(url, {
+  const resp = await apiFetchWithTimeout(url, {
     method: "POST",
     headers,
     body: formData,
-  });
+  }, UPLOAD_TIMEOUT);
   if (!resp.ok) throw new Error(`Upload failed ${resp.status}`);
   const data = await resp.json();
   return data;
@@ -153,12 +170,22 @@ export async function uploadKycFile(username, file, fieldName) {
  * request JSON: {"logUname":"superadmin"} where superadmin dynamic
  */
 export async function submitRegistrationNecessities(logUname) {
+  const cacheKey = `regnec_${logUname}`;
+  try {
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      const { data, ts } = JSON.parse(cached);
+      if (Date.now() - ts < 30 * 60 * 1000) return data; // 30 min TTL
+      localStorage.removeItem(cacheKey);
+    }
+  } catch (_e) { /* ignore */ }
   const url = `${getBaseUrl()}ServiceApis/registrationNecessities`;
   const headers = getHeadersJson();
   const body = JSON.stringify({ logUname });
-  const resp = await fetch(url, { method: "POST", headers, body });
+  const resp = await apiFetchWithTimeout(url, { method: "POST", headers, body });
   if (!resp.ok) throw new Error(`registrationNecessities failed ${resp.status}`);
   const data = await resp.json();
+  try { localStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() })); } catch (_e) { /* quota full */ }
   return data;
 }
 
@@ -166,7 +193,7 @@ export async function getOnuHwDets(op_id, onumacid) {
   const url     = `${getBaseUrl()}ServiceApis/getonuhardwaredetails`;
   const headers = getHeadersJson();
   const body    = JSON.stringify({ client_id: op_id, macid: onumacid });
-  const resp    = await fetch(url, { method: "POST", headers, body });
+  const resp    = await apiFetchWithTimeout(url, { method: "POST", headers, body });
   if (!resp.ok) throw new Error(`Failed ${resp.status}`);
   const data = await resp.json();
   return data;
@@ -175,7 +202,7 @@ export async function getOnuHwDets(op_id, onumacid) {
 export async function registerCustomer(payload) {
   const url     = `${getBaseUrl()}ServiceApis/custservregistration`;
   const headers = getHeadersJson();
-  const resp    = await fetch(url, { method: "POST", headers, body: JSON.stringify(payload) });
+  const resp    = await apiFetchWithTimeout(url, { method: "POST", headers, body: JSON.stringify(payload) });
   if (!resp.ok) throw new Error(`Customer registration failed ${resp.status}`);
   const data = await resp.json();
   return data;
@@ -197,7 +224,7 @@ export async function getPayDets(params) {
     othreason: params.othreason,
   }).toString();
 
-  const resp = await fetch(url, {
+  const resp = await apiFetchWithTimeout(url, {
     method: "POST",
     headers,
     body, // already stringified
@@ -234,7 +261,7 @@ export async function payNow(params) {
     receivedremark: params.receivedremark
   }).toString();
 
-  const resp = await fetch(url, {
+  const resp = await apiFetchWithTimeout(url, {
     method: "POST",
     headers,
     body, // already stringified

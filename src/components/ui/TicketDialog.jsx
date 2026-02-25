@@ -59,7 +59,7 @@ const TicketDialog = ({
       {/* Dialog container */}
       <div
         onClick={onCancel}
-        className={`fixed inset-0 z-50 flex items-center justify-center p-4 transition-all duration-300 ${
+        className={`fixed inset-0 z-50 flex items-center justify-center p-4 transition-[opacity,transform] duration-300 ${
           open
             ? "opacity-100 scale-100 translate-y-0 visible"
             : "opacity-0 scale-95 translate-y-4 invisible"
