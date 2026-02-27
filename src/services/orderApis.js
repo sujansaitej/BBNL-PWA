@@ -1,4 +1,5 @@
 // Order history API integration
+import { lsGet, lsSet } from "./lsCache";
 
 function getBaseUrl() {
   if (import.meta.env.PROD) return import.meta.env.VITE_API_BASE_URL;
@@ -35,14 +36,8 @@ async function apiFetchWithTimeout(url, options) {
  */
 export async function getOrderHistory({ apiopid, cid, servicekey }) {
   const cacheKey = `orderhist_${cid}_${servicekey || 'all'}`;
-  try {
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) {
-      const { data, ts } = JSON.parse(cached);
-      if (Date.now() - ts < 5 * 60 * 1000) return data; // 5 min TTL
-      localStorage.removeItem(cacheKey);
-    }
-  } catch (_e) { /* ignore */ }
+  const cached = lsGet(cacheKey, 5 * 60 * 1000); // 5 min TTL
+  if (cached) return cached;
 
   const url = `${getBaseUrl()}apis/custpayhistory`;
 
@@ -74,7 +69,7 @@ export async function getOrderHistory({ apiopid, cid, servicekey }) {
   }
 
   const result = await resp.json();
-  try { localStorage.setItem(cacheKey, JSON.stringify({ data: result, ts: Date.now() })); } catch (_e) { /* quota full */ }
+  lsSet(cacheKey, result);
   return result;
 }
 

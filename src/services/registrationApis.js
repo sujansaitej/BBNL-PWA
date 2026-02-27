@@ -1,4 +1,5 @@
 // Centralized API helpers for registration and validation
+import { lsGet, lsSet } from "./lsCache";
 
 function getBaseUrl() {
     // return import.meta.env.VITE_API_BASE_URL;
@@ -171,21 +172,15 @@ export async function uploadKycFile(username, file, fieldName) {
  */
 export async function submitRegistrationNecessities(logUname) {
   const cacheKey = `regnec_${logUname}`;
-  try {
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) {
-      const { data, ts } = JSON.parse(cached);
-      if (Date.now() - ts < 30 * 60 * 1000) return data; // 30 min TTL
-      localStorage.removeItem(cacheKey);
-    }
-  } catch (_e) { /* ignore */ }
+  const cached = lsGet(cacheKey, 30 * 60 * 1000); // 30 min TTL
+  if (cached) return cached;
   const url = `${getBaseUrl()}ServiceApis/registrationNecessities`;
   const headers = getHeadersJson();
   const body = JSON.stringify({ logUname });
   const resp = await apiFetchWithTimeout(url, { method: "POST", headers, body });
   if (!resp.ok) throw new Error(`registrationNecessities failed ${resp.status}`);
   const data = await resp.json();
-  try { localStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() })); } catch (_e) { /* quota full */ }
+  lsSet(cacheKey, data);
   return data;
 }
 

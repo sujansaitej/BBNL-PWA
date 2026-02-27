@@ -52,64 +52,63 @@ function _getEffective() {
     const eff = _getEffective();
     const isSlow = eff === 'slow-2g' || eff === '2g';
 
-    // Already fresh — start logo preloading from cached data and skip network
+    // Already fresh — start logo preloading from cached data
     if (chFresh && langFresh) {
-      if (!isSlow) _preloadFromCached(chEntry, langEntry);
+      _preloadFromCached(chEntry, langEntry);
       return;
     }
 
-    // Fetch stale/missing data in parallel
-    const promises = [];
+    // Fetch stale/missing data — language logos start preloading as soon as
+    // the language API responds, WITHOUT waiting for the channel API.
+    // Old code used Promise.all which blocked language logos behind slow
+    // channel API calls (2-8s on Indian mobile).
 
-    if (!chFresh) {
-      promises.push(
-        getChannelList({ mobile, langid: "subs" })
-          .then((data) => {
-            const chnls = data?.body?.[0]?.channels || [];
-            if (chnls.length > 0) setEntry(chKey, chnls);
-            return chnls;
-          })
-          .catch(() => chEntry?.data || [])
-      );
-    } else {
-      promises.push(Promise.resolve(chEntry?.data || []));
-    }
-
-    if (!langFresh) {
-      promises.push(
-        getLanguageList({ mobile })
+    // ── Language logos: start immediately when data arrives ──
+    const langPromise = !langFresh
+      ? getLanguageList({ mobile })
           .then((data) => {
             const langs = data?.body?.[0]?.languages || [];
             if (langs.length > 0) setEntry(langKey, langs);
             return langs;
           })
           .catch(() => langEntry?.data || [])
-      );
-    } else {
-      promises.push(Promise.resolve(langEntry?.data || []));
-    }
+      : Promise.resolve(langEntry?.data || []);
 
-    const [channels, languages] = await Promise.all(promises);
+    // Start language logo preload as soon as language data arrives (don't wait for channels)
+    langPromise.then((languages) => {
+      const langUrls = (languages || [])
+        .map((l) => proxyImageUrl(l.langlogomob))
+        .filter((u) => u && !u.includes("chnlnoimage"));
+      if (langUrls.length > 0) preloadLogos(langUrls, true);
+    });
 
-    // On 2G/slow-2G: skip logo prefetch entirely — save bandwidth for the
-    // actual LiveTV page load.  Logos will load on-demand when user navigates.
-    // On 3G: only prefetch language logos (~8 small images).
-    // On 4G+: full prefetch (languages + first 15 channel logos).
-    if (isSlow) return;
+    if (isSlow) return; // 2G: language logos only, skip channel logos
 
-    const langUrls = (languages || [])
-      .map((l) => proxyImageUrl(l.langlogomob))
-      .filter((u) => u && !u.includes("chnlnoimage"));
-    if (langUrls.length > 0) preloadLogos(langUrls, true);
+    // ── Channel logos: start when channel data arrives ──
+    const chPromise = !chFresh
+      ? getChannelList({ mobile, langid: "subs" })
+          .then((data) => {
+            const chnls = data?.body?.[0]?.channels || [];
+            if (chnls.length > 0) setEntry(chKey, chnls);
+            return chnls;
+          })
+          .catch(() => chEntry?.data || [])
+      : Promise.resolve(chEntry?.data || []);
 
-    if (eff === '3g') return; // 3G: language logos only, skip channel logos
-
+    const channels = await chPromise;
     const chUrls = (channels || [])
       .map((ch) => proxyImageUrl(ch.chlogo))
       .filter((u) => u && !u.includes("chnlnoimage"));
+
+    if (eff === '3g') {
+      if (chUrls.length > 0) preloadLogos(chUrls.slice(0, 10));
+      return;
+    }
+
+    // 4G+: aggressive prefetch — first 30 immediately, rest after 150ms
     if (chUrls.length > 0) {
-      preloadLogos(chUrls.slice(0, 15));
-      if (chUrls.length > 15) setTimeout(() => preloadLogos(chUrls.slice(15)), 500);
+      preloadLogos(chUrls.slice(0, 30));
+      if (chUrls.length > 30) setTimeout(() => preloadLogos(chUrls.slice(30)), 150);
     }
   } catch (_) {
     // Prefetch is best-effort — never block or crash the app
@@ -117,6 +116,8 @@ function _getEffective() {
 })();
 
 function _preloadFromCached(chEntry, langEntry) {
+  const eff = _getEffective();
+
   const langUrls = (langEntry?.data || [])
     .map((l) => proxyImageUrl(l.langlogomob))
     .filter((u) => u && !u.includes("chnlnoimage"));
@@ -125,8 +126,14 @@ function _preloadFromCached(chEntry, langEntry) {
   const chUrls = (chEntry?.data || [])
     .map((ch) => proxyImageUrl(ch.chlogo))
     .filter((u) => u && !u.includes("chnlnoimage"));
-  if (chUrls.length > 0) {
-    preloadLogos(chUrls.slice(0, 15));
-    if (chUrls.length > 15) setTimeout(() => preloadLogos(chUrls.slice(15)), 500);
+  if (chUrls.length === 0) return;
+
+  if (eff === '3g') {
+    preloadLogos(chUrls.slice(0, 10));
+    return;
   }
+
+  // 4G+: aggressive prefetch — first 30 immediately, rest after 150ms
+  preloadLogos(chUrls.slice(0, 30));
+  if (chUrls.length > 30) setTimeout(() => preloadLogos(chUrls.slice(30)), 150);
 }

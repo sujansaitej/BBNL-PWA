@@ -8,7 +8,7 @@ import { getChannelList, getLanguageList, getAdvertisements, getIptvMobile, pref
 import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
 import { proxyImageUrl } from "../../services/iptvImage";
-import { setEntry, getEntry, getEntryAsync, getAdaptiveTTL } from "../../services/channelStore";
+import { setEntry, getEntry, getEntryAsync, getAdaptiveTTL, waitForHydration } from "../../services/channelStore";
 import IptvSignup from "../../components/iptv/IptvSignup";
 
 const AD_ZOOM_DURATION = 5;
@@ -322,7 +322,10 @@ export default function LiveTvPage() {
 
   useEffect(() => {
     prefetchPublicIP();
-    fetchLanguages();  // Languages first — only ~8 logos, must load before 275 channel logos
+    // Both run in parallel — language logos use priority=true which bypasses
+    // the concurrency limit in drain(), so they always start immediately
+    // even if channel logos have taken all 14 regular slots.
+    fetchLanguages();
     fetchChannels();
     getAdvertisements({ mobile: iptvMobile }).then(data => {
       const list = (data?.body?.[0]?.ads || []).filter(a => a.content);
@@ -334,6 +337,9 @@ export default function LiveTvPage() {
     setError("");
     setUserNotFound(false);
 
+    // Ensure IndexedDB → L1 hydration is complete before cache lookups
+    await waitForHydration();
+
     const cached = getEntry(chStoreKey);
     const ttl = getAdaptiveTTL();
 
@@ -343,9 +349,10 @@ export default function LiveTvPage() {
 
     // Adapt initial logo batch to connection — fewer on slow networks
     // keeps the pipe from saturating while first logos appear faster.
+    // On 4G+, push 30 logos immediately — HTTP/2 multiplexing handles this.
     const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    const logoBatch = (conn && (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g')) ? 6
-                    : (conn?.effectiveType === '3g') ? 10 : 15;
+    const logoBatch = (conn && (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g')) ? 8
+                    : (conn?.effectiveType === '3g') ? 15 : 30;
 
     // If useState was empty but channelStore has data (race with hydration),
     // push it into state now
@@ -354,7 +361,7 @@ export default function LiveTvPage() {
       setLoading(false);
       const allUrls = cached.data.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
       preloadLogos(allUrls.slice(0, logoBatch));
-      if (allUrls.length > logoBatch) setTimeout(() => preloadLogos(allUrls.slice(logoBatch)), 300);
+      if (allUrls.length > logoBatch) setTimeout(() => preloadLogos(allUrls.slice(logoBatch)), 100);
     }
 
     // L2 fallback: if L1 was empty (app restart / hydration race), try IndexedDB
@@ -367,7 +374,7 @@ export default function LiveTvPage() {
         dataIsFresh = Date.now() - idbEntry.ts < ttl;
         const idbUrls = idbEntry.data.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
         preloadLogos(idbUrls.slice(0, logoBatch));
-        if (idbUrls.length > logoBatch) setTimeout(() => preloadLogos(idbUrls.slice(logoBatch)), 300);
+        if (idbUrls.length > logoBatch) setTimeout(() => preloadLogos(idbUrls.slice(logoBatch)), 100);
       }
     }
 
@@ -381,7 +388,7 @@ export default function LiveTvPage() {
       setEntry(chStoreKey, chnls);
       const freshUrls = chnls.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
       preloadLogos(freshUrls.slice(0, logoBatch));
-      if (freshUrls.length > logoBatch) setTimeout(() => preloadLogos(freshUrls.slice(logoBatch)), 300);
+      if (freshUrls.length > logoBatch) setTimeout(() => preloadLogos(freshUrls.slice(logoBatch)), 100);
       setChannels(chnls);
     } catch (err) {
       if (hasCachedData) return;
@@ -397,6 +404,9 @@ export default function LiveTvPage() {
   };
 
   const fetchLanguages = async () => {
+    // Ensure IndexedDB → L1 hydration is complete before cache lookups
+    await waitForHydration();
+
     const cached = getEntry(langStoreKey);
     // Languages change rarely — use 2× adaptive TTL
     const ttl = getAdaptiveTTL() * 2;

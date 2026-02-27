@@ -59,13 +59,17 @@ export default ({ mode }) => {
             // production cross-origin URLs (.../Cabletvapis/showimage/...).
             // Auth headers from fetchImage() are preserved on the Request
             // object, so Workbox forwards them on cache-miss network calls.
+            // IMPORTANT: Only cache 200 — status 0 (opaque) can be empty/broken
+            // and CacheFirst would serve it forever (60 days).
             {
               urlPattern: /\/(?:showimage|adimage)\//i,
               handler: 'CacheFirst',
               options: {
-                cacheName: 'channel-assets-v1',
-                expiration: { maxEntries: 300, maxAgeSeconds: 30 * 24 * 60 * 60 },
-                cacheableResponse: { statuses: [0, 200] },
+                cacheName: 'channel-assets-v2',
+                // 500 entries = 275 channel logos + ~30 language logos + ~50 ad images + headroom
+                // 60-day TTL — channel logos rarely change, keep cache warm longer
+                expiration: { maxEntries: 500, maxAgeSeconds: 60 * 24 * 60 * 60 },
+                cacheableResponse: { statuses: [200] },
               },
             },
             // JS/CSS app assets — Stale-While-Revalidate (instant load, background refresh)
@@ -85,7 +89,7 @@ export default ({ mode }) => {
               options: {
                 cacheName: 'static-icons',
                 expiration: { maxEntries: 40, maxAgeSeconds: 30 * 24 * 60 * 60 },
-                cacheableResponse: { statuses: [0, 200] },
+                cacheableResponse: { statuses: [200] },
               },
             },
             // General images — Cache-First with shorter expiry
@@ -95,7 +99,7 @@ export default ({ mode }) => {
               options: {
                 cacheName: 'images',
                 expiration: { maxEntries: 120, maxAgeSeconds: 14 * 24 * 60 * 60 },
-                cacheableResponse: { statuses: [0, 200] },
+                cacheableResponse: { statuses: [200] },
               },
             },
             // Google Fonts stylesheets — Stale-While-Revalidate

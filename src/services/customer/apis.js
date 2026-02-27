@@ -62,3 +62,22 @@ export async function ads(type) {
   const data = await resp.json();
   return data;
 }
+
+export async function getPromoStream(mobile, id) {
+  const url = `${getBaseUrl()}apis/promo_stream`;
+  const resp = await apiFetchWithTimeout(url, {
+    method: "POST",
+    headers: getHeadersJson(),
+    body: JSON.stringify({ mobile, id }),
+  });
+
+  if (!resp.ok) {
+    throw new Error(`HTTP ${resp.status}`);
+  }
+
+  const data = await resp.json();
+  if (data.err_code !== 0) {
+    throw new Error(data.message || data.msg || "Failed to get promo stream");
+  }
+  return data;
+}

@@ -8,11 +8,19 @@
  *
  * This file is imported by the Workbox-generated SW via importScripts.
  */
+// Stale caches to delete on activation — bumped to v2 to purge corrupted
+// opaque (status 0) responses that CacheFirst served forever.
+var STALE_CACHES = ['channel-assets-v1'];
+
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
       if (self.registration.navigationPreload) {
         await self.registration.navigationPreload.enable();
+      }
+      // Purge old cache buckets that may contain broken opaque responses
+      for (var name of STALE_CACHES) {
+        await caches.delete(name).catch(function () {});
       }
     })()
   );

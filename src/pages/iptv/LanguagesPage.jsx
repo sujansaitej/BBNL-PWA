@@ -8,7 +8,7 @@ import { getLanguageList, getIptvMobile } from "../../services/iptvApi";
 import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
 import { proxyImageUrl } from "../../services/iptvImage";
-import { getEntry, getEntryAsync, setEntry, getAdaptiveTTL } from "../../services/channelStore";
+import { getEntry, getEntryAsync, setEntry, getAdaptiveTTL, waitForHydration } from "../../services/channelStore";
 import useVoiceSearch from "../../hooks/useVoiceSearch";
 import IptvSignup from "../../components/iptv/IptvSignup";
 
@@ -81,21 +81,26 @@ export default function LanguagesPage() {
     setError("");
     setUserNotFound(false);
 
+    // Ensure IndexedDB → L1 hydration is complete before cache lookups
+    await waitForHydration();
+
     // Languages change rarely — use 2× adaptive TTL
     const ttl = getAdaptiveTTL() * 2;
     let hasCachedData = languages.length > 0;
-    let dataIsFresh = memEntry && (Date.now() - memEntry.ts < ttl);
+    let dataIsFresh = false;
 
-    // L2 fallback: IndexedDB
+    // After hydration, re-check L1 (may now have IDB data)
     if (!hasCachedData) {
-      const idbEntry = await getEntryAsync(storeKey);
-      if (idbEntry?.data?.length > 0) {
-        setLanguages(idbEntry.data);
+      const entry = getEntry(storeKey) || await getEntryAsync(storeKey);
+      if (entry?.data?.length > 0) {
+        setLanguages(entry.data);
         setLoading(false);
         hasCachedData = true;
-        dataIsFresh = Date.now() - idbEntry.ts < ttl;
-        preloadLogos(idbEntry.data.map((l) => proxyImageUrl(l.langlogomob)).filter((u) => u && !u.includes("chnlnoimage")), true);
+        dataIsFresh = Date.now() - entry.ts < ttl;
+        preloadLogos(entry.data.map((l) => proxyImageUrl(l.langlogomob)).filter((u) => u && !u.includes("chnlnoimage")), true);
       }
+    } else {
+      dataIsFresh = memEntry && (Date.now() - memEntry.ts < ttl);
     }
 
     if (dataIsFresh) return;

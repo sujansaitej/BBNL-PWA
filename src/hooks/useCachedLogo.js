@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { getCachedLogo, subscribeLogo, preloadLogos } from "../services/logoCache";
+import { getCachedLogo, subscribeLogo } from "../services/logoCache";
 
 /**
  * Returns a cached data URL (base64 or objectURL) for the given image URL.
@@ -10,6 +10,7 @@ import { getCachedLogo, subscribeLogo, preloadLogos } from "../services/logoCach
 export default function useCachedLogo(url) {
   const [dataUrl, setDataUrl] = useState(() => getCachedLogo(url) || null);
   const retryRef = useRef(null);
+  const unsubRef = useRef(null);
 
   useEffect(() => {
     if (!url) { setDataUrl(null); return; }
@@ -26,20 +27,25 @@ export default function useCachedLogo(url) {
       if (cachedVal) {
         setDataUrl(cachedVal);
       } else {
-        // Fetch failed — retry once after a shorter delay.
-        // Was 4000ms — on Android Chrome with 275 channels, even 5-10
-        // failures meant 40+ seconds of wait. 1500ms is enough to avoid
-        // hammering a flaky connection while keeping perceived load fast.
+        // Fetch failed — retry with a fresh subscribe so the callback is
+        // properly registered for the new fetch cycle.  The old subscribe
+        // only called preloadLogos without re-registering, losing the result.
         retryRef.current = setTimeout(() => {
           const retryCheck = getCachedLogo(url);
           if (retryCheck) { setDataUrl(retryCheck); return; }
-          preloadLogos([url], true); // priority retry
-        }, 1500);
+          // Unsubscribe old listener and re-subscribe for a fresh attempt
+          if (unsubRef.current) unsubRef.current();
+          unsubRef.current = subscribeLogo(url, (retryVal) => {
+            if (retryVal) setDataUrl(retryVal);
+          });
+        }, 800);
       }
     });
+    unsubRef.current = unsub;
 
     return () => {
-      unsub();
+      if (unsubRef.current) unsubRef.current();
+      unsubRef.current = null;
       if (retryRef.current) clearTimeout(retryRef.current);
     };
   }, [url]);

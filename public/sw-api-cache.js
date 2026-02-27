@@ -16,25 +16,30 @@
  *   - Network failure + stale cache    → return stale (offline support)
  */
 
-const CACHE_NAME = 'iptv-api-v1';
-const MAX_TTL    = 7 * 24 * 60 * 60 * 1000; // 7 days — max stale lifetime
+var CACHE_NAME = 'iptv-api-v1';
+var MAX_TTL    = 7 * 24 * 60 * 60 * 1000; // 7 days — max stale lifetime
 
 // Connection-aware FRESH_TTL — on slow networks keep cache fresh longer
 // so the app doesn't attempt costly refetches over a saturated pipe.
-//   2G / slow-2G → 60 min
-//   3G           → 30 min
-//   4G+          → 15 min (default)
-function getFreshTTL() {
+// Language list gets 2× longer TTL — languages change very rarely, and
+// keeping them fresh avoids an extra API round-trip before channel display.
+//   2G / slow-2G → 60 min (languages: 120 min)
+//   3G           → 30 min (languages: 60 min)
+//   4G+          → 15 min (languages: 30 min)
+function getFreshTTL(url) {
+  var isLangList = url && url.indexOf('/ftauserlanglist') !== -1;
+  var mult = isLangList ? 2 : 1;
+
   var conn = self.navigator && self.navigator.connection;
   if (conn) {
-    if (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g') return 60 * 60 * 1000;
-    if (conn.effectiveType === '3g') return 30 * 60 * 1000;
+    if (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g') return 60 * 60 * 1000 * mult;
+    if (conn.effectiveType === '3g') return 30 * 60 * 1000 * mult;
   }
-  return 15 * 60 * 1000;
+  return 15 * 60 * 1000 * mult;
 }
 
 // Endpoints worth caching (channel lists, languages, ads)
-const ENDPOINTS = ['/ftauserchnllist', '/ftauserlanglist', '/ftauserads'];
+var ENDPOINTS = ['/ftauserchnllist', '/ftauserlanglist', '/ftauserads'];
 
 // FNV-1a 32-bit hash — fast, non-crypto, for cache key derivation
 function fnv1a(str) {
@@ -66,7 +71,7 @@ async function handlePost(event) {
     var ts  = parseInt(cached.headers.get('x-sw-ts') || '0', 10);
     var age = Date.now() - ts;
 
-    if (age < getFreshTTL()) {
+    if (age < getFreshTTL(request.url)) {
       // Fresh — no network needed
       return cached;
     }

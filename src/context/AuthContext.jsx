@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import logger from "../utils/logger";
+import { lsClearAll } from "../services/lsCache";
 
 const AuthContext = createContext();
 
@@ -45,12 +46,9 @@ export function AuthProvider({ children }) {
     const prev = user?.username || "unknown";
     setUser(null);
     localStorage.removeItem("user");
-    // Clear user-specific API caches so the next user doesn't see stale data
-    const cachePrefixes = ['livetv_', 'channels_', 'ads_', 'walbal_', 'svclist_', 'custlist_', 'tktdepts', 'tkts_', 'regnec_', 'orderhist_'];
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-      const key = localStorage.key(i);
-      if (cachePrefixes.some(p => key.startsWith(p))) localStorage.removeItem(key);
-    }
+    // Clear all API caches (prefixed with _c:) — lsClearAll is fast and
+    // handles quota properly.  Non-cache keys (theme, deviceid) are preserved.
+    lsClearAll();
     logger.security("LOGOUT", { username: prev });
   };
 

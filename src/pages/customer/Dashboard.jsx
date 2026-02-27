@@ -1,14 +1,15 @@
 // import DashboardContent from "../../components/Dashboard";
 import { useEffect, useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { ArrowUpOnSquareStackIcon, CurrencyRupeeIcon, ClipboardDocumentListIcon, ChartPieIcon, PhotoIcon, SignalIcon, TicketIcon, UserIcon } from '@heroicons/react/24/outline'
 // import { featuredAds, transactions } from '../../data.js'
 import { Swiper, SwiperSlide } from 'swiper/react'
 import { Autoplay } from 'swiper/modules'
 import 'swiper/css'
 import Layout from "../../layout/Layout";
-import { getAdvertisements, getIptvMobile } from "../../services/iptvApi";
-import { proxyImageUrl } from "../../services/iptvImage";
+import { getIptvMobile } from "../../services/iptvApi";
+import { ads, getPromoStream } from "../../services/customer/apis";
+import { useToast } from "@/components/ui/Toast";
 import { Modal } from "@/components/ui";
 
 export default function Dashboard() {
@@ -21,6 +22,9 @@ export default function Dashboard() {
     const [adCnt, setAdCnt] = useState(0);
     const [modalOpen, setModalOpen] = useState(false);
     const [greet, setGreet] = useState(false);
+    const [promoLoading, setPromoLoading] = useState(null);
+    const navigate = useNavigate();
+    const toast = useToast();
 
     useEffect(() => {
         if (!localStorage.getItem('firstLogin')) {
@@ -54,18 +58,49 @@ export default function Dashboard() {
     
     async function getAds() {
         try {
-            const mobile = getIptvMobile();
-            if (!mobile) return;
-            const data = await getAdvertisements({ mobile });
-            const list = (data?.body?.[0]?.ads || []).filter(a => a.content);
+            const data = await ads("custapp");
+            const list = (data?.imglist || []).filter(a => a.content);
             if (list.length > 0) {
                 setAdCnt(list.length);
                 setAdvertisement(list);
-            } else {
-                // console.error("Advertisement not found:", data?.count || "No data");
             }
         } catch (err) {
             console.error("Error fetching advertisement:", err);
+        }
+    }
+
+    async function handleAdClick(ad) {
+        if (ad.redirectlink !== "yes") return;
+        if (promoLoading) return;
+
+        const mobile = getIptvMobile();
+        if (!mobile) {
+            toast.add("Please log in to watch this channel.", { type: "error" });
+            return;
+        }
+
+        setPromoLoading(ad.id);
+        try {
+            const stream = await getPromoStream(mobile, ad.id);
+
+            if (!stream.streamlink) {
+                throw new Error("Stream link not available.");
+            }
+
+            let meta = {};
+            try { meta = stream.meta ? JSON.parse(stream.meta) : {}; } catch (_) { /* meta is optional */ }
+
+            const channel = {
+                streamlink: stream.streamlink,
+                chid: meta.chid || ad.id,
+                chtitle: meta.chtitle || ad.description || "Promo",
+                chlogo: meta.chlogo || ad.content,
+            };
+            navigate("/cust/livetv/player", { state: { channel } });
+        } catch (err) {
+            toast.add(err.message || "Stream unavailable", { type: "error" });
+        } finally {
+            setPromoLoading(null);
         }
     }
     
@@ -99,12 +134,17 @@ export default function Dashboard() {
               <Swiper spaceBetween={12} slidesPerView={'auto'} loop={adCnt >= 3} modules={[Autoplay]} autoplay={{ delay: 2500 }}>
                 {Advertisement.map(ad => (
                   <SwiperSlide key={ad.id} style={{ width: adCnt > 1 ? '90%' : '100%' }}>
-                    <a href={ad.redirectlink} target="_blank" rel="noopener noreferrer" className="block bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden">
-                      <img src={proxyImageUrl(ad.content)} alt={ad.description} className="h-32 w-full object-cover" loading="lazy" />
-                      {/* <div className="p-3">
-                        <p className="font-medium">{ad.description}</p>
-                      </div> */}
-                    </a>
+                    <div
+                      onClick={() => handleAdClick(ad)}
+                      className={`relative block bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden ${ad.redirectlink === "yes" ? "cursor-pointer" : ""}`}
+                    >
+                      <img src={ad.content} alt={ad.description} className="h-32 w-full object-cover" loading="lazy" />
+                      {promoLoading === ad.id && (
+                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                          <div className="w-8 h-8 border-3 border-white border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      )}
+                    </div>
                   </SwiperSlide>
                 ))}
               </Swiper>

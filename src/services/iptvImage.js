@@ -51,14 +51,16 @@ export function fixImageUrl(url) {
  * IPTV production URLs always need auth headers — send them on the first
  * request to avoid a wasted 401 round-trip (cuts load time in half).
  */
-/** Adapt image timeout to connection speed — 8s on 4G, 20s on 2G */
+/** Adapt image timeout to connection speed — 5s on 4G, 15s on 2G.
+ *  Channel logos are 5-20 KB — even on 3G they should arrive in <5s.
+ *  Tighter timeouts let the retry cycle kick in faster on flaky connections. */
 function getImageTimeout() {
   const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
   if (conn) {
-    if (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g') return 20000;
-    if (conn.effectiveType === '3g') return 15000;
+    if (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g') return 15000;
+    if (conn.effectiveType === '3g') return 10000;
   }
-  return 8000;
+  return 5000;
 }
 
 export async function fetchImage(url, options = {}) {

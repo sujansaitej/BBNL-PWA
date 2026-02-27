@@ -9,7 +9,7 @@ import { getChannelList, getAdvertisements, getIptvMobile, prefetchPublicIP } fr
 import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
 import { proxyImageUrl } from "../../services/iptvImage";
-import { getEntry, getEntryAsync, setEntry, getAdaptiveTTL } from "../../services/channelStore";
+import { getEntry, getEntryAsync, setEntry, getAdaptiveTTL, waitForHydration } from "../../services/channelStore";
 import IptvSignup from "../../components/iptv/IptvSignup";
 
 /** Filter master channel list by language.
@@ -85,16 +85,20 @@ export default function ChannelsPage() {
 
   const langid = location.state?.langid || "subs";
   const langTitle = location.state?.langTitle || "";
+  const isSpecificLang = langid && langid !== "subs";
 
-  // ── Local-first: filter the "subs" master list client-side ──
-  // LiveTvPage already fetched ALL channels via langid="subs" and stored
-  // them in channelStore.  We read that list and .filter() by language —
-  // zero per-language API calls, instant render (<10 ms).
+  // ── Local-first: try per-language cache first, then master list ──
+  const langKey = isSpecificLang ? `channels_${iptvMobile}_${langid}` : null;
   const masterKey = `channels_${iptvMobile}_subs`;
+
+  const langEntry = langKey ? getEntry(langKey) : null;
   const masterEntry = getEntry(masterKey);
-  const initialChannels = masterEntry?.data?.length
-    ? filterByLang(masterEntry.data, langid)
-    : [];
+
+  const initialChannels = langEntry?.data?.length
+    ? langEntry.data
+    : masterEntry?.data?.length
+      ? filterByLang(masterEntry.data, langid)
+      : [];
 
   const [channels, setChannels] = useState(initialChannels);
   const [loading, setLoading] = useState(!initialChannels.length);
@@ -115,8 +119,8 @@ export default function ChannelsPage() {
   useEffect(() => {
     if (initialChannels.length) {
       const urls = initialChannels.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
-      preloadLogos(urls.slice(0, 12));
-      if (urls.length > 12) setTimeout(() => preloadLogos(urls.slice(12)), 300);
+      preloadLogos(urls.slice(0, 25));
+      if (urls.length > 25) setTimeout(() => preloadLogos(urls.slice(25)), 100);
     }
   }, []); // run once on mount
 
@@ -129,46 +133,93 @@ export default function ChannelsPage() {
     }).catch(() => {});
   }, [langid]);
 
+  function _preloadChannelLogos(chnls) {
+    const urls = chnls.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
+    preloadLogos(urls.slice(0, 25));
+    if (urls.length > 25) setTimeout(() => preloadLogos(urls.slice(25)), 100);
+  }
+
   const loadChannels = async () => {
     setError("");
     setUserNotFound(false);
 
-    // L1 check: already populated via useState initializer from master list
+    // Ensure IndexedDB → L1 hydration is complete before cache lookups
+    // (prevents missing persisted data on cold page load / deep link)
+    await waitForHydration();
+
     const ttl = getAdaptiveTTL();
     let hasCachedData = channels.length > 0;
-    let dataIsFresh = masterEntry && (Date.now() - masterEntry.ts < ttl);
+    let dataIsFresh = false;
 
-    // L2 fallback: if memory was empty, try IndexedDB for the master list
+    // After hydration, re-check caches (L1 may now have IDB data)
     if (!hasCachedData) {
-      const idbEntry = await getEntryAsync(masterKey);
-      if (idbEntry?.data?.length > 0) {
-        const filtered = filterByLang(idbEntry.data, langid);
-        if (filtered.length > 0) {
-          setChannels(filtered);
+      // Try per-language cache first (fastest path for repeat visits)
+      if (langKey) {
+        const entry = getEntry(langKey) || await getEntryAsync(langKey);
+        if (entry?.data?.length > 0) {
+          setChannels(entry.data);
           setLoading(false);
           hasCachedData = true;
-          dataIsFresh = Date.now() - idbEntry.ts < ttl;
-          const urls = filtered.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
-          preloadLogos(urls.slice(0, 12));
-          if (urls.length > 12) setTimeout(() => preloadLogos(urls.slice(12)), 300);
+          dataIsFresh = Date.now() - entry.ts < ttl;
+          _preloadChannelLogos(entry.data);
         }
       }
+      // Fall back to master list
+      if (!hasCachedData) {
+        const mEntry = getEntry(masterKey) || await getEntryAsync(masterKey);
+        if (mEntry?.data?.length > 0) {
+          const filtered = filterByLang(mEntry.data, langid);
+          if (filtered.length > 0) {
+            setChannels(filtered);
+            setLoading(false);
+            hasCachedData = true;
+            dataIsFresh = Date.now() - mEntry.ts < ttl;
+            _preloadChannelLogos(filtered);
+          }
+        }
+      }
+    } else {
+      // Determine freshness from whichever cache produced initial data
+      const ts = langEntry?.ts || masterEntry?.ts || 0;
+      dataIsFresh = ts > 0 && (Date.now() - ts < ttl);
     }
 
     if (dataIsFresh) return;
     if (!hasCachedData) setLoading(true);
 
-    // L3/L4: fetch ALL channels once via langid="subs", then filter client-side
     try {
-      const data = await getChannelList({ mobile: iptvMobile, langid: "subs" });
-      const allChnls = data?.body?.[0]?.channels || [];
+      if (isSpecificLang && !hasCachedData) {
+        // ── FAST PATH: fetch only this language (smaller payload, faster) ──
+        // Instead of downloading all 275+ channels, fetch only ~20-40 for
+        // this language.  Background-fetch "subs" to populate master cache.
+        const data = await getChannelList({ mobile: iptvMobile, langid });
+        const chnls = data?.body?.[0]?.channels || [];
 
-      setEntry(masterKey, allChnls);
-      const chnls = filterByLang(allChnls, langid);
-      const freshUrls = chnls.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
-      preloadLogos(freshUrls.slice(0, 12));
-      if (freshUrls.length > 12) setTimeout(() => preloadLogos(freshUrls.slice(12)), 300);
-      setChannels(chnls);
+        if (langKey) setEntry(langKey, chnls);
+        setChannels(chnls);
+        _preloadChannelLogos(chnls);
+
+        // Background: populate master cache for future navigation
+        getChannelList({ mobile: iptvMobile, langid: "subs" })
+          .then((d) => {
+            const all = d?.body?.[0]?.channels || [];
+            if (all.length > 0) setEntry(masterKey, all);
+          })
+          .catch(() => {}); // best-effort
+      } else {
+        // ── NORMAL PATH: fetch all, filter client-side, cache both ──
+        const data = await getChannelList({ mobile: iptvMobile, langid: "subs" });
+        const allChnls = data?.body?.[0]?.channels || [];
+
+        setEntry(masterKey, allChnls);
+        const chnls = filterByLang(allChnls, langid);
+        // Also cache per-language for instant future direct hits
+        if (isSpecificLang && langKey && chnls.length > 0) {
+          setEntry(langKey, chnls);
+        }
+        setChannels(chnls);
+        _preloadChannelLogos(chnls);
+      }
     } catch (err) {
       if (hasCachedData) return;
       const msg = err.message || "Failed to load channels.";

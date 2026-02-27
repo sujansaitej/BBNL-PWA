@@ -7,6 +7,7 @@ import { getChannelStream, getChannelList, getIptvMobile } from "../../services/
 import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
 import { proxyImageUrl } from "../../services/iptvImage";
+import { getEntry, getEntryAsync, setEntry, waitForHydration } from "../../services/channelStore";
 
 // Obfuscated stream URL cache — prevents plain-text URLs in sessionStorage
 const _XK = 0x5A;
@@ -183,16 +184,34 @@ export default function PlayerPage() {
     const mobile = getIptvMobile();
     if (!mobile) return;
     let cancelled = false;
-    getChannelList({ mobile, langid: "subs" })
-      .then((data) => {
+
+    (async () => {
+      // Check channelStore cache first (L1 → L2) before hitting the network
+      await waitForHydration();
+
+      const storeKey = `channels_${mobile}_subs`;
+      const cached = getEntry(storeKey) || await getEntryAsync(storeKey);
+      if (cached?.data?.length > 0 && !cancelled) {
+        setChannelList(cached.data);
+        const urls = cached.data.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
+        preloadLogos(urls.slice(0, 15));
+        if (urls.length > 15) setTimeout(() => preloadLogos(urls.slice(15)), 300);
+        return;
+      }
+
+      // Cache miss — fetch from network
+      try {
+        const data = await getChannelList({ mobile, langid: "subs" });
         if (cancelled) return;
         const chnls = data?.body?.[0]?.channels || [];
+        setEntry(storeKey, chnls);
         setChannelList(chnls);
         const urls = chnls.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
         preloadLogos(urls.slice(0, 15));
         if (urls.length > 15) setTimeout(() => preloadLogos(urls.slice(15)), 300);
-      })
-      .catch(() => {});
+      } catch (_) {}
+    })();
+
     return () => { cancelled = true; };
   }, []);
 

@@ -1,5 +1,6 @@
 // General API services
 import logger from "../utils/logger";
+import { lsGet, lsSet } from "./lsCache";
 
 function getBaseUrl() {
   if (import.meta.env.PROD) return import.meta.env.VITE_API_BASE_URL;
@@ -131,52 +132,34 @@ export async function resendOTP(username) {
 
 export async function getWalBal(payload) {
   const cacheKey = `walbal_${payload.loginuname}_${payload.servicekey || 'internet'}`;
-  try {
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) {
-      const { data, ts } = JSON.parse(cached);
-      if (Date.now() - ts < 5 * 60 * 1000) return data; // 5 min TTL
-      localStorage.removeItem(cacheKey);
-    }
-  } catch (_e) { /* ignore */ }
+  const cached = lsGet(cacheKey, 5 * 60 * 1000); // 5 min TTL
+  if (cached) return cached;
   const url = `${getBaseUrl()}ServiceApis/myWallet`;
   const headers = getHeadersJson();
   const resp = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "getWalBal");
   if (!resp.ok) throw new Error(`Failed to get wallet balance ${resp.status}`);
   const data = await resp.json();
-  try { localStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() })); } catch (_e) { /* ignore */ }
+  lsSet(cacheKey, data);
   return data;
 }
 
 export async function getCustList(payload, status) {
   const cacheKey = `custlist_${status || 'all'}`;
-  try {
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) {
-      const { data, ts } = JSON.parse(cached);
-      if (Date.now() - ts < 10 * 60 * 1000) return data; // 10 min TTL
-      localStorage.removeItem(cacheKey);
-    }
-  } catch (_e) { /* ignore */ }
+  const cached = lsGet(cacheKey, 10 * 60 * 1000); // 10 min TTL
+  if (cached) return cached;
   const url = `${getBaseUrl()}ServiceApis/customersList?status=${encodeURIComponent(status || '')}`;
   const headers = getHeadersJson();
   const resp = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "getCustList");
   if (!resp.ok) throw new Error(`Failed to get customer data ${resp.status}`);
   const data = await resp.json();
-  try { localStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() })); } catch (_e) { /* quota full */ }
+  lsSet(cacheKey, data);
   return data;
 }
 
 export async function getServiceList() {
   const cacheKey = 'svclist_all';
-  try {
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) {
-      const { data, ts } = JSON.parse(cached);
-      if (Date.now() - ts < 10 * 60 * 1000) return data; // 10 min TTL
-      localStorage.removeItem(cacheKey);
-    }
-  } catch (_e) { /* ignore */ }
+  const cached = lsGet(cacheKey, 10 * 60 * 1000); // 10 min TTL
+  if (cached) return cached;
 
   const params = new URLSearchParams({ servtype: 'all', iskirana: 'false' });
   const url = `${getBaseUrl()}ServiceApis/servServiceList?${params.toString()}`;
@@ -201,7 +184,7 @@ export async function getServiceList() {
 
   const data = await resp.json();
   logger.debug("API", "getServiceList response", { errCode: data.status?.err_code, bodyCount: data.body?.length });
-  try { localStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() })); } catch (_e) { /* ignore */ }
+  lsSet(cacheKey, data);
   return data;
 }
 
@@ -295,33 +278,21 @@ export async function getMyPlanDetails(params) {
 /* Ticket APIs */
 export async function getTktDepartments() {
   const cacheKey = 'tktdepts';
-  try {
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) {
-      const { data, ts } = JSON.parse(cached);
-      if (Date.now() - ts < 30 * 60 * 1000) return data; // 30 min TTL
-      localStorage.removeItem(cacheKey);
-    }
-  } catch (_e) { /* ignore */ }
+  const cached = lsGet(cacheKey, 30 * 60 * 1000); // 30 min TTL
+  if (cached) return cached;
   const url = `${getBaseUrl()}apis/getDepartments`;
   const headers = getHeadersJson();
   const resp = await apiFetch(url, { method: "GET", headers }, "getTktDepartments");
   if (!resp.ok) throw new Error(`Failed to get ticket stats ${resp.status}`);
   const data = await resp.json();
-  try { localStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() })); } catch (_e) { /* quota full */ }
+  lsSet(cacheKey, data);
   return data;
 }
 
 export async function getTickets(tabKey, allParams = {}) {
   const cacheKey = `tkts_${tabKey}_${allParams.user || ''}_${allParams.dept || ''}`;
-  try {
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) {
-      const { data, ts } = JSON.parse(cached);
-      if (Date.now() - ts < 3 * 60 * 1000) return data; // 3 min TTL
-      localStorage.removeItem(cacheKey);
-    }
-  } catch (_e) { /* ignore */ }
+  const cached = lsGet(cacheKey, 3 * 60 * 1000); // 3 min TTL
+  if (cached) return cached;
   var ep = '';
   var inpParams = { apiopid: tabKey !== 'NEW CONNECTIONS' ? allParams.op_id : 'raghav' };
   switch (tabKey) {
@@ -355,7 +326,7 @@ export async function getTickets(tabKey, allParams = {}) {
   if (!resp.ok) throw new Error(`Failed to get tickets data ${resp.status}`);
 
   const data = await resp.json();
-  try { localStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() })); } catch (_e) { /* quota full */ }
+  lsSet(cacheKey, data);
   return data;
 }
 
