@@ -19,17 +19,20 @@
 
 import { fetchImage } from "./iptvImage";
 
-// Adapt concurrency to network speed.  Production uses HTTPS → HTTP/2
-// multiplexing, so we can push more parallel requests than HTTP/1.1's
-// 6-per-host limit.  This is the single biggest lever for 275-channel
-// logo load time: 275 logos ÷ 14 concurrent ≈ 20 batches vs ÷ 8 = 34.
+// Adapt concurrency to network speed and environment.
+// Production server (Apache/PHP 5.6) triggers 30-second queue blocks at 3+
+// concurrent image requests.  Dev server (Vite proxy → 124.40.244.211) handles
+// higher concurrency fine.
+const IS_PROD = import.meta.env.PROD;
+
 function getMaxConcurrent() {
+  if (!IS_PROD) return 6; // Dev server handles higher concurrency
   const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
   if (conn) {
-    if (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g') return 6;
-    if (conn.effectiveType === '3g') return 14;
+    if (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g') return 1;
+    if (conn.effectiveType === '3g') return 1;
   }
-  return 30; // HTTP/2 multiplexing handles 30+ concurrent easily
+  return 2; // Prod server can't handle more without 30s queue blocks
 }
 
 // L1 — in-memory: url → objectURL
@@ -41,29 +44,27 @@ const failed = new Map(); // url → { count, ts }
 // ── Core fetch ──
 
 async function fetchAndCache(url) {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      // This fetch() is intercepted by the service worker.
-      // Workbox serves from Cache API if available (instant),
-      // otherwise forwards to network and caches the response.
-      const res = await fetchImage(url);
-      if (!res.ok) {
-        // On 401/403 retry is pointless — bail immediately
-        if (res.status === 401 || res.status === 403) return null;
-        continue;
-      }
-      const blob = await res.blob();
-      // Validate: must have content and be an image (not an HTML error page)
-      if (!blob.size || (blob.type && !blob.type.startsWith('image/'))) continue;
-
-      const objUrl = URL.createObjectURL(blob);
-      mem.set(url, objUrl);
-      return objUrl;
-    } catch (_e) {
-      // retry on next iteration (network timeout, abort, etc.)
+  try {
+    // This fetch() is intercepted by the service worker.
+    // Workbox serves from Cache API if available (instant),
+    // otherwise forwards to network and caches the response.
+    // Single attempt — retries are handled by the scheduler with backoff.
+    const res = await fetchImage(url);
+    if (!res.ok) {
+      // On 401/403 retry is pointless — bail immediately
+      if (res.status === 401 || res.status === 403) return null;
+      return null;
     }
+    const blob = await res.blob();
+    // Validate: must have content and be an image (not an HTML error page)
+    if (!blob.size || (blob.type && !blob.type.startsWith('image/'))) return null;
+
+    const objUrl = URL.createObjectURL(blob);
+    mem.set(url, objUrl);
+    return objUrl;
+  } catch (_e) {
+    return null;
   }
-  return null;
 }
 
 // ── Notify subscribers (batched via rAF to coalesce React re-renders) ──
@@ -125,21 +126,30 @@ function drain() {
 
 // ── Public API ──
 
+/** Cancel all pending (non-started) queue items.
+ *  Call on page unmount to free the queue for the new page's logos.
+ *  In-flight requests (active) are not affected — they complete normally. */
+export function clearQueue() {
+  while (queue.length > 0) {
+    const item = queue.shift();
+    loading.delete(item.url);
+    item.resolve(null);
+  }
+}
+
 /** Get a cached object URL synchronously (or null if not yet fetched this session) */
 export function getCachedLogo(url) {
   if (!url) return null;
   return mem.get(url) || null;
 }
 
-const MAX_RETRIES = 3;
-const BASE_RETRY_DELAY = 250; // Fast fixed retry — logos are tiny (5-20KB)
+const MAX_RETRIES = 2;
+const BASE_RETRY_DELAY = 2000; // Exponential backoff: 2s, 4s
 const FAILED_COOLDOWN = 60 * 1000; // 60 seconds
 
-function getRetryDelay() {
-  const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-  if (conn && (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g')) return 800;
-  if (conn?.effectiveType === '3g') return 400;
-  return BASE_RETRY_DELAY;
+function getRetryDelay(retryCount) {
+  // Exponential backoff: 2s × 2^(retry-1) → 2s, 4s
+  return BASE_RETRY_DELAY * Math.pow(2, retryCount - 1);
 }
 
 /** Check if a failed URL's cooldown has expired and reset it if so. */
@@ -185,7 +195,7 @@ export function preloadLogos(urls, priority = false) {
                 notifySubs(url, retryResult);
               });
             }
-          }, getRetryDelay()); // Fixed delay — no exponential backoff for tiny images
+          }, getRetryDelay(retryCount));
         }
       }
       // Always notify — even null cleans up orphaned listeners

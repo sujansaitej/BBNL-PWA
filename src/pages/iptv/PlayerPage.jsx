@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, Volume2, VolumeX, Maximize, Minimize, Tv, RefreshCw, Play, Pause, ChevronUp } from "lucide-react";
 import Hls from "hls.js";
 import { getChannelStream, getChannelList, getIptvMobile, prefetchPublicIP } from "../../services/iptvApi";
-import { preloadLogos } from "../../services/logoCache";
+import { preloadLogos, clearQueue } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
 import { proxyImageUrl } from "../../services/iptvImage";
 import { getEntry, getEntryAsync, setEntry, waitForHydration } from "../../services/channelStore";
@@ -126,10 +126,10 @@ function loadWithHlsJs(video, streamUrl, isCancelled, tryPlay, setStatus, setErr
 const ChannelCard = memo(function ChannelCard({ channel, isActive, onSelect }) {
   const hasLogo = channel.chlogo && !channel.chlogo.includes("chnlnoimage");
   const imgSrc = proxyImageUrl(channel.chlogo);
-  const cachedSrc = useCachedLogo(hasLogo ? imgSrc : null);
+  const [cachedSrc, logoRef] = useCachedLogo(hasLogo ? imgSrc : null);
 
   return (
-    <button onClick={() => onSelect(channel)} className={`flex-shrink-0 flex flex-col items-center gap-1.5 w-20 p-2 rounded-2xl transition-colors active:scale-95 ${isActive ? "bg-white/15 ring-1.5 ring-red-500/70" : "bg-white/5 active:bg-white/10"}`} style={{ willChange: 'transform', contain: 'layout style' }}>
+    <button ref={logoRef} onClick={() => onSelect(channel)} className={`flex-shrink-0 flex flex-col items-center gap-1.5 w-20 p-2 rounded-2xl transition-colors active:scale-95 ${isActive ? "bg-white/15 ring-1.5 ring-red-500/70" : "bg-white/5 active:bg-white/10"}`} style={{ willChange: 'transform', contain: 'layout style' }}>
       <div className={`w-13 h-13 rounded-xl flex items-center justify-center overflow-hidden ${isActive ? "bg-white/20" : "bg-white/10"}`}>
         {cachedSrc ? (<img src={cachedSrc} alt={channel.chtitle} className="w-full h-full object-contain p-1" />) : (<Tv className="w-5 h-5 text-white/30" />)}
       </div>
@@ -173,7 +173,7 @@ export default function PlayerPage() {
 
   const hasLogo = currentChannel?.chlogo && !currentChannel.chlogo.includes("chnlnoimage");
   const logoSrc = proxyImageUrl(currentChannel?.chlogo);
-  const cachedPosterUrl = useCachedLogo(hasLogo ? logoSrc : null);
+  const [cachedPosterUrl] = useCachedLogo(hasLogo ? logoSrc : null);
 
   useEffect(() => {
     if (!channel) navigate("/cust/livetv/channels", { replace: true });
@@ -193,9 +193,6 @@ export default function PlayerPage() {
       const cached = getEntry(storeKey) || await getEntryAsync(storeKey);
       if (cached?.data?.length > 0 && !cancelled) {
         setChannelList(cached.data);
-        const urls = cached.data.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
-        preloadLogos(urls.slice(0, 15));
-        if (urls.length > 15) setTimeout(() => preloadLogos(urls.slice(15)), 300);
         return;
       }
 
@@ -206,14 +203,23 @@ export default function PlayerPage() {
         const chnls = data?.body?.[0]?.channels || [];
         setEntry(storeKey, chnls);
         setChannelList(chnls);
-        const urls = chnls.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
-        preloadLogos(urls.slice(0, 15));
-        if (urls.length > 15) setTimeout(() => preloadLogos(urls.slice(15)), 300);
       } catch (_) {}
     })();
 
     return () => { cancelled = true; };
   }, []);
+
+  // Background drip-feed: preload channel strip logos after 3s
+  const bgPreloadRef = useRef(null);
+  useEffect(() => {
+    if (channelList.length === 0) return;
+    if (bgPreloadRef.current) clearTimeout(bgPreloadRef.current);
+    bgPreloadRef.current = setTimeout(() => {
+      const urls = channelList.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
+      if (urls.length > 0) preloadLogos(urls);
+    }, 3000);
+    return () => { if (bgPreloadRef.current) clearTimeout(bgPreloadRef.current); clearQueue(); };
+  }, [channelList]);
 
   useEffect(() => {
     if (!currentChannel) return;

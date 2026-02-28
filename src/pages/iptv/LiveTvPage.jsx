@@ -5,7 +5,7 @@ import { Search, Play, Tv, Radio, AlertCircle, X, Languages, Globe, ArrowLeft, M
 import Layout from "../../layout/Layout";
 import { ChannelListSkeleton } from "../../components/iptv/Loader";
 import { getChannelList, getLanguageList, getAdvertisements, getIptvMobile, prefetchPublicIP } from "../../services/iptvApi";
-import { preloadLogos } from "../../services/logoCache";
+import { preloadLogos, clearQueue } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
 import { proxyImageUrl } from "../../services/iptvImage";
 import { setEntry, getEntry, getEntryAsync, getAdaptiveTTL, waitForHydration } from "../../services/channelStore";
@@ -39,14 +39,14 @@ const AdBanner = memo(function AdBanner({ ad }) {
 const LangCard = memo(function LangCard({ lang, onClick }) {
   const hasLogo = lang.langlogomob && !lang.langlogomob.includes("chnlnoimage");
   const imgSrc = proxyImageUrl(lang.langlogomob);
-  const cachedSrc = useCachedLogo(hasLogo ? imgSrc : null);
+  const [cachedSrc, logoRef] = useCachedLogo(hasLogo ? imgSrc : null);
   const [imgError, setImgError] = useState(false);
 
   // Reset error when a new cached src arrives (e.g. cache finishes loading)
   useEffect(() => { if (cachedSrc) setImgError(false); }, [cachedSrc]);
 
   return (
-    <motion.div whileTap={{ scale: 0.95 }} onClick={onClick} className="flex flex-col items-center cursor-pointer flex-shrink-0 w-[72px]" style={{ willChange: 'transform' }}>
+    <motion.div ref={logoRef} whileTap={{ scale: 0.95 }} onClick={onClick} className="flex flex-col items-center cursor-pointer flex-shrink-0 w-[72px]" style={{ willChange: 'transform' }}>
       <div className="w-14 h-14 rounded-2xl overflow-hidden shadow-md mb-1.5 bg-gray-100 flex items-center justify-center">
         {cachedSrc && !imgError ? (
           <img src={cachedSrc} alt={lang.langtitle} className="w-full h-full object-cover" onError={() => setImgError(true)} />
@@ -68,10 +68,10 @@ const LangCard = memo(function LangCard({ lang, onClick }) {
 const ChannelRow = memo(function ChannelRow({ channel, index, onPlay }) {
   const hasLogo = channel.chlogo && !channel.chlogo.includes("chnlnoimage");
   const imgSrc = proxyImageUrl(channel.chlogo);
-  const cachedSrc = useCachedLogo(hasLogo ? imgSrc : null);
+  const [cachedSrc, logoRef] = useCachedLogo(hasLogo ? imgSrc : null);
 
   return (
-    <div onClick={() => onPlay(channel)} className="flex items-center gap-3 bg-white rounded-xl px-3 py-2.5 cursor-pointer hover:bg-gray-50 active:bg-gray-100 active:scale-[0.98] transition-[colors,transform] duration-150 border border-gray-100 shadow-sm" style={{ contain: 'layout style', contentVisibility: 'auto', containIntrinsicSize: 'auto 68px' }}>
+    <div ref={logoRef} onClick={() => onPlay(channel)} className="flex items-center gap-3 bg-white rounded-xl px-3 py-2.5 cursor-pointer hover:bg-gray-50 active:bg-gray-100 active:scale-[0.98] transition-[colors,transform] duration-150 border border-gray-100 shadow-sm" style={{ contain: 'layout style', contentVisibility: 'auto', containIntrinsicSize: 'auto 68px' }}>
       <div className="w-7 text-center flex-shrink-0"><span className="text-xs font-bold text-gray-600">{channel.chno || index + 1}</span></div>
       <div className="w-11 h-11 rounded-xl bg-gray-50 flex items-center justify-center flex-shrink-0 overflow-hidden">
         {cachedSrc ? (<img src={cachedSrc} alt={channel.chtitle} className="w-full h-full object-contain p-1" />) : (<Tv className="w-5 h-5 text-gray-300" />)}
@@ -320,11 +320,22 @@ export default function LiveTvPage() {
 
   const [ads, setAds] = useState([]);
 
+  // Background drip-feed: after visible logos load via IntersectionObserver,
+  // preload ALL remaining channel logos so they're cached before user scrolls.
+  // 3s delay ensures visible logos and HLS streams get priority first.
+  const bgPreloadRef = useRef(null);
+  useEffect(() => {
+    if (channels.length === 0) return;
+    if (bgPreloadRef.current) clearTimeout(bgPreloadRef.current);
+    bgPreloadRef.current = setTimeout(() => {
+      const urls = channels.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
+      if (urls.length > 0) preloadLogos(urls);
+    }, 3000);
+    return () => { if (bgPreloadRef.current) clearTimeout(bgPreloadRef.current); clearQueue(); };
+  }, [channels]);
+
   useEffect(() => {
     prefetchPublicIP();
-    // Both run in parallel — language logos use priority=true which bypasses
-    // the concurrency limit in drain(), so they always start immediately
-    // even if channel logos have taken all 14 regular slots.
     fetchLanguages();
     fetchChannels();
     getAdvertisements({ mobile: iptvMobile }).then(data => {
@@ -347,21 +358,11 @@ export default function LiveTvPage() {
     let hasCachedData = channels.length > 0 || (cached?.data?.length > 0);
     let dataIsFresh = cached && (Date.now() - cached.ts < ttl);
 
-    // Adapt initial logo batch to connection — fewer on slow networks
-    // keeps the pipe from saturating while first logos appear faster.
-    // On 4G+, push 30 logos immediately — HTTP/2 multiplexing handles this.
-    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    const logoBatch = (conn && (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g')) ? 8
-                    : (conn?.effectiveType === '3g') ? 15 : 30;
-
     // If useState was empty but channelStore has data (race with hydration),
     // push it into state now
     if (!channels.length && cached?.data?.length > 0) {
       setChannels(cached.data);
       setLoading(false);
-      const allUrls = cached.data.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
-      preloadLogos(allUrls.slice(0, logoBatch));
-      if (allUrls.length > logoBatch) setTimeout(() => preloadLogos(allUrls.slice(logoBatch)), 100);
     }
 
     // L2 fallback: if L1 was empty (app restart / hydration race), try IndexedDB
@@ -372,9 +373,6 @@ export default function LiveTvPage() {
         setLoading(false);
         hasCachedData = true;
         dataIsFresh = Date.now() - idbEntry.ts < ttl;
-        const idbUrls = idbEntry.data.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
-        preloadLogos(idbUrls.slice(0, logoBatch));
-        if (idbUrls.length > logoBatch) setTimeout(() => preloadLogos(idbUrls.slice(logoBatch)), 100);
       }
     }
 
@@ -386,9 +384,6 @@ export default function LiveTvPage() {
       const chnls = data?.body?.[0]?.channels || [];
 
       setEntry(chStoreKey, chnls);
-      const freshUrls = chnls.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
-      preloadLogos(freshUrls.slice(0, logoBatch));
-      if (freshUrls.length > logoBatch) setTimeout(() => preloadLogos(freshUrls.slice(logoBatch)), 100);
       setChannels(chnls);
     } catch (err) {
       if (hasCachedData) return;

@@ -10,6 +10,7 @@ import 'swiper/css/pagination'
 import Layout from "../../layout/Layout";
 import { getIptvMobile, getPromoStream } from "../../services/iptvApi";
 import { ads } from "../../services/customer/apis";
+import { lsGet, lsSet } from "../../services/lsCache";
 import { useToast } from "@/components/ui/Toast";
 import { Modal } from "@/components/ui";
 
@@ -60,11 +61,20 @@ export default function Dashboard() {
     
     async function getAds() {
         try {
+            // Check cache first (30 min TTL)
+            const cached = lsGet("webads_custapp", 30 * 60 * 1000);
+            if (cached) {
+                setAdCnt(cached.length);
+                setAdvertisement(cached);
+                setAdLoading(false);
+                return;
+            }
             const data = await ads("custapp");
             const list = (data?.imglist || []).filter(a => a.content);
             if (list.length > 0) {
                 setAdCnt(list.length);
                 setAdvertisement(list);
+                lsSet("webads_custapp", list);
             }
         } catch (err) {
             console.error("Error fetching advertisement:", err);

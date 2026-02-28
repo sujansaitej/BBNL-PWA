@@ -25,14 +25,14 @@ const item = {
 const LangCard = memo(function LangCard({ lang, onClick }) {
   const hasLogo = lang.langlogomob && !lang.langlogomob.includes("chnlnoimage");
   const imgSrc = proxyImageUrl(lang.langlogomob);
-  const cachedSrc = useCachedLogo(hasLogo ? imgSrc : null);
+  const [cachedSrc, logoRef] = useCachedLogo(hasLogo ? imgSrc : null);
   const [imgError, setImgError] = useState(false);
 
   // Reset error when a new cached src arrives (e.g. cache finishes loading)
   useEffect(() => { if (cachedSrc) setImgError(false); }, [cachedSrc]);
 
   return (
-    <motion.div variants={item} whileTap={{ scale: 0.95 }} onClick={onClick} className="flex flex-col items-center cursor-pointer group" style={{ willChange: 'transform, opacity' }}>
+    <motion.div ref={logoRef} variants={item} whileTap={{ scale: 0.95 }} onClick={onClick} className="flex flex-col items-center cursor-pointer group" style={{ willChange: 'transform, opacity' }}>
       <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-md mb-2 bg-gray-100 flex items-center justify-center group-active:shadow-sm transition-shadow">
         {cachedSrc && !imgError ? (
           <img src={cachedSrc} alt={lang.langtitle} className="w-full h-full object-cover" onError={() => setImgError(true)} />

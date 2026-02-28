@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, memo } from "react";
+import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { LayoutGrid, Search, AlertCircle, Play, Tv, ArrowLeft, X, Mic, MicOff } from "lucide-react";
@@ -6,7 +6,7 @@ import Layout from "../../layout/Layout";
 import useVoiceSearch from "../../hooks/useVoiceSearch";
 import { ChannelGridSkeleton } from "../../components/iptv/Loader";
 import { getChannelList, getAdvertisements, getIptvMobile, prefetchPublicIP } from "../../services/iptvApi";
-import { preloadLogos } from "../../services/logoCache";
+import { preloadLogos, clearQueue } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
 import { proxyImageUrl } from "../../services/iptvImage";
 import { getEntry, getEntryAsync, setEntry, getAdaptiveTTL, waitForHydration } from "../../services/channelStore";
@@ -56,10 +56,10 @@ const AdBanner = memo(function AdBanner({ ad }) {
 const ChannelCard = memo(function ChannelCard({ channel, onPlay }) {
   const hasLogo = channel.chlogo && !channel.chlogo.includes("chnlnoimage");
   const imgSrc = proxyImageUrl(channel.chlogo);
-  const cachedSrc = useCachedLogo(hasLogo ? imgSrc : null);
+  const [cachedSrc, logoRef] = useCachedLogo(hasLogo ? imgSrc : null);
 
   return (
-    <div onClick={() => onPlay(channel)} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden cursor-pointer hover:shadow-md active:scale-[0.98] transition-[shadow,transform] duration-150" style={{ contain: 'layout style', contentVisibility: 'auto', containIntrinsicSize: 'auto 185px' }}>
+    <div ref={logoRef} onClick={() => onPlay(channel)} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden cursor-pointer hover:shadow-md active:scale-[0.98] transition-[shadow,transform] duration-150" style={{ contain: 'layout style', contentVisibility: 'auto', containIntrinsicSize: 'auto 185px' }}>
       <div className="relative aspect-video bg-gray-50 flex items-center justify-center">
         {cachedSrc ? (<img src={cachedSrc} alt={channel.chtitle} className="w-full h-full object-contain p-3" />) : (
           <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-100 to-cyan-100 flex items-center justify-center"><Tv className="w-7 h-7 text-blue-500" /></div>
@@ -115,14 +115,17 @@ export default function ChannelsPage() {
 
   const [ads, setAds] = useState([]);
 
-  // Preload logos for channels loaded from memory
+  // Background drip-feed: preload all channel logos after visible ones load
+  const bgPreloadRef = useRef(null);
   useEffect(() => {
-    if (initialChannels.length) {
-      const urls = initialChannels.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
-      preloadLogos(urls.slice(0, 25));
-      if (urls.length > 25) setTimeout(() => preloadLogos(urls.slice(25)), 100);
-    }
-  }, []); // run once on mount
+    if (channels.length === 0) return;
+    if (bgPreloadRef.current) clearTimeout(bgPreloadRef.current);
+    bgPreloadRef.current = setTimeout(() => {
+      const urls = channels.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
+      if (urls.length > 0) preloadLogos(urls);
+    }, 3000);
+    return () => { if (bgPreloadRef.current) clearTimeout(bgPreloadRef.current); clearQueue(); };
+  }, [channels]);
 
   useEffect(() => {
     prefetchPublicIP();
@@ -132,12 +135,6 @@ export default function ChannelsPage() {
       if (list.length > 0) setAds(list);
     }).catch(() => {});
   }, [langid]);
-
-  function _preloadChannelLogos(chnls) {
-    const urls = chnls.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
-    preloadLogos(urls.slice(0, 25));
-    if (urls.length > 25) setTimeout(() => preloadLogos(urls.slice(25)), 100);
-  }
 
   const loadChannels = async () => {
     setError("");
@@ -161,7 +158,7 @@ export default function ChannelsPage() {
           setLoading(false);
           hasCachedData = true;
           dataIsFresh = Date.now() - entry.ts < ttl;
-          _preloadChannelLogos(entry.data);
+
         }
       }
       // Fall back to master list
@@ -174,7 +171,7 @@ export default function ChannelsPage() {
             setLoading(false);
             hasCachedData = true;
             dataIsFresh = Date.now() - mEntry.ts < ttl;
-            _preloadChannelLogos(filtered);
+
           }
         }
       }
@@ -197,7 +194,7 @@ export default function ChannelsPage() {
 
         if (langKey) setEntry(langKey, chnls);
         setChannels(chnls);
-        _preloadChannelLogos(chnls);
+
 
         // Background: populate master cache for future navigation
         getChannelList({ mobile: iptvMobile, langid: "subs" })
@@ -218,7 +215,7 @@ export default function ChannelsPage() {
           setEntry(langKey, chnls);
         }
         setChannels(chnls);
-        _preloadChannelLogos(chnls);
+
       }
     } catch (err) {
       if (hasCachedData) return;

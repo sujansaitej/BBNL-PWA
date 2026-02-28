@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import logger from "../utils/logger";
 import { lsClearAll } from "../services/lsCache";
+import { runIptvPrefetch } from "../services/iptvPrefetch";
 
 const AuthContext = createContext();
 
@@ -40,6 +41,11 @@ export function AuthProvider({ children }) {
       op_id: userDetails.op_id,
       loginType: localStorage.getItem("loginType"),
     });
+    // Trigger IPTV prefetch now that user data is available.
+    // On fresh install, the startup prefetch skipped (no user yet).
+    // This ensures channels, languages, and public IP are ready
+    // before the user opens Live TV.
+    runIptvPrefetch();
   };
 
   const logout = () => {
