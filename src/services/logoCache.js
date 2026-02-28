@@ -26,10 +26,10 @@ import { fetchImage } from "./iptvImage";
 function getMaxConcurrent() {
   const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
   if (conn) {
-    if (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g') return 3;
-    if (conn.effectiveType === '3g') return 6;
+    if (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g') return 6;
+    if (conn.effectiveType === '3g') return 14;
   }
-  return 14;
+  return 30; // HTTP/2 multiplexing handles 30+ concurrent easily
 }
 
 // L1 — in-memory: url → objectURL
@@ -132,15 +132,13 @@ export function getCachedLogo(url) {
 }
 
 const MAX_RETRIES = 3;
-const BASE_RETRY_DELAY = 800;
-// After this cooldown, a previously-failed URL is eligible to retry from scratch.
-// Prevents permanent blacklisting when the user re-visits the page later.
+const BASE_RETRY_DELAY = 250; // Fast fixed retry — logos are tiny (5-20KB)
 const FAILED_COOLDOWN = 60 * 1000; // 60 seconds
 
 function getRetryDelay() {
   const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-  if (conn && (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g')) return 2500;
-  if (conn?.effectiveType === '3g') return 1200;
+  if (conn && (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g')) return 800;
+  if (conn?.effectiveType === '3g') return 400;
   return BASE_RETRY_DELAY;
 }
 
@@ -187,7 +185,7 @@ export function preloadLogos(urls, priority = false) {
                 notifySubs(url, retryResult);
               });
             }
-          }, getRetryDelay() * retryCount);
+          }, getRetryDelay()); // Fixed delay — no exponential backoff for tiny images
         }
       }
       // Always notify — even null cleans up orphaned listeners

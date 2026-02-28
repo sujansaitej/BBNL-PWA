@@ -101,15 +101,12 @@ function _getEffective() {
       .filter((u) => u && !u.includes("chnlnoimage"));
 
     if (eff === '3g') {
-      if (chUrls.length > 0) preloadLogos(chUrls.slice(0, 10));
+      if (chUrls.length > 0) preloadLogos(chUrls.slice(0, 30));
       return;
     }
 
-    // 4G+: aggressive prefetch — first 30 immediately, rest after 150ms
-    if (chUrls.length > 0) {
-      preloadLogos(chUrls.slice(0, 30));
-      if (chUrls.length > 30) setTimeout(() => preloadLogos(chUrls.slice(30)), 150);
-    }
+    // 4G+: queue all logos at once — concurrency limiter handles batching
+    if (chUrls.length > 0) preloadLogos(chUrls);
   } catch (_) {
     // Prefetch is best-effort — never block or crash the app
   }
@@ -129,11 +126,10 @@ function _preloadFromCached(chEntry, langEntry) {
   if (chUrls.length === 0) return;
 
   if (eff === '3g') {
-    preloadLogos(chUrls.slice(0, 10));
+    preloadLogos(chUrls.slice(0, 30));
     return;
   }
 
-  // 4G+: aggressive prefetch — first 30 immediately, rest after 150ms
-  preloadLogos(chUrls.slice(0, 30));
-  if (chUrls.length > 30) setTimeout(() => preloadLogos(chUrls.slice(30)), 150);
+  // 4G+: queue all logos at once — concurrency limiter handles batching
+  preloadLogos(chUrls);
 }

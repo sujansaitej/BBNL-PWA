@@ -56,6 +56,39 @@ body { @apply text-gray-900 dark:text-gray-100; }
 .swiper { padding-bottom: 8px; }
 .swiper-slide { width: 240px; }
 
+/* ── Hotstar-style Ad Banner ── */
+.ad-swiper {
+  padding-bottom: 32px !important;
+  overflow: visible;
+}
+.ad-swiper .swiper-slide {
+  width: auto;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+.ad-swiper .swiper-slide:not(.swiper-slide-active) {
+  opacity: 0.6;
+  transform: scale(0.96);
+}
+.ad-swiper .swiper-slide-active {
+  opacity: 1;
+  transform: scale(1);
+}
+.ad-swiper .swiper-pagination {
+  bottom: 6px !important;
+}
+.ad-swiper .swiper-pagination-bullet {
+  width: 6px;
+  height: 6px;
+  background: rgba(148, 163, 184, 0.5);
+  opacity: 1;
+  transition: all 0.3s ease;
+}
+.ad-swiper .swiper-pagination-bullet-active {
+  width: 20px;
+  border-radius: 4px;
+  background: #6366f1;
+}
+
 t-bg-blue { background-color: #6d67ff !important; }
 bg-blue-dark { background-color: #5c4dff; }
 bg-blue-light { background-color: #7c72ff; }

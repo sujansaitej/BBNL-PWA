@@ -2,13 +2,14 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { ArrowUpOnSquareStackIcon, CurrencyRupeeIcon, ClipboardDocumentListIcon, ChartPieIcon, PhotoIcon, SignalIcon, TicketIcon, UserIcon } from '@heroicons/react/24/outline'
-// import { featuredAds, transactions } from '../../data.js'
+import { PlayCircleIcon } from '@heroicons/react/24/solid'
 import { Swiper, SwiperSlide } from 'swiper/react'
-import { Autoplay } from 'swiper/modules'
+import { Autoplay, Pagination } from 'swiper/modules'
 import 'swiper/css'
+import 'swiper/css/pagination'
 import Layout from "../../layout/Layout";
-import { getIptvMobile } from "../../services/iptvApi";
-import { ads, getPromoStream } from "../../services/customer/apis";
+import { getIptvMobile, getPromoStream } from "../../services/iptvApi";
+import { ads } from "../../services/customer/apis";
 import { useToast } from "@/components/ui/Toast";
 import { Modal } from "@/components/ui";
 
@@ -20,6 +21,7 @@ export default function Dashboard() {
     // const logUname = JSON.parse(localStorage.getItem('user')).username;
     const [Advertisement, setAdvertisement] = useState([]);
     const [adCnt, setAdCnt] = useState(0);
+    const [adLoading, setAdLoading] = useState(true);
     const [modalOpen, setModalOpen] = useState(false);
     const [greet, setGreet] = useState(false);
     const [promoLoading, setPromoLoading] = useState(null);
@@ -66,6 +68,8 @@ export default function Dashboard() {
             }
         } catch (err) {
             console.error("Error fetching advertisement:", err);
+        } finally {
+            setAdLoading(false);
         }
     }
 
@@ -81,8 +85,9 @@ export default function Dashboard() {
 
         setPromoLoading(ad.id);
         try {
-            const stream = await getPromoStream(mobile, ad.id);
+            const data = await getPromoStream({ mobile, id: ad.id });
 
+            const stream = data?.data || data;
             if (!stream.streamlink) {
                 throw new Error("Stream link not available.");
             }
@@ -124,32 +129,71 @@ export default function Dashboard() {
         <Layout>
           <div className="px-4 py-4 space-y-6">
       
-            {/* Featured Ads with Swiper */}
-            {adCnt > 0 && 
-            <div>
-              {/* <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold">Offers & New Features</h2>
-                <a href="#" className="text-sm text-indigo-600">View All</a>
-              </div> */}
-              <Swiper spaceBetween={12} slidesPerView={'auto'} loop={adCnt >= 3} modules={[Autoplay]} autoplay={{ delay: 2500 }}>
-                {Advertisement.map(ad => (
-                  <SwiperSlide key={ad.id} style={{ width: adCnt > 1 ? '90%' : '100%' }}>
-                    <div
-                      onClick={() => handleAdClick(ad)}
-                      className={`relative block bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden ${ad.redirectlink === "yes" ? "cursor-pointer" : ""}`}
-                    >
-                      <img src={ad.content} alt={ad.description} className="h-32 w-full object-cover" loading="lazy" />
-                      {promoLoading === ad.id && (
-                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                          <div className="w-8 h-8 border-3 border-white border-t-transparent rounded-full animate-spin" />
+            {/* Hero Ad Banner — Hotstar Style */}
+            {adLoading ? (
+              <div className="-mx-4 px-4">
+                <div className="aspect-[16/9] rounded-2xl skeleton dark:skeleton-dark" />
+              </div>
+            ) : adCnt > 0 && (
+              <div className={adCnt > 1 ? "-mx-4" : ""}>
+                <Swiper
+                  spaceBetween={10}
+                  slidesPerView={adCnt > 1 ? 1.08 : 1}
+                  centeredSlides
+                  loop={adCnt >= 3}
+                  speed={500}
+                  grabCursor
+                  modules={[Autoplay, Pagination]}
+                  autoplay={{ delay: 3500, disableOnInteraction: false, pauseOnMouseEnter: true }}
+                  pagination={adCnt > 1 ? { clickable: true, dynamicBullets: true } : false}
+                  className="ad-swiper"
+                >
+                  {Advertisement.map(ad => (
+                    <SwiperSlide key={ad.id}>
+                      <div
+                        onClick={() => handleAdClick(ad)}
+                        className={`relative aspect-[16/9] rounded-2xl overflow-hidden shadow-lg ${
+                          ad.redirectlink === "yes" ? "cursor-pointer active:scale-[0.98] transition-transform duration-200" : ""
+                        }`}
+                      >
+                        <img
+                          src={ad.content}
+                          alt={ad.description || "Advertisement"}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                          draggable={false}
+                        />
+
+                        {/* Gradient overlay */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent pointer-events-none" />
+
+                        {/* Bottom content */}
+                        <div className="absolute bottom-0 inset-x-0 p-4">
+                          {ad.description && (
+                            <p className="text-white font-semibold text-sm leading-snug line-clamp-2 drop-shadow-lg">
+                              {ad.description}
+                            </p>
+                          )}
+                          {ad.redirectlink === "yes" && (
+                            <div className="inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full bg-white/20 backdrop-blur-sm">
+                              <PlayCircleIcon className="w-4 h-4 text-white" />
+                              <span className="text-white text-[11px] font-semibold tracking-wider uppercase">Watch Now</span>
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  </SwiperSlide>
-                ))}
-              </Swiper>
-            </div>
-            }
+
+                        {/* Loading overlay */}
+                        {promoLoading === ad.id && (
+                          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center">
+                            <div className="w-10 h-10 border-[3px] border-white border-t-transparent rounded-full animate-spin" />
+                          </div>
+                        )}
+                      </div>
+                    </SwiperSlide>
+                  ))}
+                </Swiper>
+              </div>
+            )}
       
             {/* Stats Grid */}
             <div className="grid grid-cols-4 gap-3">

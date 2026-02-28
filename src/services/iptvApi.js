@@ -199,6 +199,15 @@ export function addFtaUser({ name, mobile }) {
   });
 }
 
+export async function getPromoStream({ mobile, id }) {
+  requireMobile(mobile);
+  if (!id) throw new Error("Promo ID is required.");
+  return iptvFetch("/promo_stream", {
+    method: "POST",
+    body: JSON.stringify({ mobile, id }),
+  });
+}
+
 export async function getChannelStream({ mobile, chid = "", chno = "", ip_address }) {
   requireMobile(mobile);
   if (!ip_address) {

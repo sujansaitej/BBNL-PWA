@@ -57,10 +57,10 @@ export function fixImageUrl(url) {
 function getImageTimeout() {
   const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
   if (conn) {
-    if (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g') return 15000;
-    if (conn.effectiveType === '3g') return 10000;
+    if (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g') return 8000;
+    if (conn.effectiveType === '3g') return 5000;
   }
-  return 5000;
+  return 3000; // Logos are 5-20KB — fail fast, let retry cycle recover
 }
 
 export async function fetchImage(url, options = {}) {

@@ -38,7 +38,7 @@ export default function useCachedLogo(url) {
           unsubRef.current = subscribeLogo(url, (retryVal) => {
             if (retryVal) setDataUrl(retryVal);
           });
-        }, 800);
+        }, 250);
       }
     });
     unsubRef.current = unsub;

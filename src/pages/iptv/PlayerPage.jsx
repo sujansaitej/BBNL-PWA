@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, Volume2, VolumeX, Maximize, Minimize, Tv, RefreshCw, Play, Pause, ChevronUp } from "lucide-react";
 import Hls from "hls.js";
-import { getChannelStream, getChannelList, getIptvMobile } from "../../services/iptvApi";
+import { getChannelStream, getChannelList, getIptvMobile, prefetchPublicIP } from "../../services/iptvApi";
 import { preloadLogos } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
 import { proxyImageUrl } from "../../services/iptvImage";

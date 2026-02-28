@@ -191,6 +191,7 @@ export default ({ mode }) => {
           changeOrigin: true,
           secure: false,
           rewrite: (path) => path.replace(/^\/iptv-api/, ""),
+          configure: addIptvAuth,
         },
         "/showimage": {
           target: "http://124.40.244.211",
