@@ -16,7 +16,7 @@ export default function Header({ onOpenSidebar }) {
     navigate("/login");
   }
   return (
-    <header className="sticky top-0 z-40 flex items-center justify-between px-4 py-3 shadow-lg bg-gradient-to-r from-indigo-600 to-blue-600">
+    <header className="sticky top-0 z-40 flex items-center justify-between px-4 pb-3 shadow-lg bg-gradient-to-r from-indigo-600 to-blue-600" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
       <button onClick={onOpenSidebar} className="p-2 rounded-lg white-icon">
         <Bars3Icon className="h-7 w-7 text-white dark:text-black" />
       </button>

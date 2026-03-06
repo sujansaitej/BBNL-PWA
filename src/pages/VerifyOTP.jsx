@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { OTPauth, resendOTP } from "../services/generalApis";
 import { useNavigate } from "react-router-dom";
 import { useDarkMode } from "../hooks/useDarkMode";
+import { getUser } from "../services/safeStorage";
 
 export default function VerifyOtpPage() {
   const navigate   = useNavigate();
@@ -15,8 +16,8 @@ export default function VerifyOtpPage() {
   const [canResend, setCanResend] = useState(false);
   const containerRef = useRef(null);
 
-  const userdet = JSON.parse(localStorage.getItem('user'));
-  const username = userdet ? userdet.username : "";
+  const userdet = getUser();
+  const username = userdet.username || "";
   const otprefid = localStorage.getItem("otprefid") || "";
 
   // countdown timer

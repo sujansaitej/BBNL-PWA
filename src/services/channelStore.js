@@ -16,7 +16,7 @@
 const DB_NAME = 'iptv-store';
 const DB_VERSION = 1;
 const STORE_NAME = 'data';
-const FRESH_TTL = 15 * 60 * 1000; // 15 min
+const FRESH_TTL = 30 * 60 * 1000; // 30 min
 
 // ── L1: in-memory ──
 const mem = new Map(); // key → { data, ts }
@@ -135,7 +135,7 @@ export async function getEntryAsync(key) {
  * so we avoid unnecessary refetches that would take 15-40 s anyway.
  *   2G / slow-2G → 60 min
  *   3G           → 30 min
- *   4G+          → 15 min (default)
+ *   4G+          → 30 min (default)
  */
 export function getAdaptiveTTL() {
   const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;

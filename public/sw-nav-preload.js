@@ -10,7 +10,7 @@
  */
 // Stale caches to delete on activation — bumped to v2 to purge corrupted
 // opaque (status 0) responses that CacheFirst served forever.
-var STALE_CACHES = ['channel-assets-v1'];
+var STALE_CACHES = ['channel-assets-v1', 'channel-assets-v2'];
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
@@ -22,6 +22,12 @@ self.addEventListener('activate', (event) => {
       for (var name of STALE_CACHES) {
         await caches.delete(name).catch(function () {});
       }
+      // Purge the app-assets runtime cache on every SW activation.
+      // After a deployment, old content-hashed JS/CSS filenames (e.g.
+      // Login-Dg_vNWKZ.js) will never be requested again, but they linger
+      // in the cache wasting space and can confuse StaleWhileRevalidate.
+      // Deleting the bucket forces a clean fetch for the new filenames.
+      await caches.delete('app-assets').catch(function () {});
     })()
   );
 });

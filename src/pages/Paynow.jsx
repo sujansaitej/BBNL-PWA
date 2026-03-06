@@ -5,6 +5,7 @@ import { formatToDecimals } from "../services/helpers";
 import { getWalBal } from "../services/generalApis";
 import { getPayDets, payNow } from "../services/registrationApis";
 import { Button, Loader, Badge, Alert } from "@/components/ui";
+import { getUser, safeGetJSON } from "../services/safeStorage";
 
 export default function Subscribe() {
   const navigate = useNavigate();
@@ -22,13 +23,13 @@ export default function Subscribe() {
   const [paydet, setPaydet] = useState({});
   const [sharedet, setSharedet] = useState({});
 
-  const user = JSON.parse(localStorage.getItem('user'));
+  const user = getUser();
   const logUname = user?.username;
   const op_id = user?.op_id;
 
   // Check if coming from customer overview (location.state) or registration flow (localStorage)
   const paymentData = location.state;
-  const regData = paymentData ? null : JSON.parse(localStorage.getItem('registrationData'));
+  const regData = paymentData ? null : safeGetJSON('registrationData', null);
 
   // Use payment data from navigation state or registration data
   const userid = paymentData?.userid || regData?.username;

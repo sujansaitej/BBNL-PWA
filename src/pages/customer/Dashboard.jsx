@@ -1,7 +1,7 @@
 // import DashboardContent from "../../components/Dashboard";
 import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
-import { ArrowUpOnSquareStackIcon, CurrencyRupeeIcon, ClipboardDocumentListIcon, ChartPieIcon, PhotoIcon, SignalIcon, TicketIcon, UserIcon } from '@heroicons/react/24/outline'
+import { ArrowUpOnSquareStackIcon, CurrencyRupeeIcon, ClipboardDocumentListIcon, ChartPieIcon, SignalIcon, TicketIcon, UserIcon } from '@heroicons/react/24/outline'
 import { PlayCircleIcon } from '@heroicons/react/24/solid'
 import { Swiper, SwiperSlide } from 'swiper/react'
 import { Autoplay, Pagination } from 'swiper/modules'
@@ -9,6 +9,7 @@ import 'swiper/css'
 import 'swiper/css/pagination'
 import Layout from "../../layout/Layout";
 import { getIptvMobile, getPromoStream } from "../../services/iptvApi";
+import { fixImageUrl } from "../../services/iptvImage";
 import { ads } from "../../services/customer/apis";
 import { lsGet, lsSet } from "../../services/lsCache";
 import { useToast } from "@/components/ui/Toast";
@@ -109,7 +110,7 @@ export default function Dashboard() {
                 streamlink: stream.streamlink,
                 chid: meta.chid || ad.id,
                 chtitle: meta.chtitle || ad.description || "Promo",
-                chlogo: meta.chlogo || ad.content,
+                chlogo: meta.chlogo || fixImageUrl(ad.content),
             };
             navigate("/cust/livetv/player", { state: { channel } });
         } catch (err) {
@@ -124,7 +125,6 @@ export default function Dashboard() {
         { id: 'bills', title: 'Bills', Icon: ClipboardDocumentListIcon, path: '#' },
         { id: 'ticket', title: 'Tickets', Icon: TicketIcon, path: '#' },
         { id: 'profile', title: 'Profile', Icon: UserIcon, path: '#' },
-        { id: 'album', title: 'Photo Album', Icon: PhotoIcon, path: '#' },
         { id: 'datausage', title: 'Data Usage', Icon: ChartPieIcon, path: '#' },
         { id: 'updateKyc', title: 'Update KYC', Icon: ArrowUpOnSquareStackIcon, path: '#' },
         { id: 'resetwifi', title: 'Reset WiFi', Icon: SignalIcon, path: '#' },
@@ -167,7 +167,7 @@ export default function Dashboard() {
                         }`}
                       >
                         <img
-                          src={ad.content}
+                          src={fixImageUrl(ad.content)}
                           alt={ad.description || "Advertisement"}
                           className="w-full h-full object-cover"
                           loading="lazy"

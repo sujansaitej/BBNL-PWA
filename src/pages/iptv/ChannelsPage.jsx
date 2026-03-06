@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, memo } from "react";
+import { useState, useEffect, useCallback, memo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { LayoutGrid, Search, AlertCircle, Play, Tv, ArrowLeft, X, Mic, MicOff } from "lucide-react";
@@ -53,7 +53,7 @@ const AdBanner = memo(function AdBanner({ ad }) {
 // via the GPU compositor (zero JS cost).
 // content-visibility: auto — Chrome skips layout/paint for off-screen cards,
 // cutting initial render from 200+ items to ~6 visible ones.
-const ChannelCard = memo(function ChannelCard({ channel, onPlay }) {
+const ChannelCard = memo(function ChannelCard({ channel, index, onPlay }) {
   const hasLogo = channel.chlogo && !channel.chlogo.includes("chnlnoimage");
   const imgSrc = proxyImageUrl(channel.chlogo);
   const [cachedSrc, logoRef] = useCachedLogo(hasLogo ? imgSrc : null);
@@ -61,7 +61,7 @@ const ChannelCard = memo(function ChannelCard({ channel, onPlay }) {
   return (
     <div ref={logoRef} onClick={() => onPlay(channel)} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden cursor-pointer hover:shadow-md active:scale-[0.98] transition-[shadow,transform] duration-150" style={{ contain: 'layout style', contentVisibility: 'auto', containIntrinsicSize: 'auto 185px' }}>
       <div className="relative aspect-video bg-gray-50 flex items-center justify-center">
-        {cachedSrc ? (<img src={cachedSrc} alt={channel.chtitle} className="w-full h-full object-contain p-3" />) : (
+        {cachedSrc ? (<img loading={index < 6 ? undefined : "lazy"} src={cachedSrc} alt={channel.chtitle} className="w-full h-full object-contain p-3" />) : (
           <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-100 to-cyan-100 flex items-center justify-center"><Tv className="w-7 h-7 text-blue-500" /></div>
         )}
         <div className="absolute inset-0 bg-black/0 hover:bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
@@ -115,16 +115,13 @@ export default function ChannelsPage() {
 
   const [ads, setAds] = useState([]);
 
-  // Background drip-feed: preload all channel logos after visible ones load
-  const bgPreloadRef = useRef(null);
+  // Preload ALL channel logos immediately — 40 concurrent over HTTP/2.
+  // loading="lazy" on <img> prevents browser from competing for bandwidth.
   useEffect(() => {
     if (channels.length === 0) return;
-    if (bgPreloadRef.current) clearTimeout(bgPreloadRef.current);
-    bgPreloadRef.current = setTimeout(() => {
-      const urls = channels.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
-      if (urls.length > 0) preloadLogos(urls);
-    }, 3000);
-    return () => { if (bgPreloadRef.current) clearTimeout(bgPreloadRef.current); clearQueue(); };
+    const allUrls = channels.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
+    if (allUrls.length > 0) preloadLogos(allUrls);
+    return () => { clearQueue(); };
   }, [channels]);
 
   useEffect(() => {
@@ -196,13 +193,17 @@ export default function ChannelsPage() {
         setChannels(chnls);
 
 
-        // Background: populate master cache for future navigation
-        getChannelList({ mobile: iptvMobile, langid: "subs" })
-          .then((d) => {
-            const all = d?.body?.[0]?.channels || [];
-            if (all.length > 0) setEntry(masterKey, all);
-          })
-          .catch(() => {}); // best-effort
+        // Background: populate master cache for future navigation.
+        // Defer 3s so the primary language fetch completes first and
+        // doesn't compete for one of the 4 concurrency slots.
+        setTimeout(() => {
+          getChannelList({ mobile: iptvMobile, langid: "subs" })
+            .then((d) => {
+              const all = d?.body?.[0]?.channels || [];
+              if (all.length > 0) setEntry(masterKey, all);
+            })
+            .catch(() => {}); // best-effort
+        }, 3000);
       } else {
         // ── NORMAL PATH: fetch all, filter client-side, cache both ──
         const data = await getChannelList({ mobile: iptvMobile, langid: "subs" });
@@ -313,7 +314,7 @@ export default function ChannelsPage() {
 
         {!loading && !error && filteredChannels.length > 0 && (
           <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
-            {filteredChannels.map((ch, idx) => (<ChannelCard key={ch.chid || idx} channel={ch} onPlay={handlePlayChannel} />))}
+            {filteredChannels.map((ch, idx) => (<ChannelCard key={ch.chid || idx} channel={ch} index={idx} onPlay={handlePlayChannel} />))}
           </div>
         )}
 

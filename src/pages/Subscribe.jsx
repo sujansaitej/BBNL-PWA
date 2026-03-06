@@ -3,19 +3,23 @@ import Layout from "../layout/Layout";
 import { useNavigate } from "react-router-dom";
 import { getOnuHwDets, registerCustomer } from "../services/registrationApis";
 import { Button, Badge, Input, FloatingInput } from "@/components/ui";
+import { useToast } from "@/components/ui/Toast";
+import { getUser, safeGetJSON } from "../services/safeStorage";
 
 export default function Subscribe() {
   const navigate = useNavigate();
-  const selectedPlan = JSON.parse(localStorage.getItem('selectedPlan')) || {};
-  const groups = JSON.parse(localStorage.getItem('groups')) || [];
+  const toast = useToast();
+  const selectedPlan = safeGetJSON('selectedPlan', {});
+  const groups = safeGetJSON('groups', []);
 
   const [form, setForm] = useState({ groupid: "", onumacid: "", internet_hardwareid: "", installationcharges : "", othercharges: "", otherchargesremarks: "" });
   const [errors, setErrors] = useState({});
   const [checking, setChecking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const logUname = JSON.parse(localStorage.getItem('user')).username;
-  const op_id = JSON.parse(localStorage.getItem('user')).op_id;
+  const user = getUser();
+  const logUname = user.username || "";
+  const op_id = user.op_id || "";
   form.groupid = form.groupid ? form.groupid : (groups[0] ? groups[0].group_id : "");
 
     const handleChange = (e) =>
@@ -88,13 +92,13 @@ export default function Subscribe() {
             const res = await registerCustomer(subscriptionData);
             // console.log("Registration response:", res);
             if (res?.status?.err_code !== 0) {
-                alert("Registration failed: " + (res?.status?.err_msg || "Unknown error"));
+                toast.add("Registration failed: " + (res?.status?.err_msg || "Unknown error"), { type: 'error' });
                 return;
             }else{
                 setSubmitting(false);
                 const keysToRemove = ['photoFileId', 'idcardIds', 'addrproofIds'];
                 keysToRemove.forEach(key => localStorage.removeItem(key));
-                alert("Registered successfully!");
+                toast.add("Registered successfully!", { type: 'success' });
                 navigate('/paynow');
                 // window.location.href = '/paynow';
             }

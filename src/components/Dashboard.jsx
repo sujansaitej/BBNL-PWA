@@ -9,22 +9,30 @@ import { Autoplay } from 'swiper/modules'
 import 'swiper/css'
 import { getWalBal } from "../services/generalApis";
 import { Modal } from "@/components/ui";
+import { getUser } from "../services/safeStorage";
 
 export default function Dashboard() {
-  const logUname = JSON.parse(localStorage.getItem('user')).username;
+  const logUname = getUser().username || "";
   const [intWB, setIntWB] = useState(0);
   const [fofiWB, setFofiWB] = useState(0);
   const [adList, setAdList] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [greet, setGreet] = useState(false);
-  localStorage.getItem('firstLogin') ? null : localStorage.setItem('firstLogin', 'true');
-  if(localStorage.getItem('firstLogin') === 'true'){
-    setTimeout(() => {
-      setGreet(true);
-      setModalOpen(true);
-      localStorage.setItem('firstLogin', 'false');
-    }, 1000);
-  }
+
+  // Show welcome greeting on first login (once)
+  useEffect(() => {
+    if (!localStorage.getItem('firstLogin')) {
+      localStorage.setItem('firstLogin', 'true');
+    }
+    if (localStorage.getItem('firstLogin') === 'true') {
+      const timer = setTimeout(() => {
+        setGreet(true);
+        setModalOpen(true);
+        localStorage.setItem('firstLogin', 'false');
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, []);
 
   useEffect(() => {
     // Fetch everything in parallel — wallet balances + ads all at once

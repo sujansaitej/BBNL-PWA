@@ -28,6 +28,7 @@ function getHeadersJson() {
     password: import.meta.env.VITE_API_PASSWORD,
     appkeytype: localStorage.getItem('loginType') == "franchisee" ? import.meta.env.VITE_API_APP_USER_TYPE : import.meta.env.VITE_API_APP_USER_TYPE_CUST,
     appversion: import.meta.env.VITE_API_APP_VERSION,
+    "X-App-Package": "com.bbnl.smartphone",
     "Content-Type": "application/json",
   };
 }
@@ -39,6 +40,7 @@ function getHeadersForm() {
         password: import.meta.env.VITE_API_PASSWORD,
         appkeytype: localStorage.getItem('loginType') == "franchisee" ? import.meta.env.VITE_API_APP_USER_TYPE : import.meta.env.VITE_API_APP_USER_TYPE_CUST,
         appversion: import.meta.env.VITE_API_APP_VERSION,
+        "X-App-Package": "com.bbnl.smartphone",
     };
 }
 

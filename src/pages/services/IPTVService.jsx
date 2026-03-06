@@ -144,11 +144,11 @@ export default function IPTVService() {
                     }
                 });
             } else {
-                alert('Failed to load documents: ' + (response?.status?.err_msg || 'Unknown error'));
+                toast.add('Failed to load documents: ' + (response?.status?.err_msg || 'Unknown error'), { type: 'error' });
             }
         } catch (err) {
             console.error('Error loading document preview:', err);
-            alert('Failed to load documents. Please try again.');
+            toast.add('Failed to load documents. Please try again.', { type: 'error' });
         } finally {
             setUploadLoading(false);
         }
@@ -300,20 +300,20 @@ export default function IPTVService() {
                     </div>
                     <div className="space-y-1 text-sm">
                         <div className="flex">
-                            <span className="w-36 text-gray-600 dark:text-gray-400">Username</span>
-                            <span className="text-gray-600 dark:text-gray-400">: {formatCustomerId(customerData.customer_id)}</span>
+                            <span className="w-36 shrink-0 text-gray-600 dark:text-gray-400">Username</span>
+                            <span className="text-gray-600 dark:text-gray-400 min-w-0 break-all">: {formatCustomerId(customerData.customer_id)}</span>
                         </div>
                         <div className="flex">
-                            <span className="w-36 text-gray-600 dark:text-gray-400">Customer Name</span>
-                            <span className="text-gray-600 dark:text-gray-400">: {customerData.name}</span>
+                            <span className="w-36 shrink-0 text-gray-600 dark:text-gray-400">Customer Name</span>
+                            <span className="text-gray-600 dark:text-gray-400 min-w-0 break-all">: {customerData.name}</span>
                         </div>
                         <div className="flex">
-                            <span className="w-36 text-gray-600 dark:text-gray-400">Ph Number</span>
-                            <span className="text-gray-600 dark:text-gray-400">: {customerData.mobile}</span>
+                            <span className="w-36 shrink-0 text-gray-600 dark:text-gray-400">Ph Number</span>
+                            <span className="text-gray-600 dark:text-gray-400 min-w-0 break-all">: {customerData.mobile}</span>
                         </div>
                         <div className="flex">
-                            <span className="w-36 text-gray-600 dark:text-gray-400">Email Id</span>
-                            <span className="text-gray-600 dark:text-gray-400">: {customerData.email}</span>
+                            <span className="w-36 shrink-0 text-gray-600 dark:text-gray-400">Email Id</span>
+                            <span className="text-gray-600 dark:text-gray-400 min-w-0 break-all">: {customerData.email}</span>
                         </div>
                     </div>
                 </div>

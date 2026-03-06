@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { ArrowLeftIcon, PencilIcon } from '@heroicons/react/24/outline';
+import { useToast } from "@/components/ui/Toast";
 
 export default function ResetMac({ customer, onBack }) {
     const [customerId, setCustomerId] = useState(customer?.customer_id || '');
+    const toast = useToast();
 
     const handleReset = () => {
         // TODO: Backend integration - Reset MAC API call
         console.log('Resetting MAC for customer:', customerId);
-        alert('MAC reset functionality will be integrated with backend');
+        toast.add('MAC reset functionality will be integrated with backend', { type: 'info' });
     };
 
     return (

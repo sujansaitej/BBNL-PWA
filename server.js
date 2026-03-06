@@ -26,7 +26,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(__dirname, "dist");
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const STREAM_PREFIX = "/stream/";
-const BASE_PATH = "/pwa/crm"; // Must match vite.config.js base
+const BASE_PATH = "/smartphone/crm"; // Must match vite.config.js base
 const SESSION_MAX_AGE = 600_000;
 
 // Allowed stream hosts — only these hostnames can be proxied
@@ -62,6 +62,33 @@ const MIME = {
 
 // ── HTTP/2 session pool — one session per stream host ──
 const sessionPool = new Map(); // host → { session, nextSession, createdAt, activeCount, pingTimer }
+
+// ── Segment Cache — serves repeated .ts requests from memory ──
+// When multiple viewers watch the same channel, only the first request
+// fetches from origin. Subsequent requests get the cached segment instantly.
+const segmentCache = new Map();
+let segmentCacheBytes = 0;
+const SEG_CACHE_MAX = 150 * 1024 * 1024; // 150 MB max
+const SEG_CACHE_TTL = 25_000;            // 25s — covers ~4 live segments
+
+function getSegmentCache(key) {
+  const e = segmentCache.get(key);
+  if (!e) return null;
+  if (Date.now() > e.exp) { segmentCacheBytes -= e.buf.length; segmentCache.delete(key); return null; }
+  return e;
+}
+
+function setSegmentCache(key, buf, contentType) {
+  if (buf.length > 10 * 1024 * 1024) return; // skip segments > 10 MB
+  while (segmentCacheBytes + buf.length > SEG_CACHE_MAX && segmentCache.size > 0) {
+    const oldest = segmentCache.keys().next().value;
+    const old = segmentCache.get(oldest);
+    segmentCacheBytes -= old.buf.length;
+    segmentCache.delete(oldest);
+  }
+  segmentCache.set(key, { buf, contentType, exp: Date.now() + SEG_CACHE_TTL });
+  segmentCacheBytes += buf.length;
+}
 
 const BENIGN_ERRORS = new Set([
   "ERR_HTTP2_STREAM_CANCEL", "ERR_STREAM_PREMATURE_CLOSE", "ERR_STREAM_DESTROYED",
@@ -264,7 +291,7 @@ function handleStreamRequest(req, res) {
     safeWriteHead(res, 204, {
       "Access-Control-Allow-Origin": corsOrigin,
       "Access-Control-Allow-Methods": "GET, OPTIONS",
-      "Access-Control-Allow-Headers": "Range, Content-Type",
+      "Access-Control-Allow-Headers": "Range, Content-Type, X-App-Package",
       "Access-Control-Max-Age": "86400",
     });
     safeEnd(res);
@@ -280,6 +307,24 @@ function handleStreamRequest(req, res) {
   }
 
   const { host: streamHost, streamPath } = parsed;
+  const isSegment = /\.(ts|m4s|fmp4|aac|mp4)(\?|$)/i.test(streamPath);
+
+  // Serve cached segment if available (cache hit = no origin fetch)
+  if (isSegment) {
+    const cacheKey = `${streamHost}${streamPath.split('?')[0]}`;
+    const cached = getSegmentCache(cacheKey);
+    if (cached) {
+      safeWriteHead(res, 200, {
+        "Content-Type": cached.contentType,
+        "Content-Length": cached.buf.length,
+        "Access-Control-Allow-Origin": corsOrigin,
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Cache-Control": "no-store",
+      });
+      safeEnd(res, cached.buf);
+      return;
+    }
+  }
 
   let session;
   try { session = getSession(streamHost); } catch (err) {
@@ -301,6 +346,7 @@ function handleStreamRequest(req, res) {
     ":path": streamPath,
     ":authority": streamHost,
     "accept": "*/*",
+    "x-app-package": "com.bbnl.smartphone",
   };
 
   let h2Req = safeRequest(session, reqHeaders);
@@ -361,8 +407,21 @@ function handleStreamRequest(req, res) {
             send502(res);
           }
         });
+      } else if (isSegment && status >= 200 && status < 300) {
+        // Buffer segment for caching, then send to client
+        const segChunks = [];
+        h2Req.on("data", (chunk) => segChunks.push(chunk));
+        h2Req.on("end", () => {
+          try {
+            const buf = Buffer.concat(segChunks);
+            setSegmentCache(`${streamHost}${streamPath.split('?')[0]}`, buf, contentType);
+            outHeaders["Content-Length"] = buf.length;
+            safeWriteHead(res, status, outHeaders);
+            safeEnd(res, buf);
+          } catch (e) { if (!isBenign(e)) send502(res); }
+        });
       } else {
-        // Binary segments — stream directly with backpressure
+        // Other binary data — stream directly with backpressure
         if (headers["content-length"]) outHeaders["Content-Length"] = headers["content-length"];
         safeWriteHead(res, status, outHeaders);
         pipeline(h2Req, res, (err) => {
@@ -441,7 +500,7 @@ function serveStatic(req, res) {
 }
 
 // ── HTTP/2 Server ──
-const STREAM_PREFIX_WITH_BASE = BASE_PATH + STREAM_PREFIX; // /pwa/crm/stream/
+const STREAM_PREFIX_WITH_BASE = BASE_PATH + STREAM_PREFIX; // /smartphone/crm/stream/
 
 const TLS_CERT_PATH = process.env.TLS_CERT_PATH;
 const TLS_KEY_PATH = process.env.TLS_KEY_PATH;

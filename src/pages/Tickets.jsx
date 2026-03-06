@@ -6,6 +6,7 @@ import { Search, MapPin, ClipboardList } from "lucide-react";
 import { tktTabs, formatTo12Hour } from "../services/helpers";
 import { useOpenMap } from "../hooks/useOpenMap";
 import { getTktDepartments, getTickets, pickTicket } from "../services/generalApis";
+import { getUser } from "../services/safeStorage";
 
 const Tickets = () => {
   const toast = useToast();
@@ -34,7 +35,7 @@ const Tickets = () => {
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
 
-  const userdet = JSON.parse(localStorage.getItem('user'));
+  const userdet = getUser();
   const deptsAllowedTabs = ['OPEN', 'PENDING'];
 
   const employees = [

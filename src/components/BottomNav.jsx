@@ -41,7 +41,7 @@ export default function BottomBar() {
   return (
     <>
     {localStorage.getItem('loginType') !== 'customer' &&
-    <div className="fixed bottom-0 left-0 w-full bg-white dark:bg-gray-900 shadow-md border-t border-gray-200 dark:border-gray-700 flex justify-around items-center py-2 z-50">
+    <div className="fixed bottom-0 left-0 w-full bg-white dark:bg-gray-900 shadow-md border-t border-gray-200 dark:border-gray-700 flex justify-around items-center pt-2 z-50" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0.5rem))' }}>
       {/* Add user */}
       <Link to="/register" className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
         <UserPlusIcon className="h-6 w-6" />
@@ -82,7 +82,7 @@ export default function BottomBar() {
     </div>
     }
     {localStorage.getItem('loginType') === 'customer' &&
-    <div className="fixed bottom-0 left-0 w-full bg-white dark:bg-gray-900 shadow-md border-t border-gray-200 dark:border-gray-700 flex justify-around items-center py-2 z-50">
+    <div className="fixed bottom-0 left-0 w-full bg-white dark:bg-gray-900 shadow-md border-t border-gray-200 dark:border-gray-700 flex justify-around items-center pt-2 z-50" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0.5rem))' }}>
       {/* Live TV */}
       <Link to="/cust/livetv" className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
         <TvIcon className="h-6 w-6" />

@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { MagnifyingGlassIcon, ArrowRightIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
 import { submitRegistrationNecessities } from "../services/registrationApis";
 import { Loader, Badge } from "@/components/ui";
+import { getUser } from "../services/safeStorage";
 
 export default function Plans() {
   const navigate = useNavigate();
@@ -13,7 +14,7 @@ export default function Plans() {
   const [plancount, setPlancount] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  const logUname = JSON.parse(localStorage.getItem('user')).username;
+  const logUname = getUser().username || "";
 
   useEffect(() => {
     getPlans();

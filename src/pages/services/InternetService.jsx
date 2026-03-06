@@ -11,34 +11,49 @@ import {
   getMyPlanDetails,
   getCustKYCPreview
 } from "../../services/generalApis";
+import { lsGetStale } from "../../services/lsCache";
 import { formatCustomerId } from "../../services/helpers";
+import { useToast } from "@/components/ui/Toast";
+
+const OVERVIEW_TTL = 2 * 60 * 1000; // 2 min
 
 export default function InternetService() {
   const { customerId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
+  const toast = useToast();
   const [showServiceModal, setShowServiceModal] = useState(false);
 
   // Use actual customer data from API (passed from customer list)
   const customerData = location.state?.customer;
   const userid = customerData?.customer_id || customerId;
 
-  // API states
-  const [assignedItems, setAssignedItems] = useState(null);
-  const [cableDetails, setCableDetails] = useState(null);
-  const [primaryDetails, setPrimaryDetails] = useState(null);
-  const [planDetails, setPlanDetails] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Try to hydrate from cache synchronously for instant render
+  const _cachedAI = userid ? lsGetStale(`uai_internet_${userid}`, OVERVIEW_TTL) : null;
+  const _cachedCD = userid ? lsGetStale(`cblcust_${userid}`, OVERVIEW_TTL) : null;
+  const _cachedPD = userid ? lsGetStale(`pricust_${userid}`, OVERVIEW_TTL) : null;
+  const _cachedPlan = userid ? lsGetStale(`plandets_internet_${userid}_`, OVERVIEW_TTL) : null;
+  const _hasCached = !!(_cachedAI || _cachedCD || _cachedPD || _cachedPlan);
+
+  // API states — initialize from cache if available (instant render)
+  const [assignedItems, setAssignedItems] = useState(_cachedAI?.data || null);
+  const [cableDetails, setCableDetails] = useState(_cachedCD?.data || null);
+  const [primaryDetails, setPrimaryDetails] = useState(_cachedPD?.data || null);
+  const [planDetails, setPlanDetails] = useState(_cachedPlan?.data || null);
+  const [loading, setLoading] = useState(!_hasCached); // Skip spinner if cache hit
   const [error, setError] = useState("");
   const [uploadLoading, setUploadLoading] = useState(false);
 
   useEffect(() => {
     async function fetchOverview() {
-      setLoading(true);
-      setError("");
-      let hasAnyData = false;
+      // If no cache, show loading spinner; otherwise fetch silently in background
+      if (!_hasCached) {
+        setLoading(true);
+        setError("");
+      }
+      let hasAnyData = _hasCached;
 
-      // Fetch each API independently so partial failures don't block everything
+      // Fetch all APIs in parallel
       const calls = [
         { fn: () => getUserAssignedItems("internet", userid), set: setAssignedItems, label: "assigned items" },
         { fn: () => getCableCustomerDetails(userid), set: setCableDetails, label: "cable details" },
@@ -150,11 +165,11 @@ export default function InternetService() {
           }
         });
       } else {
-        alert('Failed to load documents: ' + (response?.status?.err_msg || 'Unknown error'));
+        toast.add('Failed to load documents: ' + (response?.status?.err_msg || 'Unknown error'), { type: 'error' });
       }
     } catch (err) {
       console.error('Error loading document preview:', err);
-      alert('Failed to load documents. Please try again.');
+      toast.add('Failed to load documents. Please try again.', { type: 'error' });
     } finally {
       setUploadLoading(false);
     }
@@ -203,20 +218,20 @@ export default function InternetService() {
               </h3>
               <div className="space-y-1 text-sm">
                 <div className="flex">
-                  <span className="w-36 text-gray-600 dark:text-gray-400">Username</span>
-                  <span className="text-gray-600 dark:text-gray-400">: {formatCustomerId(customerData.customer_id)}</span>
+                  <span className="w-36 shrink-0 text-gray-600 dark:text-gray-400">Username</span>
+                  <span className="text-gray-600 dark:text-gray-400 min-w-0 break-all">: {formatCustomerId(customerData.customer_id)}</span>
                 </div>
                 <div className="flex">
-                  <span className="w-36 text-gray-600 dark:text-gray-400">Customer Name</span>
-                  <span className="text-gray-600 dark:text-gray-400">: {customerData.name}</span>
+                  <span className="w-36 shrink-0 text-gray-600 dark:text-gray-400">Customer Name</span>
+                  <span className="text-gray-600 dark:text-gray-400 min-w-0 break-all">: {customerData.name}</span>
                 </div>
                 <div className="flex">
-                  <span className="w-36 text-gray-600 dark:text-gray-400">Ph Number</span>
-                  <span className="text-gray-600 dark:text-gray-400">: {customerData.mobile}</span>
+                  <span className="w-36 shrink-0 text-gray-600 dark:text-gray-400">Ph Number</span>
+                  <span className="text-gray-600 dark:text-gray-400 min-w-0 break-all">: {customerData.mobile}</span>
                 </div>
                 <div className="flex">
-                  <span className="w-36 text-gray-600 dark:text-gray-400">Email Id</span>
-                  <span className="text-gray-600 dark:text-gray-400">: {customerData.email}</span>
+                  <span className="w-36 shrink-0 text-gray-600 dark:text-gray-400">Email Id</span>
+                  <span className="text-gray-600 dark:text-gray-400 min-w-0 break-all">: {customerData.email}</span>
                 </div>
               </div>
             </div>

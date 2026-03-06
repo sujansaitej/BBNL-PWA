@@ -5,7 +5,7 @@ import { Languages, Globe, AlertCircle, ArrowLeft, Search, X, Mic, MicOff } from
 import Layout from "../../layout/Layout";
 import { LanguageListSkeleton } from "../../components/iptv/Loader";
 import { getLanguageList, getIptvMobile } from "../../services/iptvApi";
-import { preloadLogos } from "../../services/logoCache";
+import { preloadLogos, clearQueue } from "../../services/logoCache";
 import useCachedLogo from "../../hooks/useCachedLogo";
 import { proxyImageUrl } from "../../services/iptvImage";
 import { getEntry, getEntryAsync, setEntry, getAdaptiveTTL, waitForHydration } from "../../services/channelStore";
@@ -71,6 +71,7 @@ export default function LanguagesPage() {
     if (memEntry?.data?.length) {
       preloadLogos(memEntry.data.map((l) => proxyImageUrl(l.langlogomob)).filter((u) => u && !u.includes("chnlnoimage")), true);
     }
+    return () => { clearQueue(); };
   }, []);
 
   useEffect(() => {

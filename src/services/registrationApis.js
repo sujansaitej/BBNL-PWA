@@ -14,6 +14,7 @@ function getHeadersJson() {
     password: import.meta.env.VITE_API_PASSWORD,
     appkeytype: import.meta.env.VITE_API_APP_USER_TYPE,
     appversion: import.meta.env.VITE_API_APP_VERSION,
+    "X-App-Package": "com.bbnl.smartphone",
     "Content-Type": "application/json",
   };
 }
@@ -25,6 +26,7 @@ function getHeadersForm() {
     password: import.meta.env.VITE_API_PASSWORD,
     appkeytype: import.meta.env.VITE_API_APP_USER_TYPE,
     appversion: import.meta.env.VITE_API_APP_VERSION,
+    "X-App-Package": "com.bbnl.smartphone",
   };
 }
 const API_TIMEOUT = 15000; // 15 seconds
@@ -150,6 +152,7 @@ export async function uploadKycFile(username, file, fieldName) {
     password: import.meta.env.VITE_API_PASSWORD,
     appkeytype: import.meta.env.VITE_API_APP_USER_TYPE,
     appversion: import.meta.env.VITE_API_APP_VERSION,
+    "X-App-Package": "com.bbnl.smartphone",
   };
 
   const formData = new FormData();

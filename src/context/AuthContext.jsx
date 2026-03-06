@@ -17,8 +17,25 @@ export function AuthProvider({ children }) {
         const parsed = JSON.parse(savedUser);
         // Validate session has proper API data (not stale from old bug)
         if (parsed && parsed.username) {
-          setUser(parsed);
-          logger.info("Auth", "Session restored from localStorage", { username: parsed.username, loginType: localStorage.getItem("loginType") });
+          // ── Session expiry check (7 days) ──
+          const SESSION_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+          const tsRaw = localStorage.getItem("loginTimestamp");
+          const loginTs = tsRaw ? Number(tsRaw) : 0;
+
+          if (!loginTs || Date.now() - loginTs > SESSION_MAX_AGE) {
+            localStorage.removeItem("user");
+            localStorage.removeItem("loginTimestamp");
+            localStorage.removeItem("loginType");
+            localStorage.removeItem("otprefid");
+            lsClearAll();
+            logger.security("SESSION_EXPIRED", {
+              username: parsed.username,
+              age: loginTs ? Math.round((Date.now() - loginTs) / 3600000) + "h" : "no-timestamp",
+            });
+          } else {
+            setUser(parsed);
+            logger.info("Auth", "Session restored from localStorage", { username: parsed.username, loginType: localStorage.getItem("loginType") });
+          }
         } else {
           localStorage.removeItem("user");
           logger.security("STALE_SESSION_REMOVED", { reason: "Missing username in stored session" });
@@ -36,6 +53,7 @@ export function AuthProvider({ children }) {
   const login = (userDetails) => {
     setUser(userDetails);
     localStorage.setItem("user", JSON.stringify(userDetails));
+    localStorage.setItem("loginTimestamp", String(Date.now()));
     logger.security("LOGIN_SUCCESS", {
       username: userDetails.username,
       op_id: userDetails.op_id,
@@ -52,8 +70,9 @@ export function AuthProvider({ children }) {
     const prev = user?.username || "unknown";
     setUser(null);
     localStorage.removeItem("user");
-    // Clear all API caches (prefixed with _c:) — lsClearAll is fast and
-    // handles quota properly.  Non-cache keys (theme, deviceid) are preserved.
+    localStorage.removeItem("loginTimestamp");
+    localStorage.removeItem("loginType");
+    localStorage.removeItem("otprefid");
     lsClearAll();
     logger.security("LOGOUT", { username: prev });
   };

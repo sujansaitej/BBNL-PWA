@@ -1,6 +1,6 @@
 <IfModule mod_rewrite.c>
   RewriteEngine On
-  RewriteBase /pwa/crm/
+  RewriteBase /smartphone/crm/
 
   # If the requested file or directory exists, serve it directly
   RewriteCond %{REQUEST_FILENAME} !-f

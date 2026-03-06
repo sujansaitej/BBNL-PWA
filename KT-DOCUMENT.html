@@ -1,0 +1,1133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fo-Fi CRM PWA — Knowledge Transfer Document</title>
+<style>
+  :root { --bg: #ffffff; --card: #f7f8fa; --border: #d0d5dd; --text: #1a1a2e; --muted: #475467; --accent: #1a3a5c; --accent2: #2563eb; --green: #027a48; --yellow: #b54708; --red: #b42318; --orange: #c4320a; --light-accent: #eff4fb; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 2rem; }
+  h1 { font-size: 2.2rem; font-weight: 800; color: var(--accent); margin-bottom: 0.5rem; }
+  h2 { font-size: 1.5rem; font-weight: 700; color: var(--accent); margin: 2.5rem 0 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid var(--accent); }
+  h3 { font-size: 1.15rem; font-weight: 600; color: var(--text); margin: 1.5rem 0 0.7rem; }
+  h4 { font-size: 1rem; font-weight: 600; color: var(--muted); margin: 1rem 0 0.5rem; }
+  p, li { color: var(--muted); font-size: 0.95rem; }
+  ul, ol { padding-left: 1.5rem; margin: 0.5rem 0; }
+  li { margin: 0.3rem 0; }
+  strong { color: var(--text); }
+  code { background: #f0f3f7; border: 1px solid var(--border); border-radius: 4px; padding: 0.15rem 0.4rem; font-size: 0.85rem; color: #0550ae; font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace; }
+  pre { background: #f6f8fa; border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; overflow-x: auto; margin: 0.8rem 0; font-size: 0.85rem; line-height: 1.6; }
+  pre code { background: none; border: none; padding: 0; color: var(--text); }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1.5rem; margin: 1rem 0; }
+  .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; border: 1px solid transparent; }
+  .badge-blue { background: #eff4fb; color: #1d4ed8; border-color: #bfdbfe; }
+  .badge-green { background: #ecfdf3; color: #027a48; border-color: #a7f3d0; }
+  .badge-yellow { background: #fffaeb; color: #b54708; border-color: #fde68a; }
+  .badge-red { background: #fef3f2; color: #b42318; border-color: #fecaca; }
+  .badge-purple { background: #f5f3ff; color: #6d28d9; border-color: #ddd6fe; }
+  .badge-orange { background: #fff7ed; color: #c4320a; border-color: #fdba74; }
+  table { width: 100%; border-collapse: collapse; margin: 0.8rem 0; font-size: 0.9rem; }
+  th, td { border: 1px solid var(--border); padding: 0.6rem 0.8rem; text-align: left; }
+  th { background: var(--light-accent); color: var(--accent); font-weight: 600; }
+  td { color: var(--muted); }
+  .toc { columns: 2; column-gap: 2rem; }
+  .toc li { break-inside: avoid; }
+  .toc a { color: var(--accent2); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .meta { color: var(--muted); font-size: 0.9rem; margin-bottom: 2rem; }
+  .warn { background: #fffaeb; border-left: 4px solid #d97706; padding: 0.8rem 1rem; border-radius: 0 8px 8px 0; margin: 0.8rem 0; }
+  .info { background: #eff4fb; border-left: 4px solid var(--accent2); padding: 0.8rem 1rem; border-radius: 0 8px 8px 0; margin: 0.8rem 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 768px) { .grid2 { grid-template-columns: 1fr; } .toc { columns: 1; } .container { padding: 1rem; } }
+  .diagram { background: #f6f8fa; border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem; font-family: 'Cascadia Code', Consolas, monospace; font-size: 0.8rem; white-space: pre; overflow-x: auto; color: var(--muted); line-height: 1.5; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .header-bar { background: linear-gradient(135deg, #f0f4ff, #e8ecf7); border: 1px solid var(--border); border-radius: 12px; padding: 2rem; margin-bottom: 2rem; }
+
+  /* Bug ticket styles */
+  .bug-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1.2rem 1.5rem; margin: 0.8rem 0; page-break-inside: avoid; }
+  .bug-card .bug-id { display: inline-block; background: #fef3f2; color: var(--red); font-weight: 700; font-size: 0.8rem; padding: 0.15rem 0.6rem; border-radius: 6px; border: 1px solid #fecaca; margin-right: 0.5rem; }
+  .bug-card .bug-title { font-weight: 600; color: var(--text); font-size: 1rem; }
+  .bug-card .bug-meta { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.6rem; font-size: 0.85rem; color: var(--muted); }
+  .bug-card .bug-meta span { display: inline-flex; align-items: center; gap: 0.3rem; }
+  .bug-card .bug-desc { margin-top: 0.6rem; color: var(--muted); font-size: 0.9rem; line-height: 1.6; }
+  .bug-card .bug-hint { margin-top: 0.6rem; background: #eff4fb; border: 1px solid #bfdbfe; border-radius: 8px; padding: 0.6rem 0.8rem; font-size: 0.85rem; color: var(--muted); }
+  .bug-card .bug-hint strong { color: var(--accent2); }
+
+  /* ═══ PRINT / PDF STYLES (Ctrl+P) ═══ */
+  @media print {
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+    @page { size: A4; margin: 15mm 12mm 15mm 12mm; }
+    body { background: #fff !important; font-size: 9pt; line-height: 1.5; }
+    .container { max-width: 100%; padding: 0; }
+    .card, .bug-card { background: var(--card) !important; border: 1px solid var(--border) !important; }
+    .header-bar { background: linear-gradient(135deg, #f0f4ff, #e8ecf7) !important; }
+    pre, .diagram { background: #f6f8fa !important; }
+    .warn { background: #fffaeb !important; }
+    .info { background: #eff4fb !important; }
+    th { background: var(--light-accent) !important; }
+    .badge-blue { background: #eff4fb !important; }
+    .badge-green { background: #ecfdf3 !important; }
+    .badge-yellow { background: #fffaeb !important; }
+    .badge-red { background: #fef3f2 !important; }
+    .badge-purple { background: #f5f3ff !important; }
+    .badge-orange { background: #fff7ed !important; }
+    .bug-card .bug-id { background: #fef3f2 !important; }
+    .bug-card .bug-hint { background: #eff4fb !important; }
+    h2 { page-break-before: auto; page-break-after: avoid; }
+    h3, h4 { page-break-after: avoid; }
+    .card, .bug-card { page-break-inside: avoid; }
+    table { page-break-inside: auto; }
+    tr { page-break-inside: avoid; }
+    pre, .diagram { page-break-inside: avoid; overflow-x: visible; white-space: pre-wrap; word-wrap: break-word; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; }
+    .toc { columns: 2; }
+    .toc a:hover { text-decoration: none; }
+    .toc a::after { content: none; }
+    table { font-size: 8pt; }
+    pre, .diagram { font-size: 7.5pt; }
+    code { font-size: 8pt; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="header-bar">
+<h1>Fo-Fi CRM PWA</h1>
+<p class="meta">Knowledge Transfer Document &bull; Version 1.2.0 &bull; March 2026<br>
+Project: BBNL Customer Relationship Management &bull; Progressive Web Application<br>
+Stack: <span class="badge badge-blue">React 18</span> <span class="badge badge-green">Vite 7</span> <span class="badge badge-purple">Tailwind CSS</span> <span class="badge badge-yellow">HLS.js</span> <span class="badge badge-orange">Node.js HTTP/2</span></p>
+</div>
+
+<!-- TABLE OF CONTENTS -->
+<h2 id="toc">Table of Contents</h2>
+<ol class="toc">
+<li><a href="#s1">Project Overview &amp; Tech Stack</a></li>
+<li><a href="#s2">Folder Structure</a></li>
+<li><a href="#s3">Environment Variables</a></li>
+<li><a href="#s4">Build &amp; Run Commands</a></li>
+<li><a href="#s5">Application Architecture</a></li>
+<li><a href="#s6">Routing &amp; Page Map</a></li>
+<li><a href="#s7">Authentication Flow</a></li>
+<li><a href="#s8">API Services &amp; Endpoints</a></li>
+<li><a href="#s9">Caching Architecture (L1-L4)</a></li>
+<li><a href="#s10">IPTV / Live TV System</a></li>
+<li><a href="#s11">HLS Streaming &amp; Player</a></li>
+<li><a href="#s12">PWA &amp; Service Worker</a></li>
+<li><a href="#s13">Component Library</a></li>
+<li><a href="#s14">Custom Hooks</a></li>
+<li><a href="#s15">Performance Optimizations</a></li>
+<li><a href="#s16">Security &amp; Logging</a></li>
+<li><a href="#s17">Server &amp; Deployment</a></li>
+<li><a href="#s18">nginx Configuration</a></li>
+<li><a href="#s19">International Streaming (Relay)</a></li>
+<li><a href="#s20">Known Issues &amp; Workarounds</a></li>
+<li><a href="#s21">Production Deployment Checklist</a></li>
+<li><a href="#s22">Key File Reference</a></li>
+<li><a href="#s23">Pending Client Issues / Bugs to Fix</a></li>
+</ol>
+
+<hr>
+
+<!-- 1. PROJECT OVERVIEW -->
+<h2 id="s1">1. Project Overview &amp; Tech Stack</h2>
+<div class="card">
+<p><strong>What:</strong> A Progressive Web Application for BBNL (Bharat Broadband Network Limited) that serves as a CRM for employees/franchisees and a self-service portal for customers. Includes live TV streaming (275+ channels), payment processing, ticket management, customer registration with KYC, and service management.</p>
+
+<h4>Core Dependencies</h4>
+<table>
+<tr><th>Library</th><th>Version</th><th>Purpose</th></tr>
+<tr><td><code>react</code></td><td>18.2.0</td><td>UI framework</td></tr>
+<tr><td><code>react-router-dom</code></td><td>7.8.2</td><td>Client-side routing</td></tr>
+<tr><td><code>vite</code></td><td>7.3.1</td><td>Build tool &amp; dev server</td></tr>
+<tr><td><code>tailwindcss</code></td><td>3.4.7</td><td>Utility-first CSS</td></tr>
+<tr><td><code>hls.js</code></td><td>1.5.0</td><td>HLS video streaming</td></tr>
+<tr><td><code>framer-motion</code></td><td>12.23.24</td><td>Animations</td></tr>
+<tr><td><code>leaflet</code></td><td>1.9.4</td><td>Maps (tickets, navigation, registration)</td></tr>
+<tr><td><code>jspdf</code></td><td>4.1.0</td><td>PDF generation (invoices)</td></tr>
+<tr><td><code>swiper</code></td><td>11.1.5</td><td>Carousels (ads, banners)</td></tr>
+<tr><td><code>jsqr</code></td><td>1.4.0</td><td>QR code scanning</td></tr>
+<tr><td><code>vite-plugin-pwa</code></td><td>1.2.0</td><td>PWA + Workbox SW generation</td></tr>
+<tr><td><code>lucide-react</code></td><td>0.545.0</td><td>Icon library</td></tr>
+<tr><td><code>react-signature-canvas</code></td><td>1.1.0</td><td>Signature capture (registration)</td></tr>
+</table>
+</div>
+
+<!-- 2. FOLDER STRUCTURE -->
+<h2 id="s2">2. Folder Structure</h2>
+<pre><code>crm-pwa-master/
+├── public/                         # Static assets (copied to dist/)
+│   ├── icons/                      # App icons (PWA manifest)
+│   ├── img/                        # Static images (logo, ads, user placeholders)
+│   ├── sw-nav-preload.js           # Navigation Preload SW script
+│   ├── sw-api-cache.js             # API response caching SW script
+│   └── .htaccess                   # Apache SPA fallback (if used)
+│
+├── src/
+│   ├── main.jsx                    # App entry — PWA cleanup, cache checks, React mount
+│   ├── App.jsx                     # Root component — BrowserGate + Routes
+│   ├── ThemeContext.jsx             # Dark/light theme provider
+│   ├── pwa-cleanup.js              # Removes stale SWs from other apps on same origin
+│   ├── pwa-nav-guard.js            # Intercepts external links in standalone mode
+│   │
+│   ├── context/
+│   │   └── AuthContext.jsx          # Auth state, login/logout, session management
+│   │
+│   ├── routes/
+│   │   ├── Routes.jsx               # All route definitions + lazy loading
+│   │   └── PrivateRoute.jsx         # Auth guard wrapper
+│   │
+│   ├── layout/
+│   │   └── Layout.jsx               # Header + BottomNav wrapper
+│   │
+│   ├── pages/
+│   │   ├── Login.jsx                # Login + PWA install prompt
+│   │   ├── Register.jsx             # Multi-step registration with KYC
+│   │   ├── VerifyOTP.jsx            # OTP verification (4-digit)
+│   │   ├── Dashboard.jsx            # Employee/franchisee dashboard
+│   │   ├── Customerlist.jsx         # Customer list with search/filter
+│   │   ├── Plans.jsx                # Available internet plans
+│   │   ├── Subscribe.jsx            # Subscription form (ONU MAC, charges)
+│   │   ├── Paynow.jsx              # Payment confirmation (internet)
+│   │   ├── FofiPayment.jsx          # Payment confirmation (FoFi SmartBox)
+│   │   ├── PaymentHistory.jsx       # Order/payment history
+│   │   ├── Tickets.jsx              # Ticket list (tabbed: open/pending/new/done)
+│   │   ├── TicketsMap.jsx           # Ticket map view (Leaflet clusters)
+│   │   ├── SmartNavigationMap.jsx   # Turn-by-turn navigation to customer
+│   │   ├── Profile.jsx              # User profile
+│   │   ├── Support.jsx              # Support/contact page
+│   │   ├── Services.jsx             # Service list for customer
+│   │   ├── UploadDocuments.jsx      # KYC document upload
+│   │   ├── customer/
+│   │   │   └── Dashboard.jsx        # Customer self-service dashboard (ads, quick actions)
+│   │   ├── services/
+│   │   │   ├── InternetService.jsx  # Internet service overview + actions
+│   │   │   ├── IPTVService.jsx      # Cable TV / IPTV service + package picker
+│   │   │   ├── VoiceService.jsx     # Voice service
+│   │   │   └── FoFiSmartBox.jsx     # FoFi SmartBox device management
+│   │   └── iptv/
+│   │       ├── LiveTvPage.jsx       # Channel list + language filter + voice search
+│   │       ├── ChannelsPage.jsx     # Language-filtered channel grid
+│   │       ├── LanguagesPage.jsx    # Language selector grid
+│   │       └── PlayerPage.jsx       # HLS video player with controls
+│   │
+│   ├── components/
+│   │   ├── Header.jsx               # Top navigation bar
+│   │   ├── BottomNav.jsx            # Bottom tab bar (employee vs customer tabs)
+│   │   ├── Sidebar.jsx              # Side drawer menu
+│   │   ├── BrowserGate.jsx          # PWA install gate
+│   │   ├── ErrorBoundary.jsx        # React error boundary + cache recovery
+│   │   ├── Dashboard.jsx            # Employee dashboard content
+│   │   ├── QRScanner.jsx            # Camera-based QR scanner
+│   │   ├── Terms.jsx                # Terms &amp; conditions modal
+│   │   ├── icons/Whatsappicon.jsx   # WhatsApp SVG icon
+│   │   ├── ui/                      # Reusable UI primitives
+│   │   │   ├── Alert.jsx, Badge.jsx, Button.jsx, Input.jsx
+│   │   │   ├── FloatingInput.jsx, Modal.jsx, ConfirmDialog.jsx
+│   │   │   ├── Toast.jsx, Loader.jsx, FullPageLoader.jsx
+│   │   │   ├── TicketDialog.jsx, UserToggle.jsx
+│   │   │   ├── ServiceSelectionModal.jsx
+│   │   │   └── index.js             # Barrel export
+│   │   └── iptv/
+│   │       ├── Loader.jsx           # IPTV loading skeletons
+│   │       ├── IptvSignup.jsx       # IPTV signup modal
+│   │       ├── DataUsage.jsx        # Data usage display
+│   │       ├── ResetMac.jsx         # MAC reset component
+│   │       ├── ResetPassword.jsx    # Password reset
+│   │       ├── ResetPPPoE.jsx       # PPPoE reset
+│   │       └── ResetOptionsModal.jsx
+│   │
+│   ├── services/                    # API + caching layer
+│   │   ├── generalApis.js           # Auth, wallet, customers, tickets, KYC APIs
+│   │   ├── registrationApis.js      # Registration + validation APIs
+│   │   ├── orderApis.js             # Payment/order history APIs
+│   │   ├── fofiApis.js              # FoFi SmartBox APIs
+│   │   ├── iptvApi.js               # IPTV APIs (channels, languages, streams, ads)
+│   │   ├── customer/apis.js         # Customer-specific API calls
+│   │   ├── channelStore.js          # L1 (memory) + L2 (IndexedDB) IPTV cache
+│   │   ├── logoCache.js             # Image caching with concurrency control
+│   │   ├── lsCache.js               # localStorage cache with TTL + quota management
+│   │   ├── iptvPrefetch.js          # Background IPTV data prefetch on startup
+│   │   ├── iptvImage.js             # Image URL rewriting (CDN/proxy/auth)
+│   │   ├── prefetch.js              # Customer data prefetch
+│   │   ├── safeStorage.js           # Safe localStorage/sessionStorage access
+│   │   ├── imageStore.js            # Image storage utility
+│   │   └── helpers.js               # Generic utilities
+│   │
+│   ├── hooks/
+│   │   ├── useCachedLogo.js         # Subscribe to logo cache loading
+│   │   ├── useDarkMode.js           # System dark mode detection
+│   │   ├── useOpenMap.js            # Open external map app
+│   │   ├── useOpenWhatsApp.js       # Open WhatsApp chat
+│   │   └── useVoiceSearch.js        # Multilingual voice search
+│   │
+│   └── utils/
+│       └── logger.js                # Structured logging with auto-redaction
+│
+├── deployment-package/
+│   ├── server.js                    # Production server (HTTP/2 + gzip)
+│   └── relay-server.js              # Edge relay for international streaming
+│
+├── server.js                        # Development/production HTTP/2 server
+├── stream-proxy-plugin.js           # Vite dev plugin for /stream/ proxy
+├── vite.config.js                   # Vite build config + PWA + proxy + chunks
+├── nginx-http2.conf                 # Production nginx reverse proxy config
+├── tailwind.config.js               # Tailwind configuration
+├── postcss.config.js                # PostCSS plugins
+├── index.html                       # HTML entry point
+├── package.json                     # Dependencies &amp; scripts
+├── verify-http2.sh                  # HTTP/2 verification script (Linux)
+└── verify-http2.ps1                 # HTTP/2 verification script (Windows)
+</code></pre>
+
+<!-- 3. ENVIRONMENT VARIABLES -->
+<h2 id="s3">3. Environment Variables</h2>
+
+<div class="grid2">
+<div class="card">
+<h4>.env.development</h4>
+<pre><code># API Backend (test server)
+VITE_API_BASE_URL=https://netmontest.bbnl.in/netmon/
+VITE_API_AUTH_KEY=284fb758bef45b0c9f73e093873c3bef
+VITE_API_USERNAME=bbnl
+VITE_API_PASSWORD=Oracle@123
+VITE_API_APP_ISLOCAL=true
+
+# IPTV API (proxied via Vite)
+VITE_IPTV_API_BASE_URL=/iptv-api/Cabletvapis
+VITE_IPTV_API_USERNAME=fofilab@gmail.com
+VITE_IPTV_API_PASSWORD=12345-54321
+VITE_IPTV_DEFAULT_MOBILE=7019260650
+
+# Stream proxy (Vite plugin)
+STREAM_HOSTS=livestream.bbnl.in,livestream2.bbnl.in
+VITE_STREAM_PROXY_URL=/stream</code></pre>
+</div>
+
+<div class="card">
+<h4>.env.production</h4>
+<pre><code># API Backend (production)
+VITE_API_BASE_URL=https://bbnlnetmon.bbnl.in/prod/
+VITE_API_AUTH_KEY=d66f43b005be6899f4b658aae38c8297
+VITE_API_USERNAME=redh@t
+VITE_API_PASSWORD=redh@t@!23
+VITE_API_APP_ISLOCAL=false
+
+# IPTV API (direct, no proxy)
+VITE_IPTV_API_BASE_URL=https://bbnlnetmon.bbnl.in/prod/Cabletvapis
+VITE_IPTV_IMAGE_CDN=https://cdn1.bbnl.in/cable
+
+# Stream proxy (Node.js server)
+STREAM_HOSTS=livestream.bbnl.in,livestream2.bbnl.in
+VITE_STREAM_PROXY_URL=/smartphone/crm/stream
+
+# Relay servers (optional)
+# VITE_RELAY_US=https://relay-us.yourdomain.com
+# VITE_RELAY_AU=https://relay-au.yourdomain.com</code></pre>
+</div>
+</div>
+
+<div class="warn">
+<strong>Important:</strong> <code>.env.*</code> files are in <code>.gitignore</code>. They must be manually placed on each developer machine and the build server. Credentials differ between dev and prod.
+</div>
+
+<h4>Other Environment Variables (Shared)</h4>
+<table>
+<tr><th>Variable</th><th>Value</th><th>Purpose</th></tr>
+<tr><td><code>VITE_API_APP_VERSION</code></td><td>1.2.0</td><td>App version sent in API headers</td></tr>
+<tr><td><code>VITE_API_APP_PLATFORM</code></td><td>PWA</td><td>Platform identifier</td></tr>
+<tr><td><code>VITE_API_APP_KEY_TYPE</code></td><td>crmapp</td><td>API key type</td></tr>
+<tr><td><code>VITE_API_APP_DIR_PATH</code></td><td>/smartphone/crm/</td><td>Base path for PWA</td></tr>
+<tr><td><code>VITE_API_APP_LOGO_BLACK</code></td><td>/img/logo.png</td><td>Logo (dark bg)</td></tr>
+<tr><td><code>VITE_API_APP_LOGO_WHITE</code></td><td>/icons/logo.png</td><td>Logo (light bg)</td></tr>
+</table>
+
+<!-- 4. BUILD & RUN -->
+<h2 id="s4">4. Build &amp; Run Commands</h2>
+<div class="card">
+<table>
+<tr><th>Command</th><th>What it does</th></tr>
+<tr><td><code>npm run dev</code></td><td>Starts Vite dev server at <code>http://localhost:5173</code> with HMR, API proxies, stream proxy plugin</td></tr>
+<tr><td><code>npm run build</code></td><td>Production build → outputs to <code>dist/</code> (loads <code>.env.production</code>)</td></tr>
+<tr><td><code>npm run preview</code></td><td>Preview production build locally</td></tr>
+<tr><td><code>npm start</code></td><td>Run production server (<code>node server.js</code>) — serves dist/ + proxies /stream/</td></tr>
+</table>
+
+<h4>Dev Server Proxies (vite.config.js)</h4>
+<table>
+<tr><th>Path</th><th>Target</th><th>Purpose</th></tr>
+<tr><td><code>/api/</code></td><td><code>https://netmontest.bbnl.in/netmon/</code></td><td>Main CRM API</td></tr>
+<tr><td><code>/iptv-api/</code></td><td><code>https://netmontest.bbnl.in/netmon/</code></td><td>IPTV API (adds IPTV auth headers)</td></tr>
+<tr><td><code>/showimage/</code></td><td><code>https://netmontest.bbnl.in/netmon/Cabletvapis/</code></td><td>Channel logo proxy</td></tr>
+<tr><td><code>/adimage/</code></td><td><code>https://netmontest.bbnl.in/netmon/Cabletvapis/</code></td><td>Ad image proxy</td></tr>
+<tr><td><code>/stream/</code></td><td>stream-proxy-plugin.js (HTTP/2)</td><td>HLS stream proxy</td></tr>
+</table>
+</div>
+
+<!-- 5. APPLICATION ARCHITECTURE -->
+<h2 id="s5">5. Application Architecture</h2>
+
+<div class="diagram">
+                     index.html
+                         │
+                    src/main.jsx
+                         │
+          ┌──────────────┼──────────────────┐
+          │              │                  │
+    pwa-cleanup     cacheHealthCheck    iptvPrefetch
+    (remove stale)  (build ID check)   (bg data fetch)
+          │              │                  │
+          └──────────────┼──────────────────┘
+                         │
+              React.createRoot()
+                         │
+              ┌──────────┼──────────┐
+              │          │          │
+        ErrorBoundary  Theme   AuthProvider
+              │          │          │
+              └──────────┼──────────┘
+                         │
+                    BrowserRouter
+                    (base: /smartphone/crm/)
+                         │
+                      App.jsx
+                         │
+                    BrowserGate
+                    (PWA install gate)
+                         │
+                    Routes.jsx
+                    (lazy-loaded pages)
+                         │
+              ┌──────────┼──────────┐
+              │          │          │
+          PrivateRoute  Public   IPTV routes
+          (auth guard)  routes   (no auth)
+</div>
+
+<h3>Provider Stack</h3>
+<pre><code>&lt;ErrorBoundary&gt;           // Catches render errors, recovers stale cache
+  &lt;ThemeProvider&gt;          // Dark/light mode
+    &lt;AuthProvider&gt;         // Login state, session management (7-day TTL)
+      &lt;ToastProvider&gt;      // Toast notifications
+        &lt;BrowserRouter&gt;    // React Router (base="/smartphone/crm/")
+          &lt;App /&gt;          // BrowserGate → Routes
+        &lt;/BrowserRouter&gt;
+      &lt;/ToastProvider&gt;
+    &lt;/AuthProvider&gt;
+  &lt;/ThemeProvider&gt;
+&lt;/ErrorBoundary&gt;</code></pre>
+
+<!-- 6. ROUTING -->
+<h2 id="s6">6. Routing &amp; Page Map</h2>
+<div class="card">
+<table>
+<tr><th>Route</th><th>Component</th><th>Auth?</th><th>Description</th></tr>
+<tr><td><code>/login</code></td><td>Login.jsx</td><td>No</td><td>Login + PWA install prompt</td></tr>
+<tr><td><code>/register</code></td><td>Register.jsx</td><td>No</td><td>Multi-step registration with KYC</td></tr>
+<tr><td><code>/verify-otp</code></td><td>VerifyOTP.jsx</td><td>No</td><td>4-digit OTP verification</td></tr>
+<tr><td><code>/</code></td><td>Dashboard.jsx</td><td><span class="badge badge-red">Yes</span></td><td>Employee/franchisee dashboard</td></tr>
+<tr><td><code>/cust/dashboard</code></td><td>customer/Dashboard.jsx</td><td><span class="badge badge-red">Yes</span></td><td>Customer self-service dashboard</td></tr>
+<tr><td><code>/customers</code></td><td>Customerlist.jsx</td><td><span class="badge badge-red">Yes</span></td><td>Customer list + search/filter</td></tr>
+<tr><td><code>/plans</code></td><td>Plans.jsx</td><td><span class="badge badge-red">Yes</span></td><td>Available internet plans</td></tr>
+<tr><td><code>/subscribe</code></td><td>Subscribe.jsx</td><td><span class="badge badge-red">Yes</span></td><td>Subscription form</td></tr>
+<tr><td><code>/paynow</code></td><td>Paynow.jsx</td><td><span class="badge badge-red">Yes</span></td><td>Payment confirmation</td></tr>
+<tr><td><code>/fofi-payment</code></td><td>FofiPayment.jsx</td><td><span class="badge badge-red">Yes</span></td><td>FoFi SmartBox payment</td></tr>
+<tr><td><code>/tickets</code></td><td>Tickets.jsx</td><td><span class="badge badge-red">Yes</span></td><td>Ticket list (tabbed)</td></tr>
+<tr><td><code>/support</code></td><td>TicketsMap.jsx</td><td><span class="badge badge-red">Yes</span></td><td>Ticket map view</td></tr>
+<tr><td><code>/smart-map</code></td><td>SmartNavigationMap.jsx</td><td><span class="badge badge-red">Yes</span></td><td>Turn-by-turn navigation</td></tr>
+<tr><td><code>/customer/:id/services</code></td><td>Services.jsx</td><td><span class="badge badge-red">Yes</span></td><td>Service list for customer</td></tr>
+<tr><td><code>/customer/:id/service/:type</code></td><td>InternetService / IPTV / etc.</td><td><span class="badge badge-red">Yes</span></td><td>Service-specific page</td></tr>
+<tr><td><code>/cust/livetv</code></td><td>LiveTvPage.jsx</td><td><span class="badge badge-green">No</span></td><td>Live TV hub</td></tr>
+<tr><td><code>/cust/livetv/channels</code></td><td>ChannelsPage.jsx</td><td><span class="badge badge-green">No</span></td><td>Channel grid by language</td></tr>
+<tr><td><code>/cust/livetv/languages</code></td><td>LanguagesPage.jsx</td><td><span class="badge badge-green">No</span></td><td>Language selector</td></tr>
+<tr><td><code>/cust/livetv/player</code></td><td>PlayerPage.jsx</td><td><span class="badge badge-green">No</span></td><td>HLS video player</td></tr>
+<tr><td><code>*</code></td><td>→ /login</td><td>—</td><td>Catch-all redirect</td></tr>
+</table>
+
+<div class="info">
+<strong>Lazy Loading:</strong> All page components use <code>lazyRetry()</code> — a wrapper that retries chunk loads on 404 (handles stale cache after deployment). If retry fails, it purges runtime caches and reloads once.
+</div>
+</div>
+
+<!-- 7. AUTHENTICATION -->
+<h2 id="s7">7. Authentication Flow</h2>
+<div class="card">
+<div class="diagram">
+  User enters username + password
+  (toggles: franchisee | customer)
+           │
+           ▼
+  POST /ServiceApis/custlogin
+  → returns { otprefid, ... }
+           │
+           ▼
+  Navigate to /verify-otp
+  User enters 4-digit OTP
+           │
+           ▼
+  POST /ServiceApis/custLoginVerification
+  → returns { user details }
+           │
+           ▼
+  AuthContext.login(userDetails)
+  ├── Store user → localStorage.user (JSON)
+  ├── Store loginTimestamp
+  ├── Store loginType (franchisee|customer)
+  ├── Trigger IPTV prefetch (channels, languages, logos)
+  └── Navigate to dashboard
+           │
+           ▼
+  Session: 7-day TTL
+  Checked on every app startup
+  Expired → clear all caches → redirect to /login
+</div>
+
+<h4>Session Storage</h4>
+<table>
+<tr><th>Key</th><th>Value</th><th>Purpose</th></tr>
+<tr><td><code>localStorage.user</code></td><td>JSON string</td><td>User details (username, mobile, op_id, etc.)</td></tr>
+<tr><td><code>localStorage.loginTimestamp</code></td><td>Unix ms</td><td>Login time for 7-day TTL check</td></tr>
+<tr><td><code>localStorage.loginType</code></td><td>"franchisee" | "customer"</td><td>Determines dashboard + BottomNav tabs</td></tr>
+<tr><td><code>localStorage.otprefid</code></td><td>string</td><td>OTP reference ID</td></tr>
+</table>
+</div>
+
+<!-- 8. API SERVICES -->
+<h2 id="s8">8. API Services &amp; Endpoints</h2>
+
+<h3>8.1 Common API Headers</h3>
+<pre><code>{
+  "Authorization": "{VITE_API_AUTH_KEY}",
+  "username": "{VITE_API_USERNAME}",
+  "password": "{VITE_API_PASSWORD}",
+  "appkeytype": "employee" | "customer",
+  "appversion": "1.2.0",
+  "Content-Type": "application/json",
+  "X-App-Package": "com.bbnl.smartphone"
+}</code></pre>
+
+<h3>8.2 API Files &amp; Endpoints</h3>
+
+<div class="card">
+<h4>generalApis.js — Main CRM APIs</h4>
+<table>
+<tr><th>Function</th><th>Endpoint</th><th>Method</th><th>Cache</th></tr>
+<tr><td><code>UserLogin()</code></td><td>ServiceApis/custlogin</td><td>POST</td><td>—</td></tr>
+<tr><td><code>OTPauth()</code></td><td>ServiceApis/custLoginVerification</td><td>POST</td><td>—</td></tr>
+<tr><td><code>resendOTP()</code></td><td>ServiceApis/resendOTP</td><td>POST</td><td>—</td></tr>
+<tr><td><code>getCustList()</code></td><td>ServiceApis/customersList</td><td>POST</td><td>10 min</td></tr>
+<tr><td><code>getWalBal()</code></td><td>ServiceApis/myWallet</td><td>POST</td><td>5 min</td></tr>
+<tr><td><code>getMyPlanDetails()</code></td><td>ServiceApis/getMyPlanDetails</td><td>POST</td><td>2 min</td></tr>
+<tr><td><code>getTickets()</code></td><td>apis/getavailableticket</td><td>GET</td><td>3 min</td></tr>
+<tr><td><code>uploadKycFile()</code></td><td>ServiceApis/uploadcustKYC</td><td>POST (form-data)</td><td>—</td></tr>
+</table>
+</div>
+
+<div class="card">
+<h4>iptvApi.js — IPTV APIs</h4>
+<table>
+<tr><th>Function</th><th>Endpoint</th><th>Cache</th></tr>
+<tr><td><code>getChannelList()</code></td><td>ftauserchnllist</td><td>30 min (channelStore L2)</td></tr>
+<tr><td><code>getLanguageList()</code></td><td>ftauserlanglist</td><td>60 min (channelStore L2)</td></tr>
+<tr><td><code>getChannelStream()</code></td><td>ftauserstream</td><td>25 min (sessionStorage)</td></tr>
+<tr><td><code>getAdvertisements()</code></td><td>ftauserads</td><td>30 min (channelStore)</td></tr>
+<tr><td><code>addFtaUser()</code></td><td>addftauser</td><td>—</td></tr>
+</table>
+
+<h4>IPTV API Special Features</h4>
+<ul>
+<li><strong>Request Deduplication:</strong> Identical simultaneous requests share one network call</li>
+<li><strong>Circuit Breaker:</strong> Stops retrying after 3 consecutive 5xx errors for 30s</li>
+<li><strong>Concurrency Limit:</strong> Max 4 in-flight IPTV requests per tab</li>
+<li><strong>Adaptive Timeout:</strong> 4G=12s, 3G=20s, 2G=25s</li>
+<li><strong>Public IP:</strong> Fetched from ipify.org, required by stream API</li>
+</ul>
+</div>
+
+<div class="card">
+<h4>Other API Files</h4>
+<table>
+<tr><th>File</th><th>Key Functions</th></tr>
+<tr><td><code>registrationApis.js</code></td><td>checkUsernameAvail, checkEmailAvail, checkMobileAvail, registerCustomer, submitRegistrationNecessities</td></tr>
+<tr><td><code>orderApis.js</code></td><td>getPayDets, payNow, getOrderHistory</td></tr>
+<tr><td><code>fofiApis.js</code></td><td>generateFofiOrder, getFofiPlans, getSpecialInternetPlans</td></tr>
+<tr><td><code>customer/apis.js</code></td><td>getCableCustomerDetails, getPrimaryCustomerDetails, getAssignedItems, getServiceList</td></tr>
+</table>
+</div>
+
+<!-- 9. CACHING -->
+<h2 id="s9">9. Caching Architecture (L1 — L4)</h2>
+
+<div class="diagram">
+  Request
+    │
+    ▼
+  L1: In-Memory (channelStore Map, logoCache Map)
+  Speed: 0ms │ Capacity: unlimited │ Lifetime: tab session
+    │ miss
+    ▼
+  L2: IndexedDB (channelStore → iptv-store DB)
+  Speed: 2-5ms │ Capacity: ~250MB │ Lifetime: persistent
+    │ miss
+    ▼
+  L3: Cache API / Workbox (Service Worker)
+  Speed: 10-50ms │ Capacity: varies │ Lifetime: TTL-based
+    │ miss
+    ▼
+  L4: localStorage (lsCache → _c: prefixed keys)
+  Speed: 1-10ms │ Capacity: 5MB │ Lifetime: TTL-based
+    │ miss
+    ▼
+  Network → Response stored back into L1 + L2 (or L3/L4)
+</div>
+
+<div class="card">
+<h4>lsCache.js — localStorage Cache</h4>
+<ul>
+<li>All keys prefixed with <code>_c:</code> namespace</li>
+<li>Each entry: <code>{ d: data, t: timestamp }</code></li>
+<li><code>lsGet(key, ttlMs)</code> — returns data if fresh, null if expired</li>
+<li><code>lsGetStale(key, ttlMs)</code> — returns <code>{ data, fresh }</code> for stale-while-revalidate</li>
+<li><code>lsSet(key, data)</code> — writes with auto-eviction on quota exceeded</li>
+<li>Lazy cleanup on first access removes expired entries</li>
+<li>Migration: cleans up old unprefixed keys from previous builds</li>
+</ul>
+
+<h4>channelStore.js — IPTV Data Cache</h4>
+<ul>
+<li><strong>L1:</strong> In-memory Map — synchronous reads (0ms)</li>
+<li><strong>L2:</strong> IndexedDB <code>iptv-store</code> database — persistent across sessions</li>
+<li>Hydration: L2 → L1 on import (runs once via <code>_hydratePromise</code>)</li>
+<li>TTL: 2G=60min, 3G/4G=30min, Languages=2x TTL</li>
+<li>Keys: <code>channels_{mobile}_subs</code>, <code>languages_{mobile}</code>, <code>ads_{mobile}_fofi</code></li>
+</ul>
+
+<h4>logoCache.js — Image Cache</h4>
+<ul>
+<li><strong>L1:</strong> Map of URL → blob:// object URL</li>
+<li><strong>L2:</strong> Workbox Cache API (CacheFirst strategy)</li>
+<li>Concurrency: 2G=6, 3G=30, 4G=100 parallel fetches</li>
+<li>Priority queue for language logos (bypass concurrency cap)</li>
+<li>Failure handling: 2 retries, 60s cooldown, sentinel values (NOT_FOUND vs null)</li>
+</ul>
+</div>
+
+<!-- 10. IPTV -->
+<h2 id="s10">10. IPTV / Live TV System</h2>
+<div class="card">
+<h4>Data Flow</h4>
+<div class="diagram">
+  App Startup (main.jsx)
+    │
+    ├── channelStore hydrates L1 from L2 (IndexedDB)
+    └── iptvPrefetch checks staleness
+          │
+          ├── If fresh: preload language logos only
+          └── If stale: fetch languages + channels in parallel
+                │
+                └── Store in L1 + L2 (channelStore)
+
+  User opens Live TV (LiveTvPage.jsx)
+    │
+    ├── Read from L1 (instant) or wait for L2 hydration
+    ├── Render channel list with lazy-loaded logos
+    ├── Language filter bar at top (horizontal scroll)
+    ├── Ad banner injected every 10 channels
+    └── Voice search (Hindi/English/Tamil/Telugu/Kannada)
+
+  User taps channel → PlayerPage.jsx
+    │
+    ├── Check channel.streamlink (embedded in channel data)
+    ├── Check sessionStorage cache (25-min TTL, XOR-obfuscated)
+    ├── Fallback: call /ftauserstream API
+    └── Play via HLS.js with adaptive config
+</div>
+
+<h4>Voice Search (useVoiceSearch.js)</h4>
+<p>Supports multilingual voice recognition with number parsing:</p>
+<ul>
+<li>Languages: English, Hindi, Tamil, Telugu, Kannada</li>
+<li>Converts spoken numbers: "ek sau pachas" → 150, "two hundred" → 200</li>
+<li>Mic permission requested explicitly before use</li>
+</ul>
+</div>
+
+<!-- 11. HLS STREAMING -->
+<h2 id="s11">11. HLS Streaming &amp; Player</h2>
+<div class="card">
+<h4>Stream URL Flow</h4>
+<div class="diagram">
+  Channel object from API
+    │
+    ├── Has .streamlink? → normalizeStreamUrl()
+    │     │
+    │     ├── Indian user (low RTT):
+    │     │     Direct HTTPS → livestream.bbnl.in
+    │     │
+    │     └── International user (high RTT):
+    │           ├── Relay configured? → https://relay-us.domain.com/stream/host/path
+    │           └── No relay → /smartphone/crm/stream/host/path (server proxy)
+    │
+    └── No .streamlink? → call /ftauserstream API → get tokenized URL
+</div>
+
+<h4>High-Latency Detection (isHighLatencyConnection)</h4>
+<ol>
+<li>Check <code>navigator.connection.rtt</code> (Chrome/Edge) — if &gt; 150ms → high latency</li>
+<li>Fallback: check timezone — non-South-Asian timezone → high latency</li>
+<li>South Asian timezones: Kolkata, Calcutta, Colombo, Dhaka, Kathmandu, Karachi, Thimphu, Rangoon, Bangkok, Jakarta</li>
+</ol>
+
+<h4>HLS.js Configuration (Two Tiers)</h4>
+<table>
+<tr><th>Parameter</th><th>India (Normal)</th><th>International (High Latency)</th></tr>
+<tr><td>liveSyncDuration</td><td>3-6s</td><td><strong>12s</strong></td></tr>
+<tr><td>maxBufferLength</td><td>10-15s</td><td><strong>30s</strong></td></tr>
+<tr><td>maxMaxBufferLength</td><td>30-60s</td><td><strong>120s</strong></td></tr>
+<tr><td>maxBufferSize</td><td>20 MB</td><td><strong>60 MB</strong></td></tr>
+<tr><td>liveMaxLatencyDuration</td><td>15-30s</td><td><strong>60s</strong></td></tr>
+<tr><td>backBufferLength</td><td>0s</td><td><strong>15s</strong></td></tr>
+<tr><td>fragLoadingTimeOut</td><td>10-20s</td><td><strong>30s</strong></td></tr>
+<tr><td>fragLoadingMaxRetry</td><td>6-8</td><td><strong>10</strong></td></tr>
+<tr><td>Loading timeout (UI)</td><td>20s</td><td><strong>45s</strong></td></tr>
+</table>
+
+<h4>Player Features</h4>
+<ul>
+<li><strong>Fullscreen:</strong> CSS rotation (not Fullscreen API) to avoid exposing domain name</li>
+<li><strong>Channel strip:</strong> Swipe-up gesture reveals horizontal channel carousel</li>
+<li><strong>Token refresh:</strong> On 403 error, auto-fetches fresh tokenized URL</li>
+<li><strong>Stall recovery:</strong> Skips past buffer holes, retries up to 8 times</li>
+<li><strong>Adjacent prefetch:</strong> Pre-caches streamlinks for ±1 channels around current</li>
+<li><strong>Logo preload:</strong> Only ±20 channels around current (prevents bandwidth starvation)</li>
+</ul>
+</div>
+
+<!-- 12. PWA -->
+<h2 id="s12">12. PWA &amp; Service Worker</h2>
+<div class="card">
+<h4>PWA Configuration (vite.config.js)</h4>
+<ul>
+<li><code>registerType: 'autoUpdate'</code> — SW auto-updates in background</li>
+<li><code>skipWaiting: true</code>, <code>clientsClaim: true</code> — new SW activates immediately</li>
+<li><code>maximumFileSizeToCacheInBytes: 5MB</code></li>
+<li>Heavy chunks excluded from precache: hls.js, leaflet, jspdf, swiper, framer-motion</li>
+</ul>
+
+<h4>Workbox Runtime Caching</h4>
+<table>
+<tr><th>Cache Name</th><th>Pattern</th><th>Strategy</th><th>Max Entries</th><th>TTL</th></tr>
+<tr><td>channel-assets-v3</td><td>/showimage/, /adimage/, cdn1.bbnl.in</td><td>CacheFirst</td><td>500</td><td>30 days</td></tr>
+<tr><td>app-assets</td><td>.js, .css</td><td>StaleWhileRevalidate</td><td>80</td><td>7 days</td></tr>
+<tr><td>static-icons</td><td>/icons/</td><td>CacheFirst</td><td>40</td><td>30 days</td></tr>
+<tr><td>images</td><td>png, jpg, gif, svg, webp</td><td>CacheFirst</td><td>120</td><td>14 days</td></tr>
+<tr><td>google-fonts-*</td><td>fonts.googleapis.com</td><td>SWR / CacheFirst</td><td>5/20</td><td>30/365 days</td></tr>
+</table>
+
+<h4>Custom SW Scripts</h4>
+<ul>
+<li><code>sw-nav-preload.js</code> — Navigation Preload: fires network request in parallel with SW boot (50-100ms savings)</li>
+<li><code>sw-api-cache.js</code> — Caches POST API responses in Service Worker</li>
+</ul>
+
+<h4>Stale Cache Detection (main.jsx)</h4>
+<ol>
+<li>Build ID (<code>VITE_APP_BUILD_ID</code>) baked at compile time</li>
+<li>On startup, compare stored build ID with current</li>
+<li>Mismatch → purge <code>app-assets</code> + <code>workbox-precache</code> → reload once</li>
+<li>Uses <code>sessionStorage</code> guard to prevent reload loops</li>
+</ol>
+</div>
+
+<!-- 13. COMPONENTS -->
+<h2 id="s13">13. Component Library</h2>
+<div class="card">
+<h4>Layout</h4>
+<table>
+<tr><th>Component</th><th>File</th><th>Description</th></tr>
+<tr><td>Header</td><td>components/Header.jsx</td><td>Top bar: logo, theme toggle, user menu, logout</td></tr>
+<tr><td>BottomNav</td><td>components/BottomNav.jsx</td><td>5-tab bottom bar (different tabs for employee vs customer)</td></tr>
+<tr><td>Sidebar</td><td>components/Sidebar.jsx</td><td>Slide-out navigation drawer</td></tr>
+<tr><td>Layout</td><td>layout/Layout.jsx</td><td>Wraps Header + BottomNav around page content</td></tr>
+</table>
+
+<h4>UI Primitives (src/components/ui/)</h4>
+<table>
+<tr><th>Component</th><th>Purpose</th></tr>
+<tr><td>Alert</td><td>Toast notifications (success, error, info)</td></tr>
+<tr><td>Badge</td><td>Colored status badges</td></tr>
+<tr><td>Button</td><td>Styled buttons with variants</td></tr>
+<tr><td>Input / FloatingInput</td><td>Form inputs with floating labels</td></tr>
+<tr><td>Modal</td><td>Generic modal dialog</td></tr>
+<tr><td>ConfirmDialog</td><td>Yes/No confirmation dialog</td></tr>
+<tr><td>Toast</td><td>Toast notification context + provider</td></tr>
+<tr><td>Loader / FullPageLoader</td><td>Loading spinners</td></tr>
+<tr><td>TicketDialog</td><td>Ticket action dialog (pick, close, transfer)</td></tr>
+<tr><td>ServiceSelectionModal</td><td>Service picker for customer service switching</td></tr>
+<tr><td>UserToggle</td><td>Employee/customer toggle switch</td></tr>
+</table>
+
+<h4>Specialized Components</h4>
+<table>
+<tr><th>Component</th><th>Purpose</th></tr>
+<tr><td>BrowserGate</td><td>PWA install gate — shows install instructions if not installed</td></tr>
+<tr><td>ErrorBoundary</td><td>Catches render errors, auto-recovers stale cache, manual reload options</td></tr>
+<tr><td>QRScanner</td><td>Camera-based QR scanning via jsQR library</td></tr>
+<tr><td>Terms</td><td>Terms &amp; conditions modal</td></tr>
+<tr><td>iptv/IptvSignup</td><td>IPTV user registration modal</td></tr>
+<tr><td>iptv/DataUsage</td><td>Internet data usage display</td></tr>
+<tr><td>iptv/ResetMac/Password/PPPoE</td><td>Device reset components for FoFi box</td></tr>
+</table>
+</div>
+
+<!-- 14. HOOKS -->
+<h2 id="s14">14. Custom Hooks</h2>
+<div class="card">
+<table>
+<tr><th>Hook</th><th>File</th><th>Returns</th><th>Purpose</th></tr>
+<tr><td><code>useCachedLogo(url)</code></td><td>hooks/useCachedLogo.js</td><td>[cachedUrl, logoRef]</td><td>Subscribes to logo cache; returns blob URL when loaded</td></tr>
+<tr><td><code>useDarkMode()</code></td><td>hooks/useDarkMode.js</td><td>boolean</td><td>Detects system dark mode preference</td></tr>
+<tr><td><code>useOpenMap()</code></td><td>hooks/useOpenMap.js</td><td>function</td><td>Opens external map app with coordinates</td></tr>
+<tr><td><code>useOpenWhatsApp()</code></td><td>hooks/useOpenWhatsApp.js</td><td>function</td><td>Opens WhatsApp chat with phone number</td></tr>
+<tr><td><code>useVoiceSearch()</code></td><td>hooks/useVoiceSearch.js</td><td>{ start, stop, text }</td><td>Multilingual speech recognition with number parsing</td></tr>
+</table>
+</div>
+
+<!-- 15. PERFORMANCE -->
+<h2 id="s15">15. Performance Optimizations</h2>
+<div class="card">
+<h4>Build Level (vite.config.js)</h4>
+<ul>
+<li><strong>Code Splitting:</strong> Manual chunks for hls.js, leaflet, jspdf, swiper, framer-motion, vendor-react</li>
+<li><strong>Module Preload Filtering:</strong> Heavy chunks NOT preloaded (prevents 1.4MB unnecessary downloads)</li>
+<li><strong>Console Stripping:</strong> Production removes console.log/debug/info + debugger statements</li>
+<li><strong>Tree Shaking:</strong> Vite/esbuild dead code elimination</li>
+</ul>
+
+<h4>Runtime Level</h4>
+<ul>
+<li><strong>React.memo:</strong> Applied to IPTV sub-components (AdBanner, LangCard, ChannelRow, ChannelCard)</li>
+<li><strong>content-visibility: auto</strong> on list children — skips layout/paint for off-screen rows</li>
+<li><strong>CSS containment:</strong> <code>contain: layout style</code> on list items</li>
+<li><strong>Lazy image loading:</strong> <code>loading="lazy"</code> + IntersectionObserver</li>
+<li><strong>Connection-aware tuning:</strong> Timeouts, concurrency, cache TTLs adapt to 2G/3G/4G</li>
+<li><strong>Navigation Preload:</strong> SW fires network request before boot completes (50-100ms savings)</li>
+</ul>
+</div>
+
+<!-- 16. SECURITY -->
+<h2 id="s16">16. Security &amp; Logging</h2>
+<div class="card">
+<h4>Security Features</h4>
+<ul>
+<li><strong>Stream URL obfuscation:</strong> XOR cipher + base64 in sessionStorage (prevents plain-text URL exposure)</li>
+<li><strong>No Fullscreen API:</strong> Uses CSS rotation to avoid browser showing domain to user</li>
+<li><strong>CORS origin/referer gate:</strong> Stream proxy validates request origin before proxying</li>
+<li><strong>Host allowlist:</strong> Only <code>STREAM_HOSTS</code> hostnames can be proxied</li>
+<li><strong>Directory traversal prevention:</strong> server.js validates file paths stay within dist/</li>
+<li><strong>nginx security headers:</strong> HSTS, X-Content-Type-Options, X-Frame-Options, X-XSS-Protection</li>
+</ul>
+
+<h4>Structured Logging (utils/logger.js)</h4>
+<ul>
+<li><strong>Dev:</strong> All levels (debug, info, warn, error, security)</li>
+<li><strong>Prod:</strong> warn, error, security only</li>
+<li><strong>Auto-redacts:</strong> password, Authorization, x-api-key, token, secret, credit_card, cookie</li>
+<li><strong>Security events:</strong> LOGIN_SUCCESS, LOGIN_REJECTED, OTP_VERIFY, LOGOUT, SESSION_EXPIRED, API_AUTH_REJECTED</li>
+</ul>
+</div>
+
+<!-- 17. SERVER -->
+<h2 id="s17">17. Server &amp; Deployment</h2>
+<div class="card">
+<h4>Production Architecture</h4>
+<div class="diagram">
+  Browser (HTTPS)
+       │
+       ▼
+  nginx (Port 443, HTTP/2 + TLS)
+  ├── TLS termination (ssl_certificate)
+  ├── HTTP → HTTPS redirect (port 80)
+  ├── Security headers (HSTS, CSP, etc.)
+  └── Reverse proxy to Node.js
+       │
+       ▼
+  Node.js server.js (Port 3000, HTTP/2 h2c)
+  ├── Static file serving (dist/)
+  │   ├── Hashed assets → Cache 1 year, immutable
+  │   └── Other files → no-cache
+  ├── Gzip compression (HTML, JS, CSS, m3u8)
+  ├── Stream proxy (/stream/{host}/{path})
+  │   ├── HTTP/2 session pool to stream origins
+  │   ├── M3u8 playlist rewriting
+  │   ├── Segment caching (150MB, 25s TTL)
+  │   └── Pre-warm + session rotation (10 min)
+  └── SPA fallback (index.html for unknown routes)
+       │
+       ▼
+  Stream origins:
+  ├── livestream.bbnl.in
+  └── livestream2.bbnl.in
+</div>
+
+<h4>server.js Key Parameters</h4>
+<table>
+<tr><th>Env Variable</th><th>Default</th><th>Purpose</th></tr>
+<tr><td><code>PORT</code></td><td>3000</td><td>Listening port</td></tr>
+<tr><td><code>TLS_CERT_PATH</code></td><td>(none)</td><td>TLS cert for h2 mode (optional)</td></tr>
+<tr><td><code>TLS_KEY_PATH</code></td><td>(none)</td><td>TLS key for h2 mode (optional)</td></tr>
+<tr><td><code>STREAM_HOSTS</code></td><td>livestream.bbnl.in,livestream2.bbnl.in</td><td>Allowed proxy targets</td></tr>
+</table>
+
+<h4>Segment Cache (In-Memory)</h4>
+<ul>
+<li><strong>Max size:</strong> 150 MB</li>
+<li><strong>TTL:</strong> 25 seconds (covers ~4 live HLS segments)</li>
+<li><strong>Eviction:</strong> FIFO when full, skip segments &gt; 10MB</li>
+<li><strong>Cache key:</strong> <code>{host}{path_without_query}</code></li>
+<li><strong>Benefit:</strong> Multiple viewers of same channel → only 1st fetches from origin</li>
+</ul>
+</div>
+
+<!-- 18. NGINX -->
+<h2 id="s18">18. nginx Configuration</h2>
+<div class="card">
+<h4>Key Settings (nginx-http2.conf)</h4>
+<table>
+<tr><th>Setting</th><th>Value</th><th>Why</th></tr>
+<tr><td><code>listen</code></td><td>443 ssl http2</td><td>HTTPS with HTTP/2</td></tr>
+<tr><td><code>ssl_protocols</code></td><td>TLSv1.2 TLSv1.3</td><td>HTTP/2 requires TLS 1.2+</td></tr>
+<tr><td><code>proxy_http_version</code></td><td>2.0</td><td>H2C to Node.js (requires nginx 1.25.1+)</td></tr>
+<tr><td><code>keepalive</code></td><td>64 connections</td><td>Connection reuse to Node.js</td></tr>
+<tr><td><code>proxy_cache</code></td><td>off</td><td>Node.js handles all caching</td></tr>
+<tr><td><code>http2_push_preload</code></td><td>on</td><td>Server push support</td></tr>
+<tr><td><code>proxy_read_timeout</code></td><td>60s</td><td>Stream proxy tolerance</td></tr>
+</table>
+
+<h4>SSL Certificates</h4>
+<pre><code>ssl_certificate     /etc/ssl/certs/bbnl.crt;
+ssl_certificate_key /etc/ssl/private/bbnl.key;</code></pre>
+
+<h4>Server Name</h4>
+<pre><code>server_name bbnlnetmon.bbnl.in;</code></pre>
+</div>
+
+<!-- 19. RELAY -->
+<h2 id="s19">19. International Streaming (Relay Server)</h2>
+<div class="card">
+<h4>Problem</h4>
+<p>Users in USA/Canada/Australia experience 200-350ms RTT to Indian stream servers. Each HLS segment fetch crosses the ocean, causing buffering.</p>
+
+<h4>Solution: Edge Relay Servers</h4>
+<div class="diagram">
+  Without Relay:
+  User (USA) ── 200ms ──→ livestream.bbnl.in (India)
+                200ms ←──
+              = 400ms per segment
+
+  With Relay:
+  User (USA) ── 15ms ──→ relay-us (USA VPS) ── 200ms ──→ India
+                                                 (cached!)
+  User (USA) ← 15ms ── relay-us
+              = 30ms per segment (cache hit)
+</div>
+
+<h4>Deployment File</h4>
+<p><code>deployment-package/relay-server.js</code> — standalone relay that only handles <code>/stream/*</code> requests with segment caching (200MB, 30s TTL).</p>
+
+<h4>Configuration</h4>
+<pre><code># In .env.production (after deploying relay VPS):
+VITE_RELAY_US=https://relay-us.yourdomain.com
+VITE_RELAY_AU=https://relay-au.yourdomain.com</code></pre>
+
+<h4>How Routing Works</h4>
+<ol>
+<li>PlayerPage.jsx calls <code>isHighLatencyConnection()</code></li>
+<li>If high latency + relay configured: URL becomes <code>https://relay-us.domain.com/stream/host/path</code></li>
+<li>If high latency + no relay: URL becomes <code>/smartphone/crm/stream/host/path</code> (main server proxy)</li>
+<li>If low latency (India): direct HTTPS to <code>livestream.bbnl.in</code></li>
+</ol>
+
+<h4>Recommended VPS</h4>
+<table>
+<tr><th>Provider</th><th>Region</th><th>Cost</th></tr>
+<tr><td>Oracle Cloud Free Tier</td><td>Ashburn (US) + Sydney (AU)</td><td>$0/month</td></tr>
+<tr><td>Hetzner Cloud</td><td>Ashburn</td><td>$4.15/month</td></tr>
+<tr><td>Vultr</td><td>Sydney</td><td>$10/month</td></tr>
+</table>
+</div>
+
+<!-- 20. KNOWN ISSUES -->
+<h2 id="s20">20. Known Issues &amp; Workarounds</h2>
+<div class="card">
+<table>
+<tr><th>Issue</th><th>Workaround</th></tr>
+<tr><td><strong>CDN CORS:</strong> cdn1.bbnl.in lacks CORS headers → opaque responses</td><td>Workbox configured to cache both status 200 and 0 (opaque). Without this, logos re-fetch on every page load.</td></tr>
+<tr><td><strong>Safari Private Browsing:</strong> localStorage quota reduced, IndexedDB unavailable</td><td>In-memory fallback caches. safeStorage.js wraps all storage access with try/catch.</td></tr>
+<tr><td><strong>Stream CORS:</strong> Stream servers send broken CORS headers <code>Access-Control-Allow-Origin: *, *</code></td><td>Server proxy rewrites headers. International users route through proxy (same-origin = no CORS).</td></tr>
+<tr><td><strong>Android SW startup delay:</strong> 50-100ms before SW handles fetch</td><td>Navigation Preload fires network request in parallel with SW boot.</td></tr>
+<tr><td><strong>Chunk load failures after deployment:</strong> Old cached HTML references deleted JS chunks</td><td><code>lazyRetry()</code> wrapper retries imports, purges caches on failure, reloads once.</td></tr>
+<tr><td><strong>iOS lacks <code>navigator.connection</code>:</strong> No RTT or effectiveType</td><td>Timezone-based fallback for high-latency detection. Default 4G settings for network-aware features.</td></tr>
+</table>
+</div>
+
+<!-- 21. CHECKLIST -->
+<h2 id="s21">21. Production Deployment Checklist</h2>
+<div class="card">
+<h4>Pre-Deployment</h4>
+<ul>
+<li>&#9744; <code>.env.production</code> placed in project root with correct credentials</li>
+<li>&#9744; Node.js 18+ installed on server</li>
+<li>&#9744; SSL certificates present: <code>/etc/ssl/certs/bbnl.crt</code>, <code>/etc/ssl/private/bbnl.key</code></li>
+<li>&#9744; nginx 1.25.1+ installed (required for <code>proxy_http_version 2.0</code>)</li>
+</ul>
+
+<h4>Build</h4>
+<ul>
+<li>&#9744; Run <code>npm run build</code> (creates <code>dist/</code> directory)</li>
+<li>&#9744; Copy <code>dist/</code> + <code>server.js</code> (or <code>deployment-package/server.js</code>) to server</li>
+</ul>
+
+<h4>Server Setup</h4>
+<ul>
+<li>&#9744; <code>nginx-http2.conf</code> installed as nginx site config</li>
+<li>&#9744; nginx upstream pointing to <code>127.0.0.1:3000</code></li>
+<li>&#9744; <code>STREAM_HOSTS</code> env var set for Node.js process</li>
+<li>&#9744; Node.js server running: <code>node server.js</code> (or via systemd/pm2)</li>
+<li>&#9744; nginx reloaded: <code>sudo nginx -t && sudo systemctl reload nginx</code></li>
+</ul>
+
+<h4>Verification</h4>
+<ul>
+<li>&#9744; HTTPS accessible: <code>https://bbnlnetmon.bbnl.in/smartphone/crm/</code></li>
+<li>&#9744; HTTP/2 working: <code>curl -I --http2 https://bbnlnetmon.bbnl.in/smartphone/crm/</code></li>
+<li>&#9744; Login + OTP flow works</li>
+<li>&#9744; Live TV streaming works</li>
+<li>&#9744; PWA install prompt appears</li>
+<li>&#9744; Service Worker registers (check DevTools → Application → Service Workers)</li>
+</ul>
+</div>
+
+<!-- 22. KEY FILE REFERENCE -->
+<h2 id="s22">22. Key File Reference</h2>
+<div class="card">
+<table>
+<tr><th>File</th><th>Purpose</th><th>Criticality</th></tr>
+<tr><td><code>src/main.jsx</code></td><td>App entry — PWA cleanup, cache checks, React mount</td><td><span class="badge badge-red">Critical</span></td></tr>
+<tr><td><code>src/App.jsx</code></td><td>Root component — BrowserGate + Routes</td><td><span class="badge badge-red">Critical</span></td></tr>
+<tr><td><code>src/routes/Routes.jsx</code></td><td>All route definitions + lazy loading</td><td><span class="badge badge-red">Critical</span></td></tr>
+<tr><td><code>src/context/AuthContext.jsx</code></td><td>Auth state, login/logout, session management</td><td><span class="badge badge-red">Critical</span></td></tr>
+<tr><td><code>src/services/generalApis.js</code></td><td>Main API calls (login, wallet, customers, tickets)</td><td><span class="badge badge-red">Critical</span></td></tr>
+<tr><td><code>src/services/iptvApi.js</code></td><td>IPTV API with dedup, circuit breaker, concurrency limit</td><td><span class="badge badge-red">Critical</span></td></tr>
+<tr><td><code>src/services/channelStore.js</code></td><td>IndexedDB-backed IPTV data (L1 + L2 cache)</td><td><span class="badge badge-orange">High</span></td></tr>
+<tr><td><code>src/services/logoCache.js</code></td><td>Image caching with concurrency control</td><td><span class="badge badge-orange">High</span></td></tr>
+<tr><td><code>src/services/lsCache.js</code></td><td>localStorage cache with TTL + quota management</td><td><span class="badge badge-orange">High</span></td></tr>
+<tr><td><code>src/services/iptvPrefetch.js</code></td><td>Background IPTV data prefetch on startup</td><td><span class="badge badge-yellow">Medium</span></td></tr>
+<tr><td><code>src/services/iptvImage.js</code></td><td>Image URL rewriting (CDN/proxy/auth)</td><td><span class="badge badge-yellow">Medium</span></td></tr>
+<tr><td><code>src/pages/iptv/PlayerPage.jsx</code></td><td>HLS player — high-latency detection, relay routing</td><td><span class="badge badge-red">Critical</span></td></tr>
+<tr><td><code>src/pages/iptv/LiveTvPage.jsx</code></td><td>Channel list — voice search, caching, ads</td><td><span class="badge badge-red">Critical</span></td></tr>
+<tr><td><code>src/pages/Login.jsx</code></td><td>Login page — PWA install detection</td><td><span class="badge badge-red">Critical</span></td></tr>
+<tr><td><code>src/components/ErrorBoundary.jsx</code></td><td>Error recovery — cache purge on stale chunks</td><td><span class="badge badge-orange">High</span></td></tr>
+<tr><td><code>src/components/BrowserGate.jsx</code></td><td>PWA install gate</td><td><span class="badge badge-orange">High</span></td></tr>
+<tr><td><code>vite.config.js</code></td><td>Build config — PWA, proxies, code splitting</td><td><span class="badge badge-red">Critical</span></td></tr>
+<tr><td><code>server.js</code></td><td>Production HTTP/2 server + stream proxy + segment cache</td><td><span class="badge badge-red">Critical</span></td></tr>
+<tr><td><code>deployment-package/server.js</code></td><td>Production server (with gzip)</td><td><span class="badge badge-red">Critical</span></td></tr>
+<tr><td><code>deployment-package/relay-server.js</code></td><td>Edge relay for international streaming</td><td><span class="badge badge-yellow">Medium</span></td></tr>
+<tr><td><code>stream-proxy-plugin.js</code></td><td>Vite dev plugin for /stream/ proxy</td><td><span class="badge badge-yellow">Dev only</span></td></tr>
+<tr><td><code>nginx-http2.conf</code></td><td>Production nginx reverse proxy config</td><td><span class="badge badge-red">Critical</span></td></tr>
+<tr><td><code>public/sw-nav-preload.js</code></td><td>Navigation Preload SW script</td><td><span class="badge badge-orange">High</span></td></tr>
+<tr><td><code>src/utils/logger.js</code></td><td>Structured logging with auto-redaction</td><td><span class="badge badge-yellow">Medium</span></td></tr>
+</table>
+</div>
+
+<hr>
+
+<h2>External Service Endpoints</h2>
+<div class="card">
+<table>
+<tr><th>Service</th><th>URL</th><th>Purpose</th></tr>
+<tr><td>CRM API (Dev)</td><td><code>https://netmontest.bbnl.in/netmon/</code></td><td>Test backend</td></tr>
+<tr><td>CRM API (Prod)</td><td><code>https://bbnlnetmon.bbnl.in/prod/</code></td><td>Production backend</td></tr>
+<tr><td>IPTV API (Prod)</td><td><code>https://bbnlnetmon.bbnl.in/prod/Cabletvapis</code></td><td>IPTV channels, streams</td></tr>
+<tr><td>Logo CDN</td><td><code>https://cdn1.bbnl.in/cable</code></td><td>Channel logos (nginx, no auth)</td></tr>
+<tr><td>Stream Origin 1</td><td><code>https://livestream.bbnl.in</code></td><td>HLS stream server</td></tr>
+<tr><td>Stream Origin 2</td><td><code>https://livestream2.bbnl.in</code></td><td>HLS stream server</td></tr>
+<tr><td>Public IP</td><td><code>https://api.ipify.org</code></td><td>User's public IP (for stream API)</td></tr>
+<tr><td>Geocoding</td><td><code>https://nominatim.openstreetmap.org</code></td><td>Reverse geocoding (registration)</td></tr>
+<tr><td>Routing</td><td>OSRM via leaflet-routing-machine</td><td>Turn-by-turn navigation</td></tr>
+</table>
+</div>
+
+<!-- 23. PENDING CLIENT ISSUES -->
+<h2 id="s23">23. Pending Client Issues / Bugs to Fix</h2>
+<p>The following bugs were reported by the client (via WhatsApp, March 2026). They are <strong>unresolved</strong> and need investigation by the next developer.</p>
+
+<div class="bug-card">
+<span class="bug-id">BUG-001</span> <span class="bug-title">iPhone — Current Location Not Working</span>
+<div class="bug-meta">
+<span><strong>Platform:</strong> iOS (iPhone)</span>
+<span><strong>Severity:</strong> <span class="badge badge-red">High</span></span>
+<span><strong>Page:</strong> Registration / Ticket Creation (map picker)</span>
+</div>
+<p class="bug-desc">On iPhones, the "Use Current Location" button does not capture the user's GPS location. The app either silently fails or the location value stays empty. This affects registration flows and ticket creation where geolocation is required.</p>
+<div class="bug-hint"><strong>Investigation hints:</strong> Check <code>navigator.geolocation.getCurrentPosition()</code> calls across the app. iOS Safari requires the page to be served over HTTPS and needs explicit <code>&lt;meta name="apple-mobile-web-app-capable"&gt;</code> for PWA. Look at <code>src/pages/Register.jsx</code> and <code>src/pages/TicketsMap.jsx</code> — the Leaflet <code>locate()</code> call may need a longer timeout and <code>enableHighAccuracy: true</code> on iOS. Also check if the PWA manifest correctly requests geolocation permissions.</div>
+</div>
+
+<div class="bug-card">
+<span class="bug-id">BUG-002</span> <span class="bug-title">Android — Map Pick Not Taking Location Until You Drag the Map Icon</span>
+<div class="bug-meta">
+<span><strong>Platform:</strong> Android</span>
+<span><strong>Severity:</strong> <span class="badge badge-yellow">Medium</span></span>
+<span><strong>Page:</strong> Registration / Ticket Creation (map picker)</span>
+</div>
+<p class="bug-desc">On Android devices, after tapping the map to select a location, the selected coordinates are not registered until the user physically drags the map pin/marker. Simply tapping a location on the map should be enough, but the value only updates after a drag event.</p>
+<div class="bug-hint"><strong>Investigation hints:</strong> The map picker likely listens for <code>dragend</code> event on the marker but not <code>click</code> on the map. Check the Leaflet marker setup in <code>src/pages/Register.jsx</code> and <code>src/pages/TicketsMap.jsx</code>. Add a <code>map.on('click', (e) =&gt; ...)</code> handler that updates the coordinates immediately, in addition to the existing <code>marker.on('dragend')</code>. Also verify <code>src/pages/SmartNavigationMap.jsx</code> for similar patterns.</div>
+</div>
+
+<div class="bug-card">
+<span class="bug-id">BUG-003</span> <span class="bug-title">Filter Option Is Not Working</span>
+<div class="bug-meta">
+<span><strong>Platform:</strong> All</span>
+<span><strong>Severity:</strong> <span class="badge badge-yellow">Medium</span></span>
+<span><strong>Page:</strong> Customer List / Tickets</span>
+</div>
+<p class="bug-desc">The filter functionality on list pages (customer list, tickets list) does not produce correct results or has no effect when filter options are selected. The list data remains unchanged after applying filters.</p>
+<div class="bug-hint"><strong>Investigation hints:</strong> Check <code>src/pages/Customerlist.jsx</code> and <code>src/pages/Tickets.jsx</code> for filter state management. Look for <code>useState</code> / <code>useEffect</code> hooks that control filtering logic — the filter state may not be wired to the API call params or the local array <code>.filter()</code> predicate. Also verify that the API endpoints (<code>src/services/customer/apis.js</code>, <code>src/services/generalApis.js</code>) accept and respect filter query parameters.</div>
+</div>
+
+<div class="bug-card">
+<span class="bug-id">BUG-004</span> <span class="bug-title">After Payment — Shows "No Payment Data Available" Error</span>
+<div class="bug-meta">
+<span><strong>Platform:</strong> All</span>
+<span><strong>Severity:</strong> <span class="badge badge-red">High</span></span>
+<span><strong>Page:</strong> Paynow / FoFi Payment</span>
+</div>
+<p class="bug-desc">After completing a payment successfully, the app shows a "No payment data available" error message instead of the payment confirmation or receipt. The payment may have gone through on the backend, but the frontend fails to display the result.</p>
+<div class="bug-hint"><strong>Investigation hints:</strong> Check <code>src/pages/Paynow.jsx</code> and <code>src/pages/FofiPayment.jsx</code>. The issue is likely in the payment response handling — either the API response format changed and the code isn't parsing the new structure, or there's a race condition where the success redirect happens before the payment data is stored in state. Look at <code>src/services/orderApis.js</code> for the payment API response shape and compare it against what the component expects. Also check if the payment gateway callback URL is correctly routing back to the app.</div>
+</div>
+
+<div class="bug-card">
+<span class="bug-id">BUG-005</span> <span class="bug-title">FoFi SmartBox — Scan from TV Shows "Camera Access Required" Error</span>
+<div class="bug-meta">
+<span><strong>Platform:</strong> All (Mobile browsers)</span>
+<span><strong>Severity:</strong> <span class="badge badge-yellow">Medium</span></span>
+<span><strong>Page:</strong> FoFi SmartBox Service → QR Scanner</span>
+</div>
+<p class="bug-desc">When users attempt to scan a QR code from the TV screen using the FoFi SmartBox feature, the app shows a "Camera Access Required" error. The camera permission prompt may not appear, or the app fails to access the camera even when permission has been granted.</p>
+<div class="bug-hint"><strong>Investigation hints:</strong> Check <code>src/pages/services/FoFiSmartBox.jsx</code> — the QR scanning uses <code>jsqr</code> library with <code>navigator.mediaDevices.getUserMedia()</code>. Common issues: (1) The app must be on HTTPS for camera access, (2) iOS requires the <code>playsinline</code> attribute on the video element, (3) The camera stream may not be properly released after scanning causing subsequent attempts to fail — look for <code>stream.getTracks().forEach(t =&gt; t.stop())</code> in cleanup. Also check if the permission check (<code>navigator.permissions.query</code>) is correctly implemented — it's not supported in all browsers and Safari handles it differently.</div>
+</div>
+
+<div class="warn" style="margin-top: 1.5rem;">
+<strong>Priority order (suggested):</strong> BUG-004 (payment) → BUG-001 (iPhone location) → BUG-005 (camera) → BUG-002 (Android map) → BUG-003 (filters). Payment and location bugs directly impact core user flows.
+</div>
+
+<hr>
+<p style="text-align: center; color: var(--muted); font-size: 0.85rem; margin: 2rem 0;">
+Fo-Fi CRM PWA &bull; Knowledge Transfer Document &bull; Generated March 2026 &bull; 23 Sections
+</p>
+
+</div>
+</body>
+</html>

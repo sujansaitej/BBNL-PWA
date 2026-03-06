@@ -78,7 +78,7 @@ export default function SmartNavigationMap() {
 
   // Get user location + track live movement
   useEffect(() => {
-    if (!("geolocation" in navigator)) return alert("Geolocation not supported");
+    if (!("geolocation" in navigator)) return;
 
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {

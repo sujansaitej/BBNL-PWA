@@ -18,7 +18,6 @@ export default function Login() {
   const [isInstalled, setIsInstalled] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState(null);
-  localStorage.setItem("pwaInstalledOnce", "false");
   const isLocal = import.meta.env.VITE_API_APP_ISLOCAL; // Set to true for local testing to bypass PWA install
 
   const [loginType, setLoginType] = useState("franchisee"); // franchisee | customer
@@ -132,6 +131,7 @@ export default function Login() {
   );
 
   function InstallInstructions({ deferredPrompt }) {
+    const [installMsg, setInstallMsg] = useState("");
     const handleInstallClick = async () => {
       if (deferredPrompt) {
         deferredPrompt.prompt();
@@ -141,7 +141,7 @@ export default function Login() {
           console.log("User accepted the install prompt");
         }
       } else {
-        alert("The install option is not available. Try using the browser menu.");
+        setInstallMsg("The install option is not available. Try using the browser menu.");
       }
     };
 
@@ -163,6 +163,11 @@ export default function Login() {
         <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
           To get the best experience, please install this <b>Fo-Fi CRM</b> application to your home screen.
         </p>
+
+        {/* Install message */}
+        {installMsg && (
+          <div className="mb-2 p-2 rounded-lg bg-red-100 text-red-700 text-sm">{installMsg}</div>
+        )}
 
         {/* Install button */}
         <button
@@ -238,6 +243,8 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 px-4">
       {!isInstalled ? (
         <InstallInstructions deferredPrompt={deferredPrompt} />
+      ) : !isStandalone ? (
+        <ThankYouMessage />
       ) : (
       <div className="w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl shadow-xl p-8">
         {/* Logo */}

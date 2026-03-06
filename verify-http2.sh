@@ -11,7 +11,7 @@
 set -e
 
 DOMAIN="${1:-bbnlnetmon.bbnl.in}"
-URL="https://${DOMAIN}/pwa/crm"
+URL="https://${DOMAIN}/smartphone/crm"
 
 echo "═══════════════════════════════════════════════════════════════════════════════"
 echo "  BBNL CRM PWA - HTTP/2 Verification"
@@ -126,7 +126,7 @@ if command -v node &> /dev/null; then
     node --version
     
     # Check if server is running
-    if curl -s http://localhost:3000/pwa/crm 2>&1 | grep -q "html"; then
+    if curl -s http://localhost:3000/smartphone/crm 2>&1 | grep -q "html"; then
         echo "  [OK] Node.js server is responding on localhost:3000"
     else
         echo "  [WARNING] Node.js server may not be running on localhost:3000"

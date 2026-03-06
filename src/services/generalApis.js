@@ -14,6 +14,7 @@ function getHeadersJson() {
     password: import.meta.env.VITE_API_PASSWORD,
     appkeytype: localStorage.getItem('loginType') == "franchisee" ? import.meta.env.VITE_API_APP_USER_TYPE : import.meta.env.VITE_API_APP_USER_TYPE_CUST,
     appversion: import.meta.env.VITE_API_APP_VERSION,
+    "X-App-Package": "com.bbnl.smartphone",
     "Content-Type": "application/json",
   };
 }
@@ -25,6 +26,7 @@ function getHeadersForm() {
     password: import.meta.env.VITE_API_PASSWORD,
     appkeytype: localStorage.getItem('loginType') == "franchisee" ? import.meta.env.VITE_API_APP_USER_TYPE : import.meta.env.VITE_API_APP_USER_TYPE_CUST,
     appversion: import.meta.env.VITE_API_APP_VERSION,
+    "X-App-Package": "com.bbnl.smartphone",
   };
 }
 
@@ -170,6 +172,7 @@ export async function getServiceList() {
     password: import.meta.env.VITE_API_PASSWORD,
     appkeytype: import.meta.env.VITE_API_APP_USER_TYPE,
     appversion: import.meta.env.VITE_API_APP_VERSION,
+    "X-App-Package": "com.bbnl.smartphone",
   };
 
   const formData = new FormData();
@@ -188,7 +191,12 @@ export async function getServiceList() {
   return data;
 }
 
-export async function getUserAssignedItems(servkey, userid) {
+export async function getUserAssignedItems(servkey, userid, skipCache = false) {
+  const cacheKey = `uai_${servkey}_${userid}`;
+  if (!skipCache) {
+    const cached = lsGet(cacheKey, 2 * 60 * 1000); // 2 min TTL
+    if (cached) return cached;
+  }
   const url = `${getBaseUrl()}ServiceApis/getUserAssignedItems`;
   const headers = getHeadersJson();
   const payload = { servkey, userid };
@@ -200,16 +208,23 @@ export async function getUserAssignedItems(servkey, userid) {
   }
 
   const data = await resp.json();
+  lsSet(cacheKey, data);
   return data;
 }
 
-export async function getCableCustomerDetails(refid) {
+export async function getCableCustomerDetails(refid, skipCache = false) {
+  const cacheKey = `cblcust_${refid}`;
+  if (!skipCache) {
+    const cached = lsGet(cacheKey, 2 * 60 * 1000); // 2 min TTL
+    if (cached) return cached;
+  }
   const url = `${getBaseUrl()}GeneralApi/cblCustDet`;
 
   const headers = {
     Authorization: "Basic 06e32ddefe8ad2b05024530451a1cc28",
     username: import.meta.env.VITE_API_USERNAME,
     password: import.meta.env.VITE_API_PASSWORD,
+    "X-App-Package": "com.bbnl.smartphone",
     "Content-Type": "application/x-www-form-urlencoded",
   };
 
@@ -223,13 +238,20 @@ export async function getCableCustomerDetails(refid) {
   }
 
   const data = await resp.json();
+  lsSet(cacheKey, data);
   return data;
 }
 
-export async function getPrimaryCustomerDetails(userid) {
+export async function getPrimaryCustomerDetails(userid, skipCache = false) {
+  const cacheKey = `pricust_${userid}`;
+  if (!skipCache) {
+    const cached = lsGet(cacheKey, 2 * 60 * 1000); // 2 min TTL
+    if (cached) return cached;
+  }
   const url = `${getBaseUrl()}cabletvapis/primaryCustdet`;
 
   const headers = {
+    "X-App-Package": "com.bbnl.smartphone",
     "Content-Type": "application/x-www-form-urlencoded",
   };
 
@@ -243,10 +265,16 @@ export async function getPrimaryCustomerDetails(userid) {
   }
 
   const data = await resp.json();
+  lsSet(cacheKey, data);
   return data;
 }
 
-export async function getMyPlanDetails(params) {
+export async function getMyPlanDetails(params, skipCache = false) {
+  const cacheKey = `plandets_${params.servicekey}_${params.userid}_${params.fofiboxid || ''}`;
+  if (!skipCache) {
+    const cached = lsGet(cacheKey, 2 * 60 * 1000); // 2 min TTL
+    if (cached) return cached;
+  }
   const ts = Date.now();
   const url = `${getBaseUrl()}ServiceApis/getMyPlanDetails?_t=${ts}`;
   const headers = {
@@ -272,6 +300,7 @@ export async function getMyPlanDetails(params) {
 
   const data = await resp.json();
   logger.debug("API", "getMyPlanDetails response", { errCode: data.status?.err_code });
+  lsSet(cacheKey, data);
   return data;
 }
 
@@ -359,6 +388,7 @@ export async function getCustKYCPreview({ cid, reqtype = 'update' }) {
     'username': import.meta.env.VITE_API_USERNAME,
     'password': import.meta.env.VITE_API_PASSWORD,
     'appkeytype': 'employee',
+    'X-App-Package': 'com.bbnl.smartphone',
     'Content-Type': 'application/json; charset=UTF-8'
   };
 
@@ -405,6 +435,7 @@ export async function uploadCustKYC({ cid, prooftype, reqtype = 'update', file, 
     'password': import.meta.env.VITE_API_PASSWORD,
     'appkeytype': 'employee',
     'appversion': import.meta.env.VITE_API_APP_VERSION || '1.49',
+    'X-App-Package': 'com.bbnl.smartphone',
   };
 
   logger.info("API", `KYC upload: cid=${cid}, type=${prooftype}, file=${file.name} (${file.size} bytes)`);
@@ -431,6 +462,7 @@ export async function submitKYC({ cid, loginuser = 'superadmin', prooftype, reqt
     'username': import.meta.env.VITE_API_USERNAME,
     'password': import.meta.env.VITE_API_PASSWORD,
     'appkeytype': 'employee',
+    'X-App-Package': 'com.bbnl.smartphone',
     'Content-Type': 'application/json; charset=UTF-8'
   };
 

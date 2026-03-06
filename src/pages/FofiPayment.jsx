@@ -5,6 +5,7 @@ import { formatToDecimals } from "../services/helpers";
 import { Button, Loader, Alert } from "@/components/ui";
 import { generateFofiOrder } from "../services/fofiApis";
 import { getCableCustomerDetails, getPrimaryCustomerDetails, getWalBal } from "../services/generalApis";
+import { getUser } from "../services/safeStorage";
 
 // Generate unique transaction ID
 function generateTransactionId() {
@@ -105,7 +106,7 @@ export default function FofiPayment() {
   // Fetch wallet balance from API
   const fetchWalletBalance = async () => {
     try {
-      const user = JSON.parse(localStorage.getItem('user'));
+      const user = getUser();
       const loginuname = user?.username || paymentData?.loginuname;
       
       if (!loginuname) {
@@ -141,7 +142,7 @@ export default function FofiPayment() {
       console.log('🔵 Processing FoFi Payment...');
       console.log('🔵 Payment Data:', paymentData);
       
-      const user = JSON.parse(localStorage.getItem('user'));
+      const user = getUser();
       const loginuname = user?.username || paymentData?.loginuname || 'superadmin';
       
       // Use transaction ID from payment info API if available, otherwise generate new

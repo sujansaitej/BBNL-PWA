@@ -34,10 +34,13 @@
     <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
     <noscript><link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet"></noscript>
 
-    <!-- Pre-establish connection to IPTV API/image server — saves 300-500ms
-         on Android Chrome (DNS + TCP + TLS) before the first logo fetch -->
+    <!-- Pre-establish connection to IPTV API server -->
     <link rel="preconnect" href="https://bbnlnetmon.bbnl.in" crossorigin />
     <link rel="dns-prefetch" href="https://bbnlnetmon.bbnl.in" />
+    <!-- Pre-establish connection to channel logo CDN (nginx) — saves 300-500ms
+         on Android Chrome (DNS + TCP + TLS) before the first logo fetch -->
+    <link rel="preconnect" href="https://cdn1.bbnl.in" crossorigin />
+    <link rel="dns-prefetch" href="https://cdn1.bbnl.in" />
     <!-- Pre-establish connections to stream servers for faster first segment load -->
     <link rel="preconnect" href="https://livestream.bbnl.in" crossorigin />
     <link rel="preconnect" href="https://livestream2.bbnl.in" crossorigin />
@@ -48,16 +51,63 @@
 
   </head>
   <body class="bg-gray-50 dark:bg-gray-900">
-    <div id="root"></div>
-    <!-- <script type="text/javascript">
-      function googleTranslateElementInit() {
-        new google.translate.TranslateElement(
-          { pageLanguage: "en", includedLanguages: "en,gu,hi,kn,ta,tu,ml" },
-          "google_translate_element"
-        );
-      }
+    <div id="root">
+      <!-- Inline loading indicator — visible until React mounts and replaces this.
+           If JS fails to load (stale cache, network error, chunk 404), the user
+           sees this instead of a blank white page. -->
+      <div id="boot-loader" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,sans-serif;background:#f9fafb;color:#6b7280;padding:1rem;text-align:center">
+        <div style="width:2rem;height:2rem;border:3px solid #e0e7ff;border-top-color:#4f46e5;border-radius:50%;animation:bspin .7s linear infinite;margin-bottom:.75rem"></div>
+        <p style="font-size:.875rem;margin:0">Loading Fo-Fi CRM…</p>
+        <style>@keyframes bspin{to{transform:rotate(360deg)}}@media(prefers-color-scheme:dark){#boot-loader{background:#111827!important;color:#9ca3af!important}}</style>
+      </div>
+    </div>
+
+    <!-- Global error handler — catches module-level crashes BEFORE React mounts.
+         Without this, any import error = permanent blank white page. -->
+    <script>
+      (function(){
+        var shown = false;
+        function showBootError(msg) {
+          if (shown) return;
+          shown = true;
+          var el = document.getElementById('boot-loader');
+          if (!el) el = document.getElementById('root');
+          el.innerHTML =
+            '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,sans-serif;padding:1.5rem;text-align:center">' +
+              '<div style="width:3rem;height:3rem;margin-bottom:.75rem;border-radius:50%;background:#fee2e2;display:flex;align-items:center;justify-content:center">' +
+                '<svg width="24" height="24" fill="none" stroke="#ef4444" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>' +
+              '</div>' +
+              '<p style="font-size:.9375rem;font-weight:600;color:#1f2937;margin:0 0 .25rem">App failed to load</p>' +
+              '<p style="font-size:.8125rem;color:#6b7280;margin:0 0 1rem;max-width:20rem;word-break:break-word">' + (msg || 'An unexpected error occurred.') + '</p>' +
+              '<button onclick="clearAndReload()" style="padding:.625rem 1.25rem;background:#4f46e5;color:#fff;border:none;border-radius:.5rem;font-size:.875rem;font-weight:500;cursor:pointer">Reload App</button>' +
+            '</div>';
+        }
+
+        // Clear caches and reload — nuclear recovery for stale SW / broken chunks
+        window.clearAndReload = function() {
+          Promise.all([
+            ('caches' in window) ? caches.keys().then(function(n){return Promise.allSettled(n.map(function(k){return caches.delete(k)}))}) : Promise.resolve(),
+            ('serviceWorker' in navigator) ? navigator.serviceWorker.getRegistrations().then(function(r){return Promise.allSettled(r.map(function(x){return x.unregister()}))}) : Promise.resolve()
+          ]).finally(function(){ location.reload(); });
+        };
+
+        // Catch synchronous errors (module parse failures, import crashes)
+        window.onerror = function(msg) { showBootError(msg); };
+        // Catch async errors (dynamic import failures, unhandled rejections)
+        window.addEventListener('unhandledrejection', function(e) {
+          showBootError(e.reason && e.reason.message ? e.reason.message : 'Failed to load application module.');
+        });
+
+        // Timeout fallback — if React hasn't mounted after 15s, something is wrong.
+        // React removes #boot-loader when it mounts, so if it's still there = stuck.
+        setTimeout(function() {
+          if (document.getElementById('boot-loader')) {
+            showBootError('App took too long to load. This may be a network or cache issue.');
+          }
+        }, 15000);
+      })();
     </script>
-    <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script> -->
+
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

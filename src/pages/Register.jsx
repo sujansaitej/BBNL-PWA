@@ -17,6 +17,56 @@ import {
 } from "../services/registrationApis";
 import { Modal } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
+import { getUser } from "../services/safeStorage";
+
+// Compress image client-side to fit under maxSizeMB using canvas
+async function compressImage(file, { maxWidth = 1920, maxHeight = 1920, maxSizeMB = 1.8 } = {}) {
+  // Skip non-image files
+  if (!file.type.startsWith("image/")) return file;
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+
+      // Scale down if exceeds max dimensions
+      if (width > maxWidth || height > maxHeight) {
+        const ratio = Math.min(maxWidth / width, maxHeight / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+
+      // Try progressively lower quality until under maxSizeMB
+      let quality = 0.82;
+      const tryCompress = () => {
+        canvas.toBlob(
+          (blob) => {
+            if (blob.size > maxSizeMB * 1024 * 1024 && quality > 0.3) {
+              quality -= 0.1;
+              tryCompress();
+            } else {
+              const compressed = new File([blob], file.name.replace(/\.\w+$/, ".jpg"), {
+                type: "image/jpeg",
+                lastModified: Date.now(),
+              });
+              resolve(compressed);
+            }
+          },
+          "image/jpeg",
+          quality
+        );
+      };
+      tryCompress();
+    };
+    img.onerror = () => resolve(file); // fallback to original on error
+    img.src = URL.createObjectURL(file);
+  });
+}
 
 // debounce helper
 function debounce(fn, wait = 500) {
@@ -180,14 +230,18 @@ function smoothScrollTo(element, duration = 800) {
 const ThumbnailUploader = forwardRef(({ label, max = 1, username, fieldKey, multiple = false, error, required = false }, ref) => {
   const [files, setFiles] = useState([]); // local preview
   const [uploading, setUploading] = useState(false);
+  const toast = useToast();
 
   const handleFileChange = async (e) => {
     const selected = Array.from(e.target.files).slice(0, max - files.length);
     for (let i = 0; i < selected.length; i++) {
-      const file = selected[i];
+      const rawFile = selected[i];
       setUploading(true);
+
+      // Compress image before upload to avoid server 2MB limit
+      const file = await compressImage(rawFile);
       const apiRes = await uploadKycFile(username, file, fieldKey + (i + 1));
-      
+
       setUploading(false);
 
       if (apiRes?.status?.err_code === 0) {
@@ -214,7 +268,7 @@ const ThumbnailUploader = forwardRef(({ label, max = 1, username, fieldKey, mult
             break;
         }
       } else {
-        alert(apiRes?.status?.err_msg || "Upload failed");
+        toast.add(apiRes?.status?.err_msg || "Upload failed", { type: "error" });
       }
     }
   };
@@ -505,7 +559,7 @@ export default function Register() {
       // signature -> 'signature' (we will convert dataURL -> blob)
       saveSign(dataUrl);
     } else {
-      alert("Please write signature");
+      toast.add("Please write signature", { type: "error" });
     }
   };
   
@@ -544,7 +598,7 @@ export default function Register() {
         }
       );
     } else {
-      alert("Geolocation not supported by your browser");
+      toast.add("Geolocation not supported by your browser", { type: "error" });
       setShowMap(true);
     }
   }
@@ -733,7 +787,7 @@ export default function Register() {
       const username = form.username;
       // await uploadAllKycFiles(username);
       
-      const logUname = JSON.parse(localStorage.getItem('user')).username;
+      const logUname = getUser().username || "";
       const regRes = await submitRegistrationNecessities(logUname);
 
       // Save data in localStorage
@@ -854,7 +908,7 @@ export default function Register() {
                 navigator.geolocation.getCurrentPosition((p) => {
                   reverseGeocode(p.coords.latitude, p.coords.longitude);
                 });
-              } else alert("Geolocation not available");
+              } else toast.add("Geolocation not available", { type: "error" });
             }} className="rounded border px-3 py-1 text-sm dark:text-gray-700">Use current location</button>
           </div>
           {errors.address && <p className="text-xs text-red-500">{errors.address}</p>}

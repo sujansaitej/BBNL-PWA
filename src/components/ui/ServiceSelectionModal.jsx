@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import Modal from './Modal';
 
 export default function ServiceSelectionModal({ isOpen, onClose, onSelectService, customer, services: propServices }) {
     const navigate = useNavigate();
     const [selectedService, setSelectedService] = useState('');
+    const [comingSoonOpen, setComingSoonOpen] = useState(false);
 
     // Default services (fallback if no services provided)
     const defaultServices = [
@@ -13,16 +15,27 @@ export default function ServiceSelectionModal({ isOpen, onClose, onSelectService
         { id: 'iptv', name: 'Cable TV', path: 'iptv' }
     ];
 
+    // Services to hide from the UI
+    const hiddenServices = ['games', 'multi service', 'ip camera'];
+
+    // Services not yet available (show "Coming Soon" on click)
+    const comingSoonServices = ['cable tv', 'voice call service', 'voice call', 'iptv'];
+
     // Use services from props if available, otherwise use default
-    const services = propServices && propServices.length > 0
+    const services = (propServices && propServices.length > 0
         ? propServices.map((service, idx) => ({
             id: service.servkey || service.id || `service-${idx}`,
             name: service.title || service.servname || service.name || `Service ${idx + 1}`,
             path: service.servkey || service.id || `service-${idx}`
         }))
-        : defaultServices;
+        : defaultServices
+    ).filter(service => !hiddenServices.includes(service.name.toLowerCase()));
 
     const handleServiceClick = (service) => {
+        if (comingSoonServices.includes(service.name.toLowerCase())) {
+            setComingSoonOpen(true);
+            return;
+        }
         onSelectService(service);
         onClose();
     };
@@ -62,21 +75,21 @@ export default function ServiceSelectionModal({ isOpen, onClose, onSelectService
                         </div>
                         <div className="space-y-2 text-sm">
                             <div className="flex">
-                                <span className="w-36 text-gray-600">Username</span>
-                                <span className="text-gray-600">: {customer.customer_id || customer.username || 'N/A'}</span>
+                                <span className="w-36 shrink-0 text-gray-600">Username</span>
+                                <span className="text-gray-600 min-w-0 break-all">: {customer.customer_id || customer.username || 'N/A'}</span>
                             </div>
                             <div className="flex">
-                                <span className="w-36 text-gray-600">Customer Name</span>
-                                <span className="text-gray-600">: {customer.name || 'N/A'}</span>
+                                <span className="w-36 shrink-0 text-gray-600">Customer Name</span>
+                                <span className="text-gray-600 min-w-0 break-all">: {customer.name || 'N/A'}</span>
                             </div>
                             <div className="flex">
-                                <span className="w-36 text-gray-600">Ph Number</span>
-                                <span className="text-gray-600">: {customer.mobile || customer.phone || 'N/A'}</span>
+                                <span className="w-36 shrink-0 text-gray-600">Ph Number</span>
+                                <span className="text-gray-600 min-w-0 break-all">: {customer.mobile || customer.phone || 'N/A'}</span>
                             </div>
                             {customer.email && (
                                 <div className="flex">
-                                    <span className="w-36 text-gray-600">Email Id</span>
-                                    <span className="text-gray-600">: {customer.email}</span>
+                                    <span className="w-36 shrink-0 text-gray-600">Email Id</span>
+                                    <span className="text-gray-600 min-w-0 break-all">: {customer.email}</span>
                                 </div>
                             )}
                         </div>
@@ -112,6 +125,13 @@ export default function ServiceSelectionModal({ isOpen, onClose, onSelectService
                     </div>
                 </div>
             </div>
+
+            {/* Coming Soon Modal */}
+            <Modal isOpen={comingSoonOpen} onClose={() => setComingSoonOpen(false)}>
+                <h2 className="text-xl font-semibold text-center text-red-500 mb-2">Coming Soon!</h2>
+                <img src={import.meta.env.VITE_API_APP_DIR_PATH + 'img/under_dev.jpg'} alt="Coming Soon" className="w-70 h-70 mx-auto" />
+                <p className="text-center text-violet-900 mt-1">We're working on this feature — check back soon!</p>
+            </Modal>
         </div>
     );
 }

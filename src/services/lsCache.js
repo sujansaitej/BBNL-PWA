@@ -83,6 +83,25 @@ export function lsGet(key, ttl) {
 }
 
 /**
+ * Read a cached entry even if expired (stale-while-revalidate pattern).
+ * Returns { data, fresh } where fresh=true if within TTL, false if stale.
+ * Returns null if no entry exists at all.
+ * @param {string} key   Cache key (without prefix)
+ * @param {number} ttl   Max age in ms
+ */
+export function lsGetStale(key, ttl) {
+  lazyCleanup();
+  try {
+    const raw = localStorage.getItem(PREFIX + key);
+    if (!raw) return null;
+    const entry = JSON.parse(raw);
+    if (!entry.ts || !entry.data) return null;
+    return { data: entry.data, fresh: Date.now() - entry.ts < ttl };
+  } catch (_) { /* corrupt or unavailable */ }
+  return null;
+}
+
+/**
  * Write a cache entry.  On quota full, evicts oldest entries and retries.
  * @param {string} key   Cache key (without prefix)
  * @param {*}      data  JSON-serializable data

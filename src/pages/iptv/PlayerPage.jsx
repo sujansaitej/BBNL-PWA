@@ -14,73 +14,150 @@ const _XK = 0x5A;
 function _sc(s) { return btoa(Array.from(s, c => String.fromCharCode(c.charCodeAt(0) ^ _XK)).join('')); }
 function _ds(s) { try { return Array.from(atob(s), c => String.fromCharCode(c.charCodeAt(0) ^ _XK)).join(''); } catch { return null; } }
 
-function storeStreamCache(chid, url) {
-  try { sessionStorage.setItem(`s_${chid}`, _sc(JSON.stringify({ u: url, t: Date.now() }))); } catch {}
+// Detect if user is far from Indian stream servers (high RTT).
+// Uses Network Information API (Chrome/Edge) with timezone fallback (Safari/Firefox).
+let _hlResult = null;
+function isHighLatencyConnection() {
+  if (_hlResult !== null) return _hlResult;
+  const conn = navigator.connection || navigator.mozConnection;
+  if (conn?.rtt > 0) { _hlResult = conn.rtt > 150; return _hlResult; }
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    _hlResult = !/^Asia\/(Kolkata|Calcutta|Colombo|Dhaka|Kathmandu|Karachi|Thimphu|Rangoon|Bangkok|Jakarta)/.test(tz);
+  } catch { _hlResult = false; }
+  return _hlResult;
 }
 
-function loadStreamCache(chid, maxAge = 30 * 60 * 1000) {
+/** Check if a stream URL contains a valid auth token (e.g. ?token=xxx&expires=nnn) */
+function isTokenizedUrl(url) { return !!url && /[?&]token=/.test(url); }
+
+function storeStreamCache(chid, url) {
+  try {
+    // Extract token expiry from URL (e.g. ?expires=1772536233) for smarter cache lifetime.
+    // Subtract 60s buffer so we don't serve an about-to-expire token.
+    const m = url.match(/[?&]expires=(\d+)/);
+    const exp = m ? (parseInt(m[1], 10) * 1000 - 60000) : (Date.now() + 25 * 60 * 1000);
+    sessionStorage.setItem(`s_${chid}`, _sc(JSON.stringify({ u: url, t: Date.now(), e: exp })));
+  } catch {}
+}
+
+function loadStreamCache(chid) {
   try {
     const raw = sessionStorage.getItem(`s_${chid}`);
     if (!raw) return null;
-    const { u, t } = JSON.parse(_ds(raw));
-    if (Date.now() - t > maxAge) { sessionStorage.removeItem(`s_${chid}`); return null; }
+    const parsed = JSON.parse(_ds(raw));
+    const { u, e } = parsed;
+    // Use stored token expiry if available, otherwise fallback 25 min from creation
+    const expiry = e || (parsed.t + 25 * 60 * 1000);
+    if (Date.now() > expiry) { sessionStorage.removeItem(`s_${chid}`); return null; }
     return u;
-  } catch { sessionStorage.removeItem(`s_${chid}`); return null; }
+  } catch { try { sessionStorage.removeItem(`s_${chid}`); } catch {} return null; }
 }
 
-// Convert API streamlink to direct HTTPS URL for HTTP/2 connections
-// Handles: /stream/livestream.bbnl.in/path → https://livestream.bbnl.in/path
-// Handles: https://livestream.bbnl.in/path → https://livestream.bbnl.in/path (no change)
+// Stream URL routing:
+// - Low-latency users (India/nearby): direct HTTPS to stream servers
+// - High-latency users (international): route through nearest relay server
+//   → relay caches segments at edge (15ms vs 200ms), eliminates CORS preflight
+//
+// To enable relay servers, set VITE_RELAY_US and/or VITE_RELAY_AU in .env:
+//   VITE_RELAY_US=https://relay-us.yourdomain.com
+//   VITE_RELAY_AU=https://relay-au.yourdomain.com
+// When not set, falls back to routing through the main server proxy.
+const RELAY_US = import.meta.env.VITE_RELAY_US || '';
+const RELAY_AU = import.meta.env.VITE_RELAY_AU || '';
+
+function getNearestRelay() {
+  if (!RELAY_US && !RELAY_AU) return ''; // no relays configured
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    // Australia/NZ timezones → AU relay
+    if (/^(Australia|Pacific\/Auckland|Pacific\/Fiji)/.test(tz)) return RELAY_AU || RELAY_US;
+    // Americas, Europe, Africa → US relay (closer than India)
+    if (/^(America|US|Canada|Europe|Africa|Atlantic)/.test(tz)) return RELAY_US || RELAY_AU;
+    // Fallback for other international
+    return RELAY_US || RELAY_AU;
+  } catch { return RELAY_US || RELAY_AU; }
+}
+
 function normalizeStreamUrl(url) {
   if (!url) return url;
-  
-  // If already a full HTTPS URL, return as-is
-  if (url.startsWith('https://')) return url;
-  
-  // If it's a proxy path format: /stream/hostname/path
-  const proxyMatch = url.match(/^\/stream\/([^/]+)(\/.*)$/);
-  if (proxyMatch) {
-    const [, hostname, path] = proxyMatch;
-    return `https://${hostname}${path}`;
+
+  if (isHighLatencyConnection()) {
+    if (url.startsWith('https://')) {
+      try {
+        const u = new URL(url);
+        const relay = getNearestRelay();
+        if (relay) {
+          // Route through relay: https://relay-us.domain.com/stream/hostname/path
+          return `${relay}/stream/${u.hostname}${u.pathname}${u.search}`;
+        }
+        // No relay configured — fall back to main server proxy
+        const base = import.meta.env.BASE_URL || '/';
+        return `${base}stream/${u.hostname}${u.pathname}${u.search}`;
+      } catch { return url; }
+    }
+    return url;
   }
-  
-  // Default: return as-is (shouldn't happen)
+
+  // Direct mode — connect straight to stream server for minimum hops
+  if (url.startsWith('https://')) return url;
+  const proxyMatch = url.match(/^\/stream\/([^/]+)(\/.*)$/);
+  if (proxyMatch) return `https://${proxyMatch[1]}${proxyMatch[2]}`;
   return url;
 }
 
-function loadWithHlsJs(video, streamUrl, isCancelled, tryPlay, setStatus, setErrorMsg, hlsRef) {
+function loadWithHlsJs(video, streamUrl, isCancelled, tryPlay, setStatus, setErrorMsg, hlsRef, onTokenExpired) {
+  const conn = navigator.connection || navigator.mozConnection;
+  const etype = conn?.effectiveType || '4g';
+  const isSlow = etype === '2g' || etype === 'slow-2g';
+  const isMid  = etype === '3g';
+  const isHL   = isHighLatencyConnection();
+
+  // High-latency (international users 200-350ms RTT to India):
+  //   - 30s buffer ahead (vs 10s) — absorbs network jitter over long distances
+  //   - 12s behind live edge (vs 3s) — large cushion prevents rebuffering
+  //   - 30s timeouts (vs 10s) — tolerates slow TLS handshakes across oceans
+  //   - 15s back-buffer — allows rewind without re-fetch
   const hls = new Hls({
     enableWorker: true,
-    lowLatencyMode: true,
+    lowLatencyMode: false,
     startFragPrefetch: true,
-    backBufferLength: 0,
-    liveSyncDuration: 0.5,           // Play as close to live edge as possible
-    liveMaxLatencyDuration: 4,       // Max 4s behind live (was 6)
+    backBufferLength: isHL ? 15 : 0,
+    liveSyncDuration: isHL ? 12 : isSlow ? 6 : isMid ? 4 : 3,
+    liveMaxLatencyDuration: isHL ? 60 : isSlow ? 30 : isMid ? 20 : 15,
     liveDurationInfinity: true,
-    maxBufferLength: 2,              // Only need 2s buffered to start (was 6)
-    maxMaxBufferLength: 8,           // Don't buffer too far ahead (was 12)
-    maxBufferSize: 8 * 1000 * 1000,  // 8MB max buffer (was 12MB)
-    maxBufferHole: 0.3,              // Tolerate small gaps, play sooner (was 0.2)
-    startLevel: 0,                   // Always start with lowest quality = smallest first segment
+    maxBufferLength: isHL ? 30 : isSlow ? 15 : isMid ? 12 : 10,
+    maxMaxBufferLength: isHL ? 120 : isSlow ? 60 : isMid ? 45 : 30,
+    maxBufferSize: isHL ? 60 * 1000 * 1000 : 20 * 1000 * 1000,
+    maxBufferHole: isHL ? 1.5 : 1,
+    startLevel: 0,
     capLevelToPlayerSize: true,
-    abrEwmaDefaultEstimate: 500000,  // Conservative 500kbps estimate
-    abrBandWidthFactor: 0.95,
-    abrBandWidthUpFactor: 0.8,
-    initialLiveManifestSize: 1,      // Only need 1 segment in manifest to start
-    progressive: true,               // Stream chunks via ReadableStream (don't wait for full segment)
-    highBufferWatchdogPeriod: 1,
-    nudgeOffset: 0.2,                // Faster stall recovery nudge
-    nudgeMaxRetry: 5,                // More nudge retries before error
-    fragLoadingTimeOut: 5000,
-    fragLoadingMaxRetry: 4,
-    fragLoadingRetryDelay: 500,
-    fragLoadingMaxRetryTimeout: 5000,
-    manifestLoadingTimeOut: 5000,
-    manifestLoadingMaxRetry: 4,
-    manifestLoadingRetryDelay: 500,
-    levelLoadingTimeOut: 5000,
-    levelLoadingMaxRetry: 4,
-    levelLoadingRetryDelay: 500,
+    abrEwmaDefaultEstimate: isSlow ? 150000 : isMid ? 350000 : 500000,
+    abrBandWidthFactor: 0.9,
+    abrBandWidthUpFactor: isHL ? 0.5 : 0.7,
+    initialLiveManifestSize: 1,
+    progressive: !isSlow,
+    highBufferWatchdogPeriod: isHL ? 3 : 2,
+    nudgeOffset: isHL ? 0.5 : 0.3,
+    nudgeMaxRetry: isHL ? 12 : 8,
+    fragLoadingTimeOut: isHL ? 30000 : isSlow ? 20000 : isMid ? 15000 : 10000,
+    fragLoadingMaxRetry: isHL ? 10 : isSlow ? 8 : 6,
+    fragLoadingRetryDelay: isHL ? 2000 : 1000,
+    fragLoadingMaxRetryTimeout: isHL ? 30000 : isSlow ? 20000 : 10000,
+    manifestLoadingTimeOut: isHL ? 30000 : isSlow ? 20000 : isMid ? 15000 : 10000,
+    manifestLoadingMaxRetry: isHL ? 10 : isSlow ? 8 : 5,
+    manifestLoadingRetryDelay: isHL ? 2000 : 1000,
+    levelLoadingTimeOut: isHL ? 30000 : isSlow ? 20000 : isMid ? 15000 : 10000,
+    levelLoadingMaxRetry: isHL ? 10 : isSlow ? 8 : 5,
+    levelLoadingRetryDelay: isHL ? 2000 : 1000,
+    xhrSetup(xhr) {
+      xhr.setRequestHeader("X-App-Package", "com.bbnl.smartphone");
+    },
+    fetchSetup(context, initParams) {
+      const headers = new Headers(initParams.headers);
+      headers.set("X-App-Package", "com.bbnl.smartphone");
+      return new Request(context.url, { ...initParams, headers });
+    },
   });
   hlsRef.current = hls;
 
@@ -97,6 +174,14 @@ function loadWithHlsJs(video, streamUrl, isCancelled, tryPlay, setStatus, setErr
     if (isCancelled() || !data.fatal) return;
     switch (data.type) {
       case Hls.ErrorTypes.NETWORK_ERROR:
+        // If manifest/level load failed (403 = expired token or auth error),
+        // immediately request a fresh tokenized URL instead of retrying 6x.
+        if (networkRetries === 0 && onTokenExpired &&
+            (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR ||
+             data.details === Hls.ErrorDetails.MANIFEST_LOAD_TIMEOUT)) {
+          onTokenExpired();
+          return;
+        }
         networkRetries++;
         if (networkRetries <= MAX_NETWORK_RETRIES) {
           setTimeout(() => {
@@ -159,9 +244,10 @@ export default function PlayerPage() {
   const stripScrollRef = useRef(null);
 
   const [videoKey, setVideoKey] = useState(0);
-  // Use streamlink from channel object immediately if available (skip API call)
+  // Use streamlink from channel directly — browser negotiates HTTP/2+ automatically.
+  // The stream server requires HTTP/2+; browsers handle this via ALPN during TLS.
   const [streamUrl, setStreamUrl] = useState(normalizeStreamUrl(channel?.streamlink) || null);
-  const [status, setStatus] = useState(channel?.streamlink ? "loading" : "loading");
+  const [status, setStatus] = useState("loading");
   const [errorMsg, setErrorMsg] = useState("");
   const [muted, setMuted] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -209,22 +295,27 @@ export default function PlayerPage() {
     return () => { cancelled = true; };
   }, []);
 
-  // Background drip-feed: preload channel strip logos after 3s
-  const bgPreloadRef = useRef(null);
+  // Preload nearby channel logos only — don't compete with video stream for bandwidth.
+  // On 3G, preloading all 275 logos starves the HLS video stream.
+  // Only preload ±20 channels around the current channel in the strip.
   useEffect(() => {
     if (channelList.length === 0) return;
-    if (bgPreloadRef.current) clearTimeout(bgPreloadRef.current);
-    bgPreloadRef.current = setTimeout(() => {
-      const urls = channelList.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
-      if (urls.length > 0) preloadLogos(urls);
-    }, 3000);
-    return () => { if (bgPreloadRef.current) clearTimeout(bgPreloadRef.current); clearQueue(); };
-  }, [channelList]);
+    const idx = channelList.findIndex((ch) => ch.chid === currentChannel?.chid);
+    const start = Math.max(0, idx - 20);
+    const end = Math.min(channelList.length, idx + 21);
+    const nearbyUrls = channelList.slice(start, end)
+      .map((ch) => proxyImageUrl(ch.chlogo))
+      .filter((u) => u && !u.includes("chnlnoimage"));
+    if (nearbyUrls.length > 0) preloadLogos(nearbyUrls);
+    return () => { clearQueue(); };
+  }, [channelList, currentChannel]);
 
   useEffect(() => {
     if (!currentChannel) return;
 
-    // If channel already has streamlink, use it directly (no API call needed)
+    // 1. If channel has streamlink, use it directly — browser uses HTTP/2+
+    //    (the stream server only accepts HTTP/2 and HTTP/3; browsers negotiate
+    //    this automatically via ALPN during TLS handshake)
     if (currentChannel.streamlink) {
       const normalized = normalizeStreamUrl(currentChannel.streamlink);
       storeStreamCache(currentChannel.chid, normalized);
@@ -232,14 +323,14 @@ export default function PlayerPage() {
       return;
     }
 
-    // Check obfuscated cache (valid for 30 minutes)
+    // 2. Check session cache for a previously fetched URL
     const cachedUrl = loadStreamCache(currentChannel.chid);
     if (cachedUrl) {
       setStreamUrl(cachedUrl);
       return;
     }
 
-    // Fallback: fetch stream URL from API only when streamlink is missing
+    // 3. No streamlink — fetch from /ftauserstream API
     const mobile = getIptvMobile();
     let cancelled = false;
     const fetchStream = async () => {
@@ -277,47 +368,30 @@ export default function PlayerPage() {
     };
   }, []);
 
-  // Pre-fetch adjacent channels for instant switching
+  // Pre-fetch adjacent channel streamlinks for instant switching.
+  // Only caches the streamlink URL from the channel object — NO API calls.
+  // The stream server handles auth via HTTP/2, so these URLs work directly.
   useEffect(() => {
     if (!currentChannel || channelList.length === 0 || status !== "playing") return;
 
     const currentIdx = channelList.findIndex((ch) => ch.chid === currentChannel.chid);
     if (currentIdx < 0) return;
 
-    const mobile = getIptvMobile();
-    const prefetchChannel = async (channel) => {
-      if (!channel) return;
-
-      // Skip if already cached
-      if (loadStreamCache(channel.chid)) return;
-
-      // If channel has streamlink, cache it
+    const prefetchChannel = (channel) => {
+      if (!channel || loadStreamCache(channel.chid)) return;
+      // Only cache if channel already has a streamlink (no API call)
       if (channel.streamlink) {
         storeStreamCache(channel.chid, normalizeStreamUrl(channel.streamlink));
-        return;
-      }
-
-      // Otherwise, fetch and cache in background
-      try {
-        const data = await getChannelStream({ mobile, chid: channel.chid || "", chno: channel.chno || "" });
-        const stream = data?.body?.[0]?.stream?.[0];
-        if (stream?.streamlink) {
-          storeStreamCache(channel.chid, normalizeStreamUrl(stream.streamlink));
-        }
-      } catch (e) {
-        // Silent fail - just won't be cached
       }
     };
 
-    // Pre-fetch next and previous channels
     const timer = setTimeout(() => {
-      if (currentIdx > 0) prefetchChannel(channelList[currentIdx - 1]);
       if (currentIdx < channelList.length - 1) prefetchChannel(channelList[currentIdx + 1]);
-    }, 1000); // Wait 1s after stream starts playing
+      if (currentIdx > 0) prefetchChannel(channelList[currentIdx - 1]);
+    }, 500);
 
     return () => clearTimeout(timer);
   }, [currentChannel, channelList, status]);
-
 
   const resetHideTimer = useCallback(() => {
     setShowControls(true);
@@ -343,7 +417,9 @@ export default function PlayerPage() {
 
   useEffect(() => {
     if (status !== "loading") return;
-    const timeout = setTimeout(() => { setStatus("error"); setErrorMsg("Stream took too long to load. Please retry."); }, 20000);
+    const conn = navigator.connection || navigator.mozConnection;
+    const loadTimeout = isHighLatencyConnection() ? 45000 : (conn?.effectiveType === '2g' || conn?.effectiveType === 'slow-2g') ? 35000 : conn?.effectiveType === '3g' ? 25000 : 20000;
+    const timeout = setTimeout(() => { setStatus("error"); setErrorMsg("Stream took too long to load. Please retry."); }, loadTimeout);
     return () => clearTimeout(timeout);
   }, [status]);
 
@@ -404,24 +480,38 @@ export default function PlayerPage() {
     const onVideoPlaying = () => { if (!cancelled) setStatus("playing"); };
     video.addEventListener("playing", onVideoPlaying, { once: true });
 
-    // Prefer native HLS (Safari, iOS, many Android browsers) — no CORS restrictions
-    if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = streamUrl;
-      video.addEventListener("loadedmetadata", () => { if (!cancelled) tryPlay(); });
-      video.addEventListener("error", () => {
-        if (cancelled) return;
-        // Native playback failed — fall back to HLS.js if available
-        if (Hls.isSupported()) {
-          video.removeAttribute("src");
-          loadWithHlsJs(video, streamUrl, () => cancelled, tryPlay, setStatus, setErrorMsg, hlsRef);
-        } else {
-          setStatus("error"); setErrorMsg("Stream playback failed.");
+    // When HLS manifest fails (403 / expired token), fetch a fresh
+    // tokenized URL from /ftauserstream instead of retrying the dead URL.
+    const onTokenExpired = () => {
+      if (cancelled) return;
+      const mobile = getIptvMobile();
+      if (!currentChannel?.chid || !mobile) return;
+      // Clear stale cache entry
+      try { sessionStorage.removeItem(`s_${currentChannel.chid}`); } catch {}
+      (async () => {
+        try {
+          const data = await getChannelStream({ mobile, chid: currentChannel.chid, chno: currentChannel.chno || "" });
+          const stream = data?.body?.[0]?.stream?.[0];
+          if (!cancelled && stream?.streamlink) {
+            const normalized = normalizeStreamUrl(stream.streamlink);
+            storeStreamCache(currentChannel.chid, normalized);
+            setStreamUrl(normalized); // triggers this useEffect again with fresh URL
+          }
+        } catch (err) {
+          if (!cancelled) { setStatus("error"); setErrorMsg(err.message || "Failed to load stream."); }
         }
-      }, { once: true });
-    } else if (Hls.isSupported()) {
-      loadWithHlsJs(video, streamUrl, () => cancelled, tryPlay, setStatus, setErrorMsg, hlsRef);
+      })();
+    };
+
+    // HLS.js is required — it sends X-App-Package header on the first request
+    // for server-side identification, then streams without headers for smooth
+    // playback. Native <video>.src cannot send headers at all,
+    // so we do NOT fall back to native HLS.
+    if (Hls.isSupported()) {
+      loadWithHlsJs(video, streamUrl, () => cancelled, tryPlay, setStatus, setErrorMsg, hlsRef, onTokenExpired);
     } else {
-      setStatus("error"); setErrorMsg("HLS playback is not supported in this browser.");
+      setStatus("error");
+      setErrorMsg("Your browser does not support secure streaming. Please use Chrome or update your browser.");
     }
     return () => { cancelled = true; video.removeEventListener("playing", onVideoPlaying); if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } video.pause(); video.removeAttribute("src"); video.load(); };
   }, [streamUrl]);
@@ -469,7 +559,7 @@ export default function PlayerPage() {
     setStatus("loading");
     setErrorMsg("");
 
-    // Check cache first for instant switch
+    // Check streamlink or cache for instant switch
     if (newChannel.streamlink) {
       setStreamUrl(normalizeStreamUrl(newChannel.streamlink));
     } else {

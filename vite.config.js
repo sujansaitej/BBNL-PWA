@@ -23,7 +23,14 @@ export default ({ mode }) => {
 
   const basePath = env.VITE_API_APP_DIR_PATH || '/';
 
+  // Unique build stamp — used by client-side cache health check to detect
+  // when the running app is stale after a new deployment.
+  const buildId = Date.now().toString(36);
+
   return defineConfig({
+    define: {
+      'import.meta.env.VITE_APP_BUILD_ID': JSON.stringify(buildId),
+    },
     plugins: [
       react(),
       streamProxyPlugin(),
@@ -55,31 +62,36 @@ export default ({ mode }) => {
             // Serves cached logos instantly; only hits the network on a
             // cache miss.  Channel logos rarely change so CacheFirst avoids
             // unnecessary background refetches for 275+ images.
-            // Matches both dev relative paths (/showimage/...) and
-            // production cross-origin URLs (.../Cabletvapis/showimage/...).
-            // Auth headers from fetchImage() are preserved on the Request
-            // object, so Workbox forwards them on cache-miss network calls.
-            // IMPORTANT: Only cache 200 — status 0 (opaque) can be empty/broken
-            // and CacheFirst would serve it forever (60 days).
+            // Matches: /showimage/..., /adimage/... (dev & legacy prod),
+            // and cdn1.bbnl.in/cable/... (nginx CDN for channel logos).
+            // Cache both normal (200) and opaque (0) responses.
+            // CDN (cdn1.bbnl.in) lacks CORS headers, so cross-origin <img> requests
+            // produce opaque responses (status 0). Without caching opaque responses,
+            // every page load re-fetches ALL 275+ logos from CDN — no offline, no speed.
+            // With status 0 allowed, the SW caches the <img> responses and serves them
+            // instantly on return visits and offline.
             {
-              urlPattern: /\/(?:showimage|adimage)\//i,
+              urlPattern: /(?:\/(?:showimage|adimage)\/|cdn1\.bbnl\.in\/cable\/)/i,
               handler: 'CacheFirst',
               options: {
-                cacheName: 'channel-assets-v2',
+                cacheName: 'channel-assets-v3',
                 // 500 entries = 275 channel logos + ~30 language logos + ~50 ad images + headroom
-                // 60-day TTL — channel logos rarely change, keep cache warm longer
-                expiration: { maxEntries: 500, maxAgeSeconds: 60 * 24 * 60 * 60 },
-                cacheableResponse: { statuses: [200] },
+                // 30-day TTL (reduced from 60) — shorter for opaque responses since we can't
+                // validate their content; this ensures stale entries cycle out faster.
+                expiration: { maxEntries: 500, maxAgeSeconds: 30 * 24 * 60 * 60 },
+                cacheableResponse: { statuses: [0, 200] },
               },
             },
             // JS/CSS app assets — Stale-While-Revalidate (instant load, background refresh)
+            // Only cache real 200 responses — opaque (0) responses could be error pages
+            // masquerading as JS, which would permanently break the app with CacheFirst.
             {
               urlPattern: /\.(?:js|css)$/i,
               handler: 'StaleWhileRevalidate',
               options: {
                 cacheName: 'app-assets',
                 expiration: { maxEntries: 80, maxAgeSeconds: 7 * 24 * 60 * 60 },
-                cacheableResponse: { statuses: [0, 200] },
+                cacheableResponse: { statuses: [200] },
               },
             },
             // Static images (icons, splash, favicons) — Cache-First (never re-fetch until expired)
@@ -144,7 +156,7 @@ export default ({ mode }) => {
     base: env.VITE_API_APP_DIR_PATH,
     esbuild: {
       drop: mode === 'production' ? ['debugger'] : [],
-      pure: mode === 'production' ? ['console.log', 'console.debug', 'console.info', 'console.warn', 'console.error'] : [],
+      pure: mode === 'production' ? ['console.log', 'console.debug', 'console.info'] : [],
     },
     build: {
       // Suppress Vite's eager <link rel="modulepreload"> for heavy chunks.

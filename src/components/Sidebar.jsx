@@ -44,7 +44,7 @@ export default function Sidebar({ open, onClose }) {
       <div onClick={onClose} className={`absolute inset-0 bg-black/40 transition-opacity ${open ? 'opacity-100' : 'opacity-0'}`} />
       <aside className={`absolute left-0 top-0 h-full w-70 bg-white dark:bg-gray-900 shadow-xl transform transition-transform ${open ? 'translate-x-0' : '-translate-x-full'}`}>
 
-        <div className="flex items-center justify-between p-4 border-b dark:border-gray-800">
+        <div className="flex items-center justify-between p-4 border-b dark:border-gray-800" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top, 1rem))' }}>
           <div className="flex items-center gap-3">
             <img src={photo} className="h-10 w-10 rounded-full" alt="user" />
             <div>

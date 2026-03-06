@@ -10,7 +10,7 @@ param(
     [string]$Domain = "bbnlnetmon.bbnl.in"
 )
 
-$URL = "https://$Domain/pwa/crm"
+$URL = "https://$Domain/smartphone/crm"
 
 Write-Host "═══════════════════════════════════════════════════════════════════════════════" -ForegroundColor Cyan
 Write-Host "  BBNL CRM PWA - HTTP/2 Verification (Windows)" -ForegroundColor Cyan

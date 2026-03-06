@@ -2,37 +2,36 @@
  * Workbox-backed image cache with in-memory layer for React.
  *
  * - Workbox (service worker): caches fetch() responses via CacheFirst strategy
- *   in the "channel-assets-v1" Cache API store (500 entries, 60 days).
+ *   in the "channel-assets-v3" Cache API store (500 entries, 60 days).
  *   Return visits get instant cache hits with zero network wait.
  *
  * - L1 (in-memory Map): holds object URLs for the current session so
  *   <img src={objectUrl}> works without re-creating blobs on every render.
  *
- * Flow:
- *   fetch(url, {headers: auth})          ← app calls fetchImage()
+ * Flow (nginx HTTP/2 CDN — cdn1.bbnl.in/cable):
+ *   fetch(url)                           ← app calls fetchImage()
  *     → Service Worker intercepts        ← Workbox CacheFirst
- *       → cache hit  → instant Response  ← no network needed
- *       → cache miss → network + cache   ← auth headers preserved
+ *       → cache hit  → instant Response  ← no network needed (old + new users)
+ *       → cache miss → network + cache   ← nginx CDN, no auth, HTTP/2 multiplexed
  *     → JS creates objectURL from blob   ← for <img> rendering
  *     → objectURL stored in L1 Map       ← synchronous access for React
  */
 
 import { fetchImage } from "./iptvImage";
 
-// Adapt concurrency to network speed and environment.
-// Production server (Apache/PHP 5.6) triggers 30-second queue blocks at 3+
-// concurrent image requests.  Dev server (Vite proxy → 124.40.244.211) handles
-// higher concurrency fine.
-const IS_PROD = import.meta.env.PROD;
-
+// Adapt concurrency to network speed.
+// nginx CDN with HTTP/2 multiplexes all requests over a single TCP connection,
+// so higher concurrency has minimal overhead (no extra DNS/TCP/TLS per request).
 function getMaxConcurrent() {
-  if (!IS_PROD) return 6; // Dev server handles higher concurrency
   const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
   if (conn) {
-    if (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g') return 1;
-    if (conn.effectiveType === '3g') return 1;
+    if (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g') return 6;
+    if (conn.effectiveType === '3g') return 30;
   }
-  return 2; // Prod server can't handle more without 30s queue blocks
+  // Benchmarked: nginx CDN handles 100/160/180 concurrent with 0 failures.
+  // HTTP/2 multiplexes over a single TCP connection — high concurrency is safe.
+  // 100 parallel streams loads 275 channels in ~3 batches instead of ~7.
+  return 100;
 }
 
 // L1 — in-memory: url → objectURL
@@ -43,26 +42,38 @@ const failed = new Map(); // url → { count, ts }
 
 // ── Core fetch ──
 
+// Sentinel: returned when the image permanently doesn't exist (404).
+// Distinguishes "try again later" (null) from "never retry" (NOT_FOUND).
+const NOT_FOUND = Symbol('NOT_FOUND');
+// Sentinel: queue item was cancelled by clearQueue() — don't count as failure.
+const CANCELLED = Symbol('CANCELLED');
+
+// CDN URLs lack CORS headers — fetch() always throws TypeError.
+// Don't even attempt fetch(); <img src={cdnUrl}> handles display natively,
+// and the SW caches opaque responses from <img> requests (statuses: [0, 200]).
+const CDN_RE = /cdn1\.bbnl\.in\/cable\//i;
+
 async function fetchAndCache(url) {
+  // Skip CDN entirely — no CORS headers, fetch() always fails.
+  // Saves 275+ wasted fetch calls per page load.
+  if (CDN_RE.test(url)) return NOT_FOUND;
+
   try {
-    // This fetch() is intercepted by the service worker.
-    // Workbox serves from Cache API if available (instant),
-    // otherwise forwards to network and caches the response.
-    // Single attempt — retries are handled by the scheduler with backoff.
     const res = await fetchImage(url);
     if (!res.ok) {
-      // On 401/403 retry is pointless — bail immediately
-      if (res.status === 401 || res.status === 403) return null;
-      return null;
+      if (res.status === 404 || res.status === 401 || res.status === 403) return NOT_FOUND;
+      if (res.status === 0 || res.type === 'opaque') return NOT_FOUND;
+      return null; // transient — allow retry
     }
     const blob = await res.blob();
-    // Validate: must have content and be an image (not an HTML error page)
     if (!blob.size || (blob.type && !blob.type.startsWith('image/'))) return null;
 
     const objUrl = URL.createObjectURL(blob);
     mem.set(url, objUrl);
     return objUrl;
   } catch (_e) {
+    // TypeError = CORS (permanent), other = network (transient, allow retry)
+    if (_e instanceof TypeError) return NOT_FOUND;
     return null;
   }
 }
@@ -95,9 +106,9 @@ function notifySubs(url, dataUrl) {
 }
 
 // ── Queue for parallel fetch with concurrency limit ──
-// Priority items (language logos, ~8) bypass the concurrency cap so they
-// always start immediately — even when all 14 slots are busy with channel logos.
-// HTTP/2 multiplexing handles the brief burst (14 + 8 = 22) with no penalty.
+// Priority items (language logos, ~8-12) bypass the concurrency cap so they
+// always start immediately — even when all slots are busy with channel logos.
+// HTTP/2 multiplexing on cdn1.bbnl.in handles the burst with no penalty.
 const queue = [];
 let active = 0;
 
@@ -126,15 +137,21 @@ function drain() {
 
 // ── Public API ──
 
-/** Cancel all pending (non-started) queue items.
- *  Call on page unmount to free the queue for the new page's logos.
+// Retry timeout IDs — cleared on navigation to prevent orphaned retries
+const retryTimers = new Set();
+
+/** Cancel all pending (non-started) queue items and scheduled retries.
+ *  Call on page unmount to free resources for the new page's logos.
  *  In-flight requests (active) are not affected — they complete normally. */
 export function clearQueue() {
   while (queue.length > 0) {
     const item = queue.shift();
     loading.delete(item.url);
-    item.resolve(null);
+    item.resolve(CANCELLED);
   }
+  // Cancel all pending retry timers so they don't enqueue stale URLs
+  for (const id of retryTimers) clearTimeout(id);
+  retryTimers.clear();
 }
 
 /** Get a cached object URL synchronously (or null if not yet fetched this session) */
@@ -170,32 +187,46 @@ export function preloadLogos(urls, priority = false) {
     // Reset failed-URL blacklist if enough time has passed (e.g. user re-visited page)
     resetIfCooledDown(url);
 
+    // Skip URLs still in failed cooldown — avoids wasted 404 requests when
+    // user navigates between pages (LiveTV → Languages → LiveTV).
+    if (failed.has(url)) return;
+
     loading.add(url);
-    enqueue(url, priority).then((objUrl) => {
+    enqueue(url, priority).then((result) => {
       loading.delete(url);
+      // CANCELLED = clearQueue() ran (page navigation) — don't count as failure
+      if (result === CANCELLED) return;
+      // NOT_FOUND = permanent failure (404, CORS, auth) — never retry
+      const objUrl = (result === NOT_FOUND) ? null : result;
       if (objUrl) {
         failed.delete(url);
+      } else if (result === NOT_FOUND) {
+        failed.set(url, { count: MAX_RETRIES + 1, ts: Date.now() });
       } else {
-        // Auto-retry failed fetches after a delay
+        // Transient failure (network error, timeout) — retry with backoff
         const prev = failed.get(url);
         const retryCount = (prev?.count || 0) + 1;
         failed.set(url, { count: retryCount, ts: Date.now() });
         if (retryCount <= MAX_RETRIES) {
-          setTimeout(() => {
+          const timerId = setTimeout(() => {
+            retryTimers.delete(timerId);
             if (!mem.has(url) && !loading.has(url)) {
               loading.add(url);
               enqueue(url, true).then((retryResult) => {
                 loading.delete(url);
-                if (retryResult) {
+                if (retryResult === CANCELLED) return;
+                const retryUrl = (retryResult === NOT_FOUND) ? null : retryResult;
+                if (retryUrl) {
                   failed.delete(url);
                 } else {
                   const p = failed.get(url);
                   failed.set(url, { count: (p?.count || retryCount) + 1, ts: Date.now() });
                 }
-                notifySubs(url, retryResult);
+                notifySubs(url, retryUrl);
               });
             }
           }, getRetryDelay(retryCount));
+          retryTimers.add(timerId);
         }
       }
       // Always notify — even null cleans up orphaned listeners
@@ -220,10 +251,12 @@ export function subscribeLogo(url, callback) {
   listeners.get(url).add(callback);
 
   // Start loading if not already in progress.
-  // Also re-trigger if the URL previously failed and cooldown has passed.
+  // Re-trigger if the URL previously failed and cooldown has passed.
   if (!loading.has(url)) {
     resetIfCooledDown(url);
-    preloadLogos([url]);
+    if (!failed.has(url)) {
+      preloadLogos([url]);
+    }
   }
 
   return () => {
@@ -235,9 +268,10 @@ export function subscribeLogo(url, callback) {
   };
 }
 
-// ── One-time cleanup of old localStorage logo cache ──
-// Previous version stored base64 data URLs in localStorage with "lc_" prefix.
-// Workbox Cache API now handles persistence, so free up the localStorage space.
+// ── One-time cleanup of old caches ──
+// 1. Old localStorage logo cache (lc_ prefix) — replaced by Workbox Cache API
+// 2. Old Workbox caches (v1, v2) — URLs changed from bbnlnetmon to cdn1.bbnl.in
+//    Stale entries would never match new CDN URLs, so delete them to free space.
 try {
   if (!localStorage.getItem('_lc_migrated')) {
     localStorage.setItem('_lc_migrated', '1');
@@ -247,5 +281,16 @@ try {
       if (k && k.startsWith('lc_')) toRemove.push(k);
     }
     toRemove.forEach((k) => { try { localStorage.removeItem(k); } catch (_e) {} });
+  }
+} catch (_e) {}
+
+// Purge old Workbox image caches that held bbnlnetmon URLs (now served from cdn1.bbnl.in).
+// Runs once — old users free ~5-15MB of dead cache entries on first visit after update.
+try {
+  if ('caches' in self && !localStorage.getItem('_cache_v3')) {
+    localStorage.setItem('_cache_v3', '1');
+    ['channel-assets-v1', 'channel-assets-v2'].forEach((name) => {
+      caches.delete(name).catch(() => {});
+    });
   }
 } catch (_e) {}

@@ -74,7 +74,7 @@ const ChannelRow = memo(function ChannelRow({ channel, index, onPlay }) {
     <div ref={logoRef} onClick={() => onPlay(channel)} className="flex items-center gap-3 bg-white rounded-xl px-3 py-2.5 cursor-pointer hover:bg-gray-50 active:bg-gray-100 active:scale-[0.98] transition-[colors,transform] duration-150 border border-gray-100 shadow-sm" style={{ contain: 'layout style', contentVisibility: 'auto', containIntrinsicSize: 'auto 68px' }}>
       <div className="w-7 text-center flex-shrink-0"><span className="text-xs font-bold text-gray-600">{channel.chno || index + 1}</span></div>
       <div className="w-11 h-11 rounded-xl bg-gray-50 flex items-center justify-center flex-shrink-0 overflow-hidden">
-        {cachedSrc ? (<img src={cachedSrc} alt={channel.chtitle} className="w-full h-full object-contain p-1" />) : (<Tv className="w-5 h-5 text-gray-300" />)}
+        {cachedSrc ? (<img loading={index < 12 ? undefined : "lazy"} src={cachedSrc} alt={channel.chtitle} className="w-full h-full object-contain p-1" />) : (<Tv className="w-5 h-5 text-gray-300" />)}
       </div>
       <div className="flex-1 min-w-0">
         <h4 className="text-sm font-semibold text-gray-800 truncate">{channel.chtitle}</h4>
@@ -320,18 +320,14 @@ export default function LiveTvPage() {
 
   const [ads, setAds] = useState([]);
 
-  // Background drip-feed: after visible logos load via IntersectionObserver,
-  // preload ALL remaining channel logos so they're cached before user scrolls.
-  // 3s delay ensures visible logos and HLS streams get priority first.
-  const bgPreloadRef = useRef(null);
+  // Preload ALL channel logos immediately — 40 concurrent over HTTP/2 multiplexed connection.
+  // CDN benchmarked: 0 failures at 300 concurrent. With loading="lazy" on <img>,
+  // browser only loads visible images natively, so JS pipeline gets full bandwidth.
   useEffect(() => {
     if (channels.length === 0) return;
-    if (bgPreloadRef.current) clearTimeout(bgPreloadRef.current);
-    bgPreloadRef.current = setTimeout(() => {
-      const urls = channels.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
-      if (urls.length > 0) preloadLogos(urls);
-    }, 3000);
-    return () => { if (bgPreloadRef.current) clearTimeout(bgPreloadRef.current); clearQueue(); };
+    const allUrls = channels.map((ch) => proxyImageUrl(ch.chlogo)).filter((u) => u && !u.includes("chnlnoimage"));
+    if (allUrls.length > 0) preloadLogos(allUrls);
+    return () => { clearQueue(); };
   }, [channels]);
 
   useEffect(() => {
@@ -535,7 +531,7 @@ export default function LiveTvPage() {
           <>
             {/* Languages horizontal scroll */}
             {!search && languages.length > 0 && (
-              <div className="mb-4 sticky top-16 z-10 bg-gray-50 dark:bg-gray-900 -mx-4 px-4 pt-1 pb-1 shadow-[0_2px_4px_-1px_rgba(0,0,0,0.06)]">
+              <div className="mb-4 sticky z-10 bg-gray-50 dark:bg-gray-900 -mx-4 px-4 pt-1 pb-1 shadow-[0_2px_4px_-1px_rgba(0,0,0,0.06)]" style={{ top: 'calc(4rem + env(safe-area-inset-top, 0px))' }}>
                 <div className="flex items-center justify-between mb-2.5 px-0.5">
                   <div className="flex items-center gap-2">
                     <Languages className="w-3.5 h-3.5 text-emerald-500" />

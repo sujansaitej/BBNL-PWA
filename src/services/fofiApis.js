@@ -1,4 +1,5 @@
 // FoFi Smart Box API services
+import { lsGet, lsSet } from "./lsCache";
 
 function getBaseUrl() {
     if (import.meta.env.PROD) return import.meta.env.VITE_API_BASE_URL;
@@ -12,6 +13,7 @@ function getHeadersJson() {
         password: import.meta.env.VITE_API_PASSWORD,
         appkeytype: import.meta.env.VITE_API_APP_USER_TYPE,
         appversion: import.meta.env.VITE_API_APP_VERSION,
+        "X-App-Package": "com.bbnl.smartphone",
         "Content-Type": "application/json",
     };
 }
@@ -23,12 +25,14 @@ function getHeadersForm() {
         password: import.meta.env.VITE_API_PASSWORD,
         appkeytype: import.meta.env.VITE_API_APP_USER_TYPE,
         appversion: import.meta.env.VITE_API_APP_VERSION,
+        "X-App-Package": "com.bbnl.smartphone",
     };
 }
 
 function getBasicAuthHeader() {
     return {
         Authorization: "Basic Zm9maWxhYkBnbWFpbC5jb206MTIzNDUtNTQzMjE=",
+        "X-App-Package": "com.bbnl.smartphone",
         "Content-Type": "application/json",
     };
 }
@@ -115,6 +119,10 @@ export async function generateFofiOrder(payload) {
  * @returns {Promise<Object>} Response containing special internet plans
  */
 export async function getSpecialInternetPlans(payload) {
+    const cacheKey = `siplans_${payload.logUname || ''}`;
+    const cached = lsGet(cacheKey, 10 * 60 * 1000); // 10 min TTL
+    if (cached) return cached;
+
     const url = `${getBaseUrl()}ServiceApis/specialInternetPlans`;
     const headers = getHeadersJson();
 
@@ -129,6 +137,7 @@ export async function getSpecialInternetPlans(payload) {
     }
 
     const data = await resp.json();
+    lsSet(cacheKey, data);
     return data;
 }
 
@@ -165,6 +174,10 @@ export async function validateBeforeFofiBoxReg(payload) {
  * @returns {Promise<Object>} Response containing upgrade plans and service details
  */
 export async function getFofiUpgradePlans(payload) {
+    const cacheKey = `fofupl_${payload.userid || ''}_${payload.moduletype || ''}`;
+    const cached = lsGet(cacheKey, 10 * 60 * 1000); // 10 min TTL
+    if (cached) return cached;
+
     const url = `${getBaseUrl()}ServiceApis/registrationNecessities`;
     const headers = getHeadersJson();
 
@@ -183,6 +196,7 @@ export async function getFofiUpgradePlans(payload) {
 
     const data = await resp.json();
     console.log('🟢 [getFofiUpgradePlans] Response:', data);
+    lsSet(cacheKey, data);
     return data;
 }
 

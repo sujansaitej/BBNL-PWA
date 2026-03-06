@@ -3,8 +3,8 @@
  *
  * Imported early in main.jsx.  On app startup it silently fetches channels
  * and languages so that when the user taps "Live TV" data renders instantly.
- * Only language logos (~10-12) are preloaded; channel logos load on-demand
- * via IntersectionObserver to avoid overwhelming the HTTP/1.1 server.
+ * Language logos (~10-12) are preloaded with high priority; channel logos
+ * load on-demand via IntersectionObserver as the user scrolls.
  *
  * Timing:
  *   1. Wait for channelStore L1 hydration from IndexedDB (~5 ms)

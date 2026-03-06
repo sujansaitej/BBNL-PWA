@@ -1,37 +1,39 @@
 import { useState } from 'react';
 import { ArrowLeftIcon, PencilIcon } from '@heroicons/react/24/outline';
+import { useToast } from "@/components/ui/Toast";
 
 export default function ResetPassword({ customer, onBack }) {
     const [customerId, setCustomerId] = useState(customer?.customer_id || '');
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
+    const toast = useToast();
 
     const handleReset = () => {
         // Validation
         if (!customerId) {
-            alert('Please enter customer ID');
+            toast.add('Please enter customer ID', { type: 'error' });
             return;
         }
         if (!newPassword || !confirmPassword) {
-            alert('Please enter both password fields');
+            toast.add('Please enter both password fields', { type: 'error' });
             return;
         }
         if (newPassword !== confirmPassword) {
-            alert('Passwords do not match');
+            toast.add('Passwords do not match', { type: 'error' });
             return;
         }
         if (newPassword.length >= 15) {
-            alert('Password length should be less than 15 characters');
+            toast.add('Password length should be less than 15 characters', { type: 'error' });
             return;
         }
         if (newPassword === customerId) {
-            alert('Password should not be same as username');
+            toast.add('Password should not be same as username', { type: 'error' });
             return;
         }
 
         // TODO: Backend integration - Reset Password API call
         console.log('Resetting password for customer:', customerId);
-        alert('Password reset functionality will be integrated with backend');
+        toast.add('Password reset functionality will be integrated with backend', { type: 'info' });
     };
 
     return (

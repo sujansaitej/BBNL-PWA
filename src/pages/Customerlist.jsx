@@ -3,9 +3,11 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import Layout from "../layout/Layout";
 import { MagnifyingGlassIcon, ArrowRightIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
 import { getCustList, getServiceList } from "../services/generalApis";
+import { prefetchCustomerData } from "../services/prefetch";
 import { formatCustomerId } from "../services/helpers";
 import { Loader, Badge } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
+import { getUser } from "../services/safeStorage";
 
 const PAGE_SIZE = 20;
 
@@ -23,7 +25,7 @@ export default function Customerlist() {
   const [page, setPage] = useState(1);
   const title = (searchTerm === 'expiring' ? "Today's Expiry" : (searchTerm === 'live' ? "Live Customers" : "All Customers"));
 
-  const logUname = JSON.parse(localStorage.getItem('user')).username;
+  const logUname = getUser().username || "";
 
   useEffect(() => {
     getData();
@@ -88,6 +90,8 @@ export default function Customerlist() {
 
   async function selectCustomer(customer) {
     console.log('🟢 [selectCustomer] Customer selected:', customer.customer_id);
+    // Start prefetching customer service data in background (cache warming)
+    prefetchCustomerData(customer.customer_id, logUname);
     setLoadingServices(true);
     try {
       // Call API to get service list
@@ -154,22 +158,22 @@ export default function Customerlist() {
             {customercount === 0 && <div className="text-center text-gray-500 dark:text-gray-400 py-10">No customers found</div>}
             {paginatedCustomers.map(d => (
               <div key={d.customer_id} className="flex items-center justify-between bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 cursor-pointer border border-gray-100 dark:border-gray-700" onClick={() => selectCustomer(d)}>
-                <div className="flex flex-col gap-2 text-sm min-w-0 flex-1">
-                  <div className={`flex`}>
+                <div className="flex flex-col gap-2 text-sm min-w-0 flex-1 overflow-hidden">
+                  <div className={`flex min-w-0`}>
                     <span className={`w-28 flex-shrink-0 text-gray-700 dark:text-gray-400 font-semibold`}>Username</span>
-                    <span className={`text-indigo-600 dark:text-gray-400 font-bold break-words`}>{formatCustomerId(d.customer_id)}</span>
+                    <span className={`min-w-0 truncate text-indigo-600 dark:text-gray-400 font-bold`}>{formatCustomerId(d.customer_id)}</span>
                   </div>
-                  <div className={`flex`}>
+                  <div className={`flex min-w-0`}>
                     <span className={`w-28 flex-shrink-0 text-gray-700 dark:text-gray-400 font-semibold`}>Name</span>
-                    <span className={`text-gray-700 dark:text-gray-400 text-wrap`}>{d.name}</span>
+                    <span className={`min-w-0 truncate text-gray-700 dark:text-gray-400`}>{d.name}</span>
                   </div>
-                  <div className={`flex`}>
+                  <div className={`flex min-w-0`}>
                     <span className={`w-28 flex-shrink-0 text-gray-700 dark:text-gray-400 font-semibold`}>Mobile No.</span>
-                    <span className={`text-gray-700 dark:text-gray-400`}>{d.mobile}</span>
+                    <span className={`min-w-0 truncate text-gray-700 dark:text-gray-400`}>{d.mobile}</span>
                   </div>
-                  <div className={`flex`}>
+                  <div className={`flex min-w-0`}>
                     <span className={`w-28 flex-shrink-0 text-gray-700 dark:text-gray-400 font-semibold`}>Email ID</span>
-                    <span className={`text-gray-700 dark:text-gray-400 break-words`}>{d.email}</span>
+                    <span className={`min-w-0 truncate text-gray-700 dark:text-gray-400`}>{d.email}</span>
                   </div>
                 </div>
                 <div className="flex-shrink-0 ml-2">

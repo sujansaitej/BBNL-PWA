@@ -38,12 +38,42 @@ function getAdaptiveTimeout() {
 // and LiveTvPage both call getChannelList), only one network request is made.
 const _inflight = new Map();
 
+// ── Circuit breaker ──
+// After consecutive 5xx errors, stop retrying for a cooldown period.
+// Prevents load amplification when the server is overloaded — 20K users
+// all retrying simultaneously would make a struggling server worse.
+const _cb = { failures: 0, openUntil: 0 };
+const CB_THRESHOLD = 3;     // trip after 3 consecutive 5xx
+const CB_COOLDOWN = 30000;  // 30s cooldown before retrying
+
+// ── Global concurrency limiter ──
+// Cap in-flight IPTV requests per browser tab.  The backend Apache can
+// handle ~8 concurrent connections total; limiting each of 20K users to
+// 4 max reduces per-user server load significantly.
+const MAX_CONCURRENT = 4;
+let _activeCount = 0;
+const _waitQueue = [];
+
+function _acquireSlot() {
+  if (_activeCount < MAX_CONCURRENT) { _activeCount++; return Promise.resolve(); }
+  return new Promise((resolve) => _waitQueue.push(resolve));
+}
+
+function _releaseSlot() {
+  if (_waitQueue.length > 0) _waitQueue.shift()(); // hand slot to next waiter
+  else _activeCount--;
+}
+
 async function iptvFetch(endpoint, options = {}) {
   const dedupeKey = endpoint + '|' + (options.body || '');
   const pending = _inflight.get(dedupeKey);
   if (pending) return pending;
 
-  const promise = _iptvFetchInner(endpoint, options).finally(() => _inflight.delete(dedupeKey));
+  const promise = (async () => {
+    await _acquireSlot();
+    try { return await _iptvFetchInner(endpoint, options); }
+    finally { _releaseSlot(); }
+  })().finally(() => _inflight.delete(dedupeKey));
   _inflight.set(dedupeKey, promise);
   return promise;
 }
@@ -52,6 +82,11 @@ async function _iptvFetchInner(endpoint, options = {}) {
   const url = `${IPTV_API_BASE}${endpoint}`;
   const timeout = getAdaptiveTimeout();
   let lastErr;
+
+  // Circuit breaker: if server was recently returning 5xx, fail fast
+  if (_cb.failures >= CB_THRESHOLD && Date.now() < _cb.openUntil) {
+    throw new Error("Server is temporarily unavailable. Please try again shortly.");
+  }
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const start = performance.now();
@@ -70,6 +105,7 @@ async function _iptvFetchInner(endpoint, options = {}) {
           "Content-Type": "application/json",
           Authorization: BASIC_AUTH,
           "x-api-key": IPTV_AUTH_KEY,
+          "X-App-Package": "com.bbnl.smartphone",
           ...options.headers,
         },
       });
@@ -95,8 +131,15 @@ async function _iptvFetchInner(endpoint, options = {}) {
 
     if (!res.ok) {
       lastErr = new Error(`Server error: ${res.status} ${res.statusText}`);
-      // Retry on 5xx server errors (exponential backoff)
-      if (res.status >= 500 && attempt < MAX_RETRIES) { await new Promise(r => setTimeout(r, 1000 * (attempt + 1))); continue; }
+      if (res.status >= 500) {
+        _cb.failures++;
+        if (_cb.failures >= CB_THRESHOLD) _cb.openUntil = Date.now() + CB_COOLDOWN;
+        // Only retry if circuit breaker hasn't tripped
+        if (attempt < MAX_RETRIES && _cb.failures < CB_THRESHOLD) {
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+          continue;
+        }
+      }
       throw lastErr;
     }
 
@@ -115,6 +158,7 @@ async function _iptvFetchInner(endpoint, options = {}) {
       throw new Error(data?.status?.err_msg || "Something went wrong!");
     }
 
+    _cb.failures = 0; // reset circuit breaker on success
     return data;
   }
 
@@ -149,7 +193,7 @@ export async function getAdvertisements({ mobile, adclient = "fofi", srctype = "
 
   // Check channelStore (L1 in-memory → L2 IndexedDB) — no localStorage
   const cached = _getEntry(cacheKey);
-  if (cached?.data && (Date.now() - cached.ts < 10 * 60 * 1000)) return cached.data;
+  if (cached?.data && (Date.now() - cached.ts < 30 * 60 * 1000)) return cached.data;
 
   const data = await iptvFetch("/ftauserads", {
     method: "POST",

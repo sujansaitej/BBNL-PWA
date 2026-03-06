@@ -256,7 +256,7 @@ function handleStreamRequest(req, res) {
     safeWriteHead(res, 204, {
       "Access-Control-Allow-Origin": corsOrigin,
       "Access-Control-Allow-Methods": "GET, OPTIONS",
-      "Access-Control-Allow-Headers": "Range, Content-Type",
+      "Access-Control-Allow-Headers": "Range, Content-Type, X-App-Package",
       "Access-Control-Max-Age": "86400",
     });
     safeEnd(res);
@@ -296,6 +296,7 @@ function handleStreamRequest(req, res) {
     ":path": streamPath,
     ":authority": streamHost,
     "accept": "*/*",
+    "x-app-package": "com.bbnl.smartphone",
   };
 
   let h2Req = safeRequest(session, reqHeaders);

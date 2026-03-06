@@ -1,11 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { XMarkIcon, ExclamationCircleIcon, MagnifyingGlassIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
-import { mockCustomerServices, fofiPlans as mockFofiPlans, mockDeviceDatabase } from "../../data";
+import { fofiPlans as mockFofiPlans } from "../../data";
 import BottomNav from "../../components/BottomNav";
 import { ServiceSelectionModal, Badge, Loader } from "@/components/ui";
-import QRScanner from "../../components/QRScanner";
+import { useToast } from "@/components/ui/Toast";
+import { getUser } from "../../services/safeStorage";
+
+// Lazy-load QRScanner — only downloaded when user triggers QR scanning
+const QRScanner = lazy(() => import("../../components/QRScanner"));
 import {
     getFoFiPlans,
     getSpecialInternetPlans,
@@ -23,10 +27,16 @@ import {
     getFofiPaymentInfo,
 } from "../../services/fofiApis";
 import { getCableCustomerDetails, getPrimaryCustomerDetails, getMyPlanDetails, getCustKYCPreview, getUserAssignedItems } from "../../services/generalApis";
+import { lsRemove, lsGetStale } from "../../services/lsCache";
+
+// Cache key helpers
+const _uid = (cd) => cd?.username || cd?.customer_id || '';
+const OVERVIEW_TTL = 2 * 60 * 1000;
 
 function FoFiSmartBox() {
     const location = useLocation();
     const navigate = useNavigate();
+    const toast = useToast();
 
     // Use actual customer data from API (passed from customer list)
     const customerData = location.state?.customer;
@@ -36,10 +46,15 @@ function FoFiSmartBox() {
     const paymentSuccess = location.state?.paymentSuccess; // Flag to show success message
     const isNewRegistration = location.state?.isNewRegistration; // Flag to indicate new registration vs upgrade
 
-    // Use mock data ONLY for service details (new feature)
-    const mockServiceData = mockCustomerServices[customerData?.customer_id];
-    const fofiService = mockServiceData?.services?.fofi;
-    const isExistingUser = fofiService?.active;
+    // hasFofiService is determined from API state (hasFofiService), not mock data
+
+    // ── SWR: hydrate from cache for instant render ──
+    const _userid = _uid(customerData);
+    const _noRefresh = !refreshData;
+    const _cachedAI = (_noRefresh && _userid) ? lsGetStale(`uai_fofi_${_userid}`, OVERVIEW_TTL) : null;
+    const _cachedCD = (_noRefresh && _userid) ? lsGetStale(`cblcust_${_userid}`, OVERVIEW_TTL) : null;
+    const _cachedPD = (_noRefresh && _userid) ? lsGetStale(`pricust_${_userid}`, OVERVIEW_TTL) : null;
+    const _hasCached = !!(_cachedAI || _cachedCD || _cachedPD);
 
     // State management
     const [showServiceModal, setShowServiceModal] = useState(false);
@@ -56,16 +71,16 @@ function FoFiSmartBox() {
     const [deviceInfo, setDeviceInfo] = useState(null);
     const [fofiPlans, setFofiPlans] = useState(mockFofiPlans); // Initialize with mock data
     const [isLoading, setIsLoading] = useState(false);
-    const [isOverviewLoading, setIsOverviewLoading] = useState(true); // Loading state for overview data
+    const [isOverviewLoading, setIsOverviewLoading] = useState(!_hasCached); // Skip spinner if cache hit
     const [paymentOrderId, setPaymentOrderId] = useState(null);
     const [showQRScanner, setShowQRScanner] = useState(false);
-    const [customerDetails, setCustomerDetails] = useState(null);
-    const [primaryCustomerDetails, setPrimaryCustomerDetails] = useState(null);
+    const [customerDetails, setCustomerDetails] = useState(_cachedCD?.data || null);
+    const [primaryCustomerDetails, setPrimaryCustomerDetails] = useState(_cachedPD?.data || null);
     const [customerInternetPlanId, setCustomerInternetPlanId] = useState(null);
     // FoFi service status - will be validated by API response
     const [hasFofiService, setHasFofiService] = useState(false); // false = new user, true = existing user
     const [fofiServiceDetails, setFofiServiceDetails] = useState(null); // Existing FoFi service details
-    const [fofiAssignedItems, setFofiAssignedItems] = useState(null); // FoFi assigned items from API
+    const [fofiAssignedItems, setFofiAssignedItems] = useState(_cachedAI?.data || null); // FoFi assigned items from API
     
     // Upgrade Plans state
     const [upgradePlans, setUpgradePlans] = useState([]);
@@ -98,291 +113,119 @@ function FoFiSmartBox() {
     }, [paymentSuccess, isNewRegistration]);
 
     // =====================================================
-    // FETCH CUSTOMER OVERVIEW DATA ON COMPONENT MOUNT
-    // APIs called: getUserAssignedItems, cblCustDet, primaryCustdet, getMyPlanDetails
+    // FETCH ALL DATA ON COMPONENT MOUNT (OPTIMIZED)
+    // Parallelizes independent APIs, then fetches plan details
     // =====================================================
     useEffect(() => {
-        const fetchCustomerOverviewData = async () => {
+        const fetchAllData = async () => {
             if (!customerData) return;
 
             const userid = customerData?.username || customerData?.customer_id;
-            console.log('🔵 [FoFi SmartBox] Starting to fetch customer overview data...');
-            console.log('🔵 [FoFi SmartBox] Customer Data:', customerData);
-            console.log('🔵 [FoFi SmartBox] User ID:', userid);
+            const user = getUser();
+            const logUname = user?.username || 'superadmin';
+            const skipCache = !!refreshData; // Bypass cache after payment
+
+            // Invalidate caches if coming back from payment
             if (refreshData) {
-                console.log('🔵 [FoFi SmartBox] REFRESH FLAG DETECTED - Forcing data refresh after payment');
+                lsRemove(`uai_fofi_${userid}`);
+                lsRemove(`cblcust_${userid}`);
+                lsRemove(`pricust_${userid}`);
+                lsRemove(`siplans_${logUname}`);
+                // Plan details cache will be cleared after we get fofiBoxId
             }
 
             setIsOverviewLoading(true);
+            setIsLoading(true);
 
             try {
-                // STEP 1: First get assigned items to get fofiboxid
-                console.log('🔵 [FoFi SmartBox] STEP 1: Getting assigned items...');
-                const assignedItemsResponse = await getUserAssignedItems('fofi', userid).catch(err => {
-                    console.error('❌ [FoFi SmartBox] getUserAssignedItems API failed:', err);
-                    return null;
-                });
-                console.log('🟢 [FoFi SmartBox] getUserAssignedItems Response:', assignedItemsResponse);
-                
+                // STEP 1: Fire ALL independent APIs in parallel
+                const [assignedItemsResponse, cableDetailsResponse, primaryDetailsResponse, specialPlansResponse] = await Promise.all([
+                    getUserAssignedItems('fofi', userid, skipCache).catch(() => null),
+                    getCableCustomerDetails(userid, skipCache).catch(() => null),
+                    getPrimaryCustomerDetails(userid, skipCache).catch(() => null),
+                    getSpecialInternetPlans({ logUname, isKiranastore: "no" }).catch(() => null),
+                ]);
+
+                // Process special internet plans
+                if (specialPlansResponse?.status?.err_code === 0 && Array.isArray(specialPlansResponse?.body) && specialPlansResponse.body.length > 0) {
+                    setFofiPlans(specialPlansResponse.body);
+                } else {
+                    setFofiPlans(mockFofiPlans);
+                }
+                setIsLoading(false);
+
                 // Extract fofiboxid from assigned items
                 const fofiItems = assignedItemsResponse?.body?.fofi || [];
                 const fofiBoxId = fofiItems?.[0]?.fofiboxid || fofiItems?.[0]?.boxid || fofiItems?.[0]?.product_name || '';
-                console.log('🔵 [FoFi SmartBox] Extracted fofiBoxId:', fofiBoxId);
-                
-                // STEP 2: Call remaining APIs in parallel (with fofiboxid if available)
-                console.log('🔵 [FoFi SmartBox] STEP 2: Calling remaining APIs...');
-                const [cableDetailsResponse, primaryDetailsResponse, planDetailsResponse] = await Promise.all([
-                    // API 2: cblCustDet - Get cable customer details
-                    getCableCustomerDetails(userid).catch(err => {
-                        console.error('❌ [FoFi SmartBox] getCableCustomerDetails API failed:', err);
-                        return null;
-                    }),
-                    // API 3: primaryCustdet - Get primary customer details
-                    getPrimaryCustomerDetails(userid).catch(err => {
-                        console.error('❌ [FoFi SmartBox] getPrimaryCustomerDetails API failed:', err);
-                        return null;
-                    }),
-                    // API 4: getMyPlanDetails - Get FoFi plan details (WITH fofiboxid)
-                    getMyPlanDetails({ servicekey: 'fofi', userid, fofiboxid: fofiBoxId, voipnumber: '' }).catch(err => {
-                        console.error('❌ [FoFi SmartBox] getMyPlanDetails API failed:', err);
-                        return null;
-                    })
+
+                // Invalidate plan details cache if refreshing
+                if (refreshData) {
+                    lsRemove(`plandets_fofi_${userid}_${fofiBoxId}`);
+                    lsRemove(`plandets_internet_${userid}_`);
+                }
+
+                // STEP 2: Fetch plan details (needs fofiBoxId) + internet plan in parallel
+                const [planDetailsResponse, internetPlanResponse] = await Promise.all([
+                    getMyPlanDetails({ servicekey: 'fofi', userid, fofiboxid: fofiBoxId, voipnumber: '' }, skipCache).catch(() => null),
+                    getMyPlanDetails({ servicekey: 'internet', userid, fofiboxid: '', voipnumber: '' }, skipCache).catch(() => null),
                 ]);
 
-                // Log API responses
-                console.log('🟢 [FoFi SmartBox] getCableCustomerDetails Response:', cableDetailsResponse);
-                console.log('🟢 [FoFi SmartBox] getPrimaryCustomerDetails Response:', primaryDetailsResponse);
-                console.log('🟢 [FoFi SmartBox] getMyPlanDetails Response:', planDetailsResponse);
-                console.log('🟢 [FoFi SmartBox] planDetailsResponse FULL:', JSON.stringify(planDetailsResponse, null, 2));
-                console.log('🟢 [FoFi SmartBox] subscribed_services:', planDetailsResponse?.body?.subscribed_services);
+                // Extract internet plan ID
+                if (internetPlanResponse?.body?.subscribed_services) {
+                    const internetService = internetPlanResponse.body.subscribed_services.find(s => s.servicekey === 'internet');
+                    if (internetService?.srvid || internetService?.planid) {
+                        setCustomerInternetPlanId(internetService.srvid || internetService.planid);
+                    }
+                }
 
                 // Process getUserAssignedItems response
                 if (assignedItemsResponse) {
                     setFofiAssignedItems(assignedItemsResponse);
-                    
-                    // Check if user has FoFi service based on response
-                    // If body contains fofi items, user has the service
-                    console.log('🔵 [FoFi SmartBox] FoFi Items from API:', fofiItems);
-                    
-                    // Log ALL fields in first fofi item for debugging
-                    if (fofiItems && fofiItems.length > 0) {
-                        console.log('🔵 [FoFi SmartBox] First FoFi Item:', fofiItems[0]);
-                        console.log('🔵 [FoFi SmartBox] All fields in fofiItems[0]:', Object.keys(fofiItems[0]));
-                    }
-                    
-                    // Extract from planDetails API for planname and expirydate
-                    // Check multiple service keys: 'fofi', 'ott', 'smartbox', 'fofibox'
+
                     const subscribedServices = planDetailsResponse?.body?.subscribed_services || [];
-                    console.log('🔵 [FoFi SmartBox] All subscribed_services:', subscribedServices);
-                    
-                    const fofiService = subscribedServices.find(s => 
+                    const fofiSvc = subscribedServices.find(s =>
                         s.servicekey === 'fofi' || s.servicekey === 'ott' || s.servicekey === 'smartbox' || s.servicekey === 'fofibox'
                     );
-                    console.log('🔵 [FoFi SmartBox] FoFi Service from planDetails:', fofiService);
-                    console.log('🔵 [FoFi SmartBox] All fields in fofiService:', fofiService ? Object.keys(fofiService) : 'N/A');
-                    
-                    if ((fofiItems && Array.isArray(fofiItems) && fofiItems.length > 0) || fofiService) {
-                        // User has existing FoFi service
-                        console.log('✅ [FoFi SmartBox] User has EXISTING FoFi service');
-                        setHasFofiService(true);
-                        
-                        // Get boxId from assigned items
-                        const boxId = fofiBoxId || fofiService?.fofiboxid || 'N/A';
-                        
-                        // Get planName from API - check multiple possible field names
-                        // Priority: planname (most common) > serv_name > title > plan_name
-                        const planName = fofiService?.planname || 
-                                        fofiService?.serv_name || 
-                                        fofiService?.servname || 
-                                        fofiService?.plan_name || 
-                                        fofiService?.title ||
-                                        fofiItems?.[0]?.planname || 
-                                        fofiItems?.[0]?.serv_name || 
-                                        fofiItems?.[0]?.servname || 
-                                        fofiItems?.[0]?.plan_name ||
-                                        planDetailsResponse?.body?.planname ||
-                                        'N/A';
-                        
-                        // Get expiryDate from planDetails API - check multiple possible field names
-                        const expiryDate = fofiService?.expirydate || 
-                                          fofiService?.expiry_date || 
-                                          fofiService?.expdate ||
-                                          fofiItems?.[0]?.expirydate || 
-                                          fofiItems?.[0]?.expiry_date ||
-                                          fofiItems?.[0]?.expdate ||
-                                          planDetailsResponse?.body?.expirydate ||
-                                          'N/A';
-                        
-                        // Get macAddress from assigned items
-                        const macAddress = fofiItems?.[0]?.mac || fofiItems?.[0]?.macid || fofiItems?.[0]?.mac_addr || fofiService?.macid || 'N/A';
-                        
-                        console.log('🔵 [FoFi SmartBox] ========== EXTRACTED VALUES ==========');
-                        console.log('🔵 [FoFi SmartBox] boxId:', boxId);
-                        console.log('🔵 [FoFi SmartBox] planName:', planName);
-                        console.log('🔵 [FoFi SmartBox] expiryDate:', expiryDate);
-                        console.log('🔵 [FoFi SmartBox] macAddress:', macAddress);
-                        console.log('🔵 [FoFi SmartBox] ====================================');
-                        
-                        // Extract OTT/FoFi plan ID from the service - this is needed for payment API
-                        const ottPlanId = fofiService?.internet_planid || fofiService?.srvid || fofiService?.planid || fofiService?.servid ||
-                                         fofiItems?.[0]?.internet_planid || fofiItems?.[0]?.srvid || fofiItems?.[0]?.planid || fofiItems?.[0]?.servid || null;
-                        const serialNumber = fofiItems?.[0]?.fserialno || fofiItems?.[0]?.serial_number || fofiService?.fserialno || '';
 
-                        console.log('🔵 [FoFi SmartBox] Extracted ottPlanId:', ottPlanId);
-                        console.log('🔵 [FoFi SmartBox] Extracted serialNumber:', serialNumber);
-                        console.log('🔵 [FoFi SmartBox] fofiService FULL:', JSON.stringify(fofiService, null, 2));
-                        console.log('🔵 [FoFi SmartBox] fofiItems[0] FULL:', fofiItems?.[0] ? JSON.stringify(fofiItems[0], null, 2) : 'N/A');
+                    if ((fofiItems && Array.isArray(fofiItems) && fofiItems.length > 0) || fofiSvc) {
+                        setHasFofiService(true);
+
+                        const boxId = fofiBoxId || fofiSvc?.fofiboxid || 'N/A';
+                        const planName = fofiSvc?.planname || fofiSvc?.serv_name || fofiSvc?.servname || fofiSvc?.plan_name || fofiSvc?.title ||
+                                        fofiItems?.[0]?.planname || fofiItems?.[0]?.serv_name || fofiItems?.[0]?.servname || fofiItems?.[0]?.plan_name ||
+                                        planDetailsResponse?.body?.planname || 'N/A';
+                        const expiryDate = fofiSvc?.expirydate || fofiSvc?.expiry_date || fofiSvc?.expdate ||
+                                          fofiItems?.[0]?.expirydate || fofiItems?.[0]?.expiry_date || fofiItems?.[0]?.expdate ||
+                                          planDetailsResponse?.body?.expirydate || 'N/A';
+                        const macAddress = fofiItems?.[0]?.mac || fofiItems?.[0]?.macid || fofiItems?.[0]?.mac_addr || fofiSvc?.macid || 'N/A';
+                        const ottPlanId = fofiSvc?.internet_planid || fofiSvc?.srvid || fofiSvc?.planid || fofiSvc?.servid ||
+                                         fofiItems?.[0]?.internet_planid || fofiItems?.[0]?.srvid || fofiItems?.[0]?.planid || fofiItems?.[0]?.servid || null;
+                        const serialNumber = fofiItems?.[0]?.fserialno || fofiItems?.[0]?.serial_number || fofiSvc?.fserialno || '';
 
                         setFofiServiceDetails({
-                            boxId: boxId,
-                            planName: planName,
-                            expiryDate: expiryDate,
-                            macAddress: macAddress,
-                            serialNumber: serialNumber,
-                            ottPlanId: ottPlanId,
-                            status: fofiItems?.[0]?.status || fofiService?.status || 'Active'
+                            boxId, planName, expiryDate, macAddress, serialNumber, ottPlanId,
+                            status: fofiItems?.[0]?.status || fofiSvc?.status || 'Active'
                         });
-                        
-                        console.log('✅ [FoFi SmartBox] Service Details SET:', { boxId, planName, expiryDate, macAddress });
                     } else {
-                        // User does not have FoFi service - NEW USER
-                        console.log('ℹ️ [FoFi SmartBox] User is NEW - No FoFi service found');
                         setHasFofiService(false);
                         setFofiServiceDetails(null);
                     }
                 }
 
                 // Store cable and primary customer details
-                if (cableDetailsResponse) {
-                    setCustomerDetails(cableDetailsResponse);
-                    console.log('✅ [FoFi SmartBox] Cable customer details stored');
-                }
-
-                if (primaryDetailsResponse) {
-                    setPrimaryCustomerDetails(primaryDetailsResponse);
-                    console.log('✅ [FoFi SmartBox] Primary customer details stored');
-                }
+                if (cableDetailsResponse) setCustomerDetails(cableDetailsResponse);
+                if (primaryDetailsResponse) setPrimaryCustomerDetails(primaryDetailsResponse);
 
             } catch (error) {
-                console.error('❌ [FoFi SmartBox] Error fetching customer overview data:', error);
+                console.error('❌ [FoFi SmartBox] Error fetching data:', error);
+                setIsLoading(false);
             } finally {
                 setIsOverviewLoading(false);
-                console.log('✅ [FoFi SmartBox] Finished fetching customer overview data');
             }
         };
 
-        fetchCustomerOverviewData();
-    }, [customerData, refreshData]); // Also re-fetch when refreshData flag is set (after payment)
-
-    // Fetch FoFi plans on component mount
-    useEffect(() => {
-        const loadFoFiPlans = async () => {
-            try {
-                setIsLoading(true);
-                const user = JSON.parse(localStorage.getItem('user'));
-                const logUname = user?.username || 'superadmin';
-
-                console.log('🔵 Fetching FoFi Plans with logUname:', logUname);
-
-                const response = await getSpecialInternetPlans({
-                    logUname: logUname,
-                    isKiranastore: "no"
-                });
-
-                console.log('🟢 FoFi Plans API Response:', response);
-                console.log('🟢 Response Status:', response?.status);
-                console.log('🟢 Response Body (Plans Array):', response?.body);
-
-                // response.body is directly the array of plans, not response.body.planlist
-                if (response?.status?.err_code === 0 && Array.isArray(response?.body) && response.body.length > 0) {
-                    const plans = response.body;
-                    console.log('✅ Setting FoFi Plans from API. Total plans:', plans.length);
-                    console.log('✅ First plan object:', plans[0]);
-                    console.log('✅ All fields in first plan:', Object.keys(plans[0]));
-                    console.log('✅ Plan ID fields check - srvid:', plans[0].srvid, 'plan_id:', plans[0].plan_id, 'planid:', plans[0].planid, 'id:', plans[0].id);
-                    setFofiPlans(plans);
-                } else {
-                    console.warn('⚠️ API response invalid, using mock data');
-                    console.log('Response status:', response?.status);
-                    setFofiPlans(mockFofiPlans);
-                }
-            } catch (error) {
-                console.error('❌ Failed to fetch FoFi plans:', error);
-                console.error('Error details:', error.message);
-                console.log('Using mock data as fallback');
-                setFofiPlans(mockFofiPlans);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        loadFoFiPlans();
-    }, []);
-
-    // Fetch customer's current internet plan ID (needed for freeOTAService API)
-    useEffect(() => {
-        const fetchCustomerInternetPlan = async () => {
-            try {
-                const user = JSON.parse(localStorage.getItem('user'));
-                const userid = customerData?.username || user?.username;
-                
-                if (!userid) return;
-
-                console.log('🔵 Fetching customer internet plan for userid:', userid);
-                
-                const planDetails = await getMyPlanDetails({
-                    servicekey: "internet",
-                    userid: userid,
-                    fofiboxid: "",
-                    voipnumber: ""
-                });
-
-                console.log('🟢 Customer Plan Details:', planDetails);
-
-                // Extract internet plan ID from the response
-                if (planDetails?.body?.subscribed_services) {
-                    const internetService = planDetails.body.subscribed_services.find(
-                        s => s.servicekey === 'internet'
-                    );
-                    if (internetService?.srvid || internetService?.planid) {
-                        const planId = internetService.srvid || internetService.planid;
-                        console.log('✅ Found customer internet plan ID:', planId);
-                        setCustomerInternetPlanId(planId);
-                    }
-                }
-            } catch (error) {
-                console.warn('⚠️ Could not fetch customer internet plan:', error);
-            }
-        };
-
-        fetchCustomerInternetPlan();
-    }, [customerData]);
-
-    // Fetch existing customer's FoFi device details (OPTIONAL - endpoint may not exist)
-    useEffect(() => {
-        const loadDeviceDetails = async () => {
-            if (isExistingUser && customerData?.customer_id) {
-                try {
-                    // Skip this API call as the endpoint doesn't exist yet
-                    // Uncomment when backend implements this endpoint
-                    /*
-                    const response = await getFoFiDeviceDetails({
-                        customerId: customerData.customer_id
-                    });
-                    if (response.success && response.data) {
-                        setDeviceInfo(response.data);
-                    }
-                    */
-                    console.log('ℹ️ Skipping device details fetch - endpoint not yet implemented');
-                } catch (error) {
-                    console.error('Failed to fetch device details:', error);
-                    // Continue with mock data if API fails
-                }
-            }
-        };
-
-        loadDeviceDetails();
-    }, [isExistingUser, customerData?.customer_id]);
+        fetchAllData();
+    }, [customerData, refreshData]);
 
     // Auto-hide device validation success message after 3 seconds
     useEffect(() => {
@@ -441,11 +284,11 @@ function FoFiSmartBox() {
                     }
                 });
             } else {
-                alert('Failed to load documents: ' + (response?.status?.err_msg || 'Unknown error'));
+                toast.add('Failed to load documents: ' + (response?.status?.err_msg || 'Unknown error'), { type: 'error' });
             }
         } catch (err) {
             console.error('Error loading document preview:', err);
-            alert('Failed to load documents. Please try again.');
+            toast.add('Failed to load documents. Please try again.', { type: 'error' });
         } finally {
             setIsLoading(false);
         }
@@ -457,7 +300,7 @@ function FoFiSmartBox() {
     // =====================================================
     const handleUpgradeClick = async () => {
         const userid = customerData?.username || customerData?.customer_id;
-        const user = JSON.parse(localStorage.getItem('user'));
+        const user = getUser();
         const logUname = user?.username || 'superadmin';
 
         console.log('🔵 [UPGRADE] Starting upgrade flow...');
@@ -689,7 +532,7 @@ function FoFiSmartBox() {
         // Validate that some ID exists (required for payment API)
         if (!planIdentifier) {
             console.error('❌ [UPGRADE] No plan ID found! This plan cannot be used for payment.');
-            alert('Error: This plan does not have a valid Plan ID. Please select another plan.');
+            toast.add('Error: This plan does not have a valid Plan ID. Please select another plan.', { type: 'error' });
             return;
         }
 
@@ -733,7 +576,7 @@ function FoFiSmartBox() {
     // Handle SUBMIT from subscription confirmation screen (existing users)
     const handleSubscriptionSubmit = async () => {
         if (!selectedPlan || !fofiServiceDetails) {
-            alert('Please select a plan first');
+            toast.add('Please select a plan first', { type: 'error' });
             return;
         }
         
@@ -741,7 +584,7 @@ function FoFiSmartBox() {
         setIsLoading(true);
         
         try {
-            const user = JSON.parse(localStorage.getItem('user'));
+            const user = getUser();
             const loginuname = user?.username || 'superadmin';
             const username = customerData?.username || customerData?.customer_id;
             
@@ -827,7 +670,7 @@ function FoFiSmartBox() {
             // Validate we have a plan ID
             if (!planId) {
                 console.error('❌ [SUBSCRIPTION] No plan ID found! Selected plan:', selectedPlan);
-                alert('Error: Plan ID not found. Please select a valid plan.');
+                toast.add('Error: Plan ID not found. Please select a valid plan.', { type: 'error' });
                 setIsLoading(false);
                 return;
             }
@@ -876,7 +719,7 @@ function FoFiSmartBox() {
             if (upgradeResponse?.status?.err_code !== 0) {
                 const errorMsg = upgradeResponse?.status?.err_msg || 'Failed to register upgrade';
                 console.error('❌ Upgrade registration failed:', errorMsg);
-                alert('Failed to register upgrade: ' + errorMsg);
+                toast.add('Failed to register upgrade: ' + errorMsg, { type: 'error' });
                 setIsLoading(false);
                 return;
             }
@@ -919,7 +762,7 @@ function FoFiSmartBox() {
             if (paymentResponse?.status?.err_code !== 0) {
                 const errorMsg = paymentResponse?.status?.err_msg || 'Failed to get payment info';
                 console.error('❌ Payment info failed:', errorMsg);
-                alert('Failed to get payment info: ' + errorMsg);
+                toast.add('Failed to get payment info: ' + errorMsg, { type: 'error' });
                 setIsLoading(false);
                 return;
             }
@@ -1033,7 +876,7 @@ function FoFiSmartBox() {
             
         } catch (error) {
             console.error('❌ [SUBSCRIPTION] Error:', error);
-            alert('Failed to process subscription. Please try again.');
+            toast.add('Failed to process subscription. Please try again.', { type: 'error' });
         } finally {
             setIsLoading(false);
         }
@@ -1080,7 +923,7 @@ function FoFiSmartBox() {
             console.log('🔵 Calling validateAsset API with MAC:', qrMacAddress, 'Serial:', qrSerialNumber);
 
             // Get logged in user for API call
-            const user = JSON.parse(localStorage.getItem('user'));
+            const user = getUser();
             const userid = user?.username || customerData?.username || 'superadmin';
 
             // Validate the asset using validateAsset API (multi-purpose API)
@@ -1192,7 +1035,7 @@ function FoFiSmartBox() {
                 return;
             }
 
-            const user = JSON.parse(localStorage.getItem('user'));
+            const user = getUser();
             const userid = user?.username || 'superadmin';
             const customerUsername = customerData?.username || '';
 
@@ -1292,7 +1135,7 @@ function FoFiSmartBox() {
                 return;
             }
 
-            const user = JSON.parse(localStorage.getItem('user'));
+            const user = getUser();
             const loginuname = user?.username || 'superadmin';
             const username = customerData?.username || loginuname;
 
@@ -1401,7 +1244,7 @@ function FoFiSmartBox() {
             if (paymentResponse?.status?.err_code !== 0) {
                 // Payment info API failed, but registration was successful
                 console.warn('⚠️ Payment info API failed, but registration succeeded');
-                alert('FoFi Box registered successfully! Payment info could not be retrieved.');
+                toast.add('FoFi Box registered successfully! Payment info could not be retrieved.', { type: 'info' });
                 // Reset form and navigate back to overview
                 setView('overview');
                 setDeviceValidated(false);
@@ -1508,7 +1351,7 @@ function FoFiSmartBox() {
     const handlePlanSelect = (plan) => {
         setSelectedPlan(plan);
         // For existing users, skip device validation
-        if (isExistingUser) {
+        if (hasFofiService) {
             setView('payment');
         } else {
             setView('device-validation');
@@ -1527,7 +1370,7 @@ function FoFiSmartBox() {
                 planId: selectedPlan.id,
                 amount: selectedPlan.price,
                 deviceId: deviceInfo?.serialNumber,
-                orderType: isExistingUser ? 'renewal' : 'new_registration'
+                orderType: hasFofiService ? 'renewal' : 'new_registration'
             });
 
             if (!orderResponse.success) {
@@ -1539,7 +1382,7 @@ function FoFiSmartBox() {
             setPaymentOrderId(orderResponse.data.orderId);
 
             // Step 2: For new users, register the device first
-            if (!isExistingUser && deviceInfo) {
+            if (!hasFofiService && deviceInfo) {
                 const registerResponse = await registerFoFiDevice({
                     customerId: customerData.customer_id,
                     planId: selectedPlan.id,
@@ -1571,7 +1414,7 @@ function FoFiSmartBox() {
                     });
 
                     if (verifyResponse.success && verifyResponse.verified) {
-                        alert('Payment successful! Your FoFi Smart Box has been activated.');
+                        toast.add('Payment successful! Your FoFi Smart Box has been activated.', { type: 'success' });
                         // Navigate back to customer overview
                         navigate('/customers');
                     } else {
@@ -1606,7 +1449,7 @@ function FoFiSmartBox() {
             });
 
             if (response.success) {
-                alert('Plan changed successfully!');
+                toast.add('Plan changed successfully!', { type: 'success' });
                 navigate('/customers');
             } else {
                 setValidationError(response.message || 'Failed to change plan');
@@ -1723,20 +1566,20 @@ function FoFiSmartBox() {
                                 </h3>
                                 <div className="space-y-1 text-sm">
                                     <div className="flex">
-                                        <span className="w-36 text-gray-600 dark:text-gray-400">Username</span>
-                                        <span className="text-gray-600 dark:text-gray-400">: {displayUsername}</span>
+                                        <span className="w-36 shrink-0 text-gray-600 dark:text-gray-400">Username</span>
+                                        <span className="text-gray-600 dark:text-gray-400 min-w-0 break-all">: {displayUsername}</span>
                                     </div>
                                     <div className="flex">
-                                        <span className="w-36 text-gray-600 dark:text-gray-400">Customer Name</span>
-                                        <span className="text-gray-600 dark:text-gray-400">: {displayName}</span>
+                                        <span className="w-36 shrink-0 text-gray-600 dark:text-gray-400">Customer Name</span>
+                                        <span className="text-gray-600 dark:text-gray-400 min-w-0 break-all">: {displayName}</span>
                                     </div>
                                     <div className="flex">
-                                        <span className="w-36 text-gray-600 dark:text-gray-400">Ph Number</span>
-                                        <span className="text-gray-600 dark:text-gray-400">: {displayPhone}</span>
+                                        <span className="w-36 shrink-0 text-gray-600 dark:text-gray-400">Ph Number</span>
+                                        <span className="text-gray-600 dark:text-gray-400 min-w-0 break-all">: {displayPhone}</span>
                                     </div>
                                     <div className="flex">
-                                        <span className="w-36 text-gray-600 dark:text-gray-400">Email Id</span>
-                                        <span className="text-gray-600 dark:text-gray-400">: {displayEmail}</span>
+                                        <span className="w-36 shrink-0 text-gray-600 dark:text-gray-400">Email Id</span>
+                                        <span className="text-gray-600 dark:text-gray-400 min-w-0 break-all">: {displayEmail}</span>
                                     </div>
                                 </div>
                             </div>
@@ -2142,13 +1985,15 @@ function FoFiSmartBox() {
     
     return (
         <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
-            {/* QR Scanner Modal */}
+            {/* QR Scanner Modal — lazy loaded */}
             {showQRScanner && (
-                <QRScanner
-                    onScan={handleQRCodeScanned}
-                    onClose={handleQRScannerClose}
-                    onError={handleQRScanError}
-                />
+                <Suspense fallback={<Loader text="Loading scanner..." />}>
+                    <QRScanner
+                        onScan={handleQRCodeScanned}
+                        onClose={handleQRScannerClose}
+                        onError={handleQRScanError}
+                    />
+                </Suspense>
             )}
 
             {/* Blue/Indigo Gradient Header - Matching app theme */}

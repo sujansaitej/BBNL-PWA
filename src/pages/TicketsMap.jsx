@@ -18,7 +18,8 @@ import iconShadow from "leaflet/dist/images/marker-shadow.png";
 import { getTickets, pickTicket } from "../services/generalApis";
 import { tktTabs, formatTo12Hour, formatCustomerId } from "../services/helpers";
 import { useToast } from "../components/ui/Toast";
-const user   = JSON.parse(localStorage.getItem('user'));
+import { getUser } from "../services/safeStorage";
+const user   = getUser();
 const userImg  = user?.photo ? import.meta.env.VITE_API_BASE_URL + import.meta.env.VITE_API_APP_USER_IMG_PATH + user?.photo : import.meta.env.VITE_API_APP_DIR_PATH + import.meta.env.VITE_API_APP_DEFAULT_TECHCIAN_IMG;
 
 const DefaultIcon = L.icon({
@@ -80,7 +81,7 @@ const TicketsMap = () => {
   const reasonRef = useRef();
 
 //   const [tickets, setTickets] = useState([]);
-  const userdet = JSON.parse(localStorage.getItem('user'));
+  const userdet = getUser();
 
   // Get user's current location
   useEffect(() => {

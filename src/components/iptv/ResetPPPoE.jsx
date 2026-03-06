@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { ArrowLeftIcon, PencilIcon } from '@heroicons/react/24/outline';
+import { useToast } from "@/components/ui/Toast";
 
 export default function ResetPPPoE({ customer, onBack }) {
     const [customerId, setCustomerId] = useState(customer?.customer_id || '');
+    const toast = useToast();
 
     const handleReset = () => {
         // TODO: Backend integration - Reset PPPoE API call
         console.log('Resetting PPPoE for customer:', customerId);
-        alert('PPPoE reset functionality will be integrated with backend');
+        toast.add('PPPoE reset functionality will be integrated with backend', { type: 'info' });
     };
 
     return (

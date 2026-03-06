@@ -47,6 +47,7 @@ export async function getOrderHistory({ apiopid, cid, servicekey }) {
     'username': 'e2798af12a7a0f4f70b4d69efbc25f4d',
     'password': 'c1f377afbaa874acbb6b61f66957710a',
     'apptype': 'employee',
+    'X-App-Package': 'com.bbnl.smartphone',
     'Content-Type': 'application/x-www-form-urlencoded',
   };
 
@@ -88,6 +89,7 @@ export async function getFofiOrderHistory({ userid, fofiboxid }) {
     'password': import.meta.env.VITE_API_PASSWORD,
     'appkeytype': import.meta.env.VITE_API_APP_USER_TYPE,
     'appversion': import.meta.env.VITE_API_APP_VERSION,
+    'X-App-Package': 'com.bbnl.smartphone',
     'Content-Type': 'application/json',
     'Cache-Control': 'no-cache, no-store, must-revalidate',
     'Pragma': 'no-cache'

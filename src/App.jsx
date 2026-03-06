@@ -34,8 +34,13 @@
 // }
 
 import AppRoutes from "./routes/Routes";
+import BrowserGate from "./components/BrowserGate";
 
 export default function App() {
-  return <AppRoutes />;
+  return (
+    <BrowserGate>
+      <AppRoutes />
+    </BrowserGate>
+  );
 }
 
