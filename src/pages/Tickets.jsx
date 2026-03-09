@@ -89,13 +89,22 @@ const Tickets = () => {
     }
   }
 
+  const deptInitRef = useRef(true);
+
   useEffect(() => {
     setSelectedDept('');
-    getTkts(activeTab);
+    getTkts(activeTab, '');
   }, [activeTab, dialogOpen, tktdialogOpen]);
 
-  async function getTkts(tabKey) {
-    const params = { user: userdet?.username, op_id: userdet?.op_id, dept: selectedDept };
+  // Re-fetch when department filter changes
+  useEffect(() => {
+    if (deptInitRef.current) { deptInitRef.current = false; return; }
+    getTkts(activeTab);
+  }, [selectedDept]);
+
+  async function getTkts(tabKey, deptOverride) {
+    const dept = deptOverride !== undefined ? deptOverride : selectedDept;
+    const params = { user: userdet?.username, op_id: userdet?.op_id, dept };
     try {
       setLoading(true);
       tickets.length = 0;

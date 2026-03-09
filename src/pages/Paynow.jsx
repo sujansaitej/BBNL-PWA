@@ -31,10 +31,19 @@ export default function Subscribe() {
   const paymentData = location.state;
   const regData = paymentData ? null : safeGetJSON('registrationData', null);
 
-  // Use payment data from navigation state or registration data
-  const userid = paymentData?.userid || regData?.username;
-  const servicekey = paymentData?.servicekey || 'internet';
-  const customer_op_id = paymentData?.op_id || op_id;
+  // Persist payment context so a page refresh doesn't lose it
+  if (paymentData?.userid) {
+    try { sessionStorage.setItem('paymentContext', JSON.stringify(paymentData)); } catch (_) {}
+  }
+  let savedPayment = null;
+  if (!paymentData) {
+    try { savedPayment = JSON.parse(sessionStorage.getItem('paymentContext')) || null; } catch (_) {}
+  }
+
+  // Use payment data from navigation state, sessionStorage fallback, or registration data
+  const userid = paymentData?.userid || savedPayment?.userid || regData?.username;
+  const servicekey = paymentData?.servicekey || savedPayment?.servicekey || 'internet';
+  const customer_op_id = paymentData?.op_id || savedPayment?.op_id || op_id;
 
   const payDetsInp = {
     apiopid: customer_op_id,
@@ -61,8 +70,8 @@ export default function Subscribe() {
   useEffect(() => {
     if (userid) {
       getPayDet(payDetsInp);
-      // Fetch wallet balance if coming from customer overview
-      if (paymentData && logUname) {
+      // Fetch wallet balance if coming from customer overview (or restored from session)
+      if ((paymentData || savedPayment) && logUname) {
         getWalBalance();
       }
     }
@@ -169,11 +178,12 @@ export default function Subscribe() {
     try {
       const data = await payNow(payNowInp);
       // console.log(data);
-      if (data?.error === 0) {
+      if (data?.error === 0 || data?.status?.err_code === 0) {
         localStorage.setItem('registrationData', '');
         localStorage.setItem('groups', '');
         localStorage.setItem('selectedPlan', '');
         localStorage.setItem('filerefid', '');
+        try { sessionStorage.removeItem('paymentContext'); } catch (_) {}
         // Zero out balance after successful payment
         setIntWB(0);
         setPaydet(prev => ({ ...prev, "Balance Amount": 0 }));

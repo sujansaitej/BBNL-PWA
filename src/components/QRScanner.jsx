@@ -21,8 +21,12 @@ export default function QRScanner({ onScan, onClose, onError }) {
         isMountedRef.current = true;
 
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            setError('Camera not supported on this device');
-            onError?.('Camera not supported');
+            const isInsecure = window.location.protocol !== 'https:' && window.location.hostname !== 'localhost';
+            const msg = isInsecure
+                ? 'Camera requires a secure (HTTPS) connection. Please access the app via HTTPS.'
+                : 'Camera not supported on this device or browser.';
+            setError(msg);
+            onError?.(msg);
             return;
         }
 
@@ -46,24 +50,17 @@ export default function QRScanner({ onScan, onClose, onError }) {
         // Skip if component unmounted
         if (!isMountedRef.current) return;
 
+        // Stop any existing stream/interval before starting fresh (e.g. on Retry)
+        stopScanning();
+
         try {
             setScanStatus('initializing');
             setError('');
 
-            // Check permission status first (if supported)
-            if (navigator.permissions) {
-                try {
-                    const permissionStatus = await navigator.permissions.query({ name: 'camera' });
-                    if (permissionStatus.state === 'denied') {
-                        if (isMountedRef.current) {
-                            setError('Camera permission is blocked. Please enable camera access in your browser settings (tap the lock icon in the address bar).');
-                        }
-                        return;
-                    }
-                } catch (e) {
-                    // Permission query not supported, continue anyway
-                }
-            }
+            // Note: we intentionally do NOT check navigator.permissions.query for camera.
+            // On many Android devices/browsers, the Permissions API incorrectly reports
+            // 'denied' even though getUserMedia would still show the permission prompt.
+            // Instead, we always attempt getUserMedia and handle the actual error.
 
             // Skip if component unmounted during permission check
             if (!isMountedRef.current) return;
@@ -75,7 +72,14 @@ export default function QRScanner({ onScan, onClose, onError }) {
                     video: { facingMode: 'environment' }
                 });
             } catch (e) {
-                // Try without facingMode constraint
+                // Only retry without facingMode for constraint errors (e.g. no back camera).
+                // For permission/hardware errors, re-throw immediately — retrying would
+                // either fail identically or show a duplicate permission prompt.
+                if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError' ||
+                    e.name === 'NotFoundError' || e.name === 'NotReadableError' ||
+                    e.name === 'SecurityError') {
+                    throw e;
+                }
                 stream = await navigator.mediaDevices.getUserMedia({
                     video: true
                 });
@@ -131,7 +135,11 @@ export default function QRScanner({ onScan, onClose, onError }) {
             } else if (err.name === 'NotFoundError') {
                 errorMessage = 'No camera found on this device.';
             } else if (err.name === 'NotReadableError') {
-                errorMessage = 'Camera is in use by another app. Please close other apps using the camera.';
+                errorMessage = 'Camera is in use by another app. Please close other apps using the camera and tap "Retry".';
+            } else if (err.name === 'OverconstrainedError') {
+                errorMessage = 'Camera configuration not supported. Please tap "Retry".';
+            } else if (err.name === 'SecurityError') {
+                errorMessage = 'Camera access blocked. Please ensure you are using HTTPS and camera permissions are enabled.';
             } else if (err.name === 'AbortError') {
                 // Ignore abort errors - they happen during normal cleanup
                 return;

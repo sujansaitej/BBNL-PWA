@@ -3,6 +3,7 @@
  * Uses the IPTV backend (Cabletvapis) for channel lists, streams, ads, and languages.
  */
 import logger from "../utils/logger";
+import perfMonitor from "../utils/apiPerfMonitor";
 import { getEntry as _getEntry, setEntry as _setEntry } from "./channelStore";
 
 const IPTV_API_BASE = import.meta.env.VITE_IPTV_API_BASE_URL || "/api/Cabletvapis";
@@ -82,14 +83,15 @@ async function _iptvFetchInner(endpoint, options = {}) {
   const url = `${IPTV_API_BASE}${endpoint}`;
   const timeout = getAdaptiveTimeout();
   let lastErr;
+  const endPerf = perfMonitor.start("POST", url, "IPTV", endpoint);
 
   // Circuit breaker: if server was recently returning 5xx, fail fast
   if (_cb.failures >= CB_THRESHOLD && Date.now() < _cb.openUntil) {
+    endPerf({ status: 503, error: "circuit breaker open" });
     throw new Error("Server is temporarily unavailable. Please try again shortly.");
   }
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const start = performance.now();
     logger.debug("IPTV", `Request → POST ${endpoint}${attempt > 0 ? ` (retry ${attempt})` : ""}`);
 
     // AbortController for timeout
@@ -111,19 +113,17 @@ async function _iptvFetchInner(endpoint, options = {}) {
       });
     } catch (err) {
       clearTimeout(timer);
-      const duration = Math.round(performance.now() - start);
       const isTimeout = err.name === "AbortError";
-      logger.error("IPTV", `${isTimeout ? "Timeout" : "Network error"} on ${endpoint}: ${err.message}`, { duration: `${duration}ms` });
+      const errMsg = isTimeout ? "timeout" : `network error: ${err.message}`;
+      logger.error("IPTV", `${isTimeout ? "Timeout" : "Network error"} on ${endpoint}: ${err.message}`);
       lastErr = new Error(isTimeout ? "Server took too long to respond. Please check your network and retry." : `Network error: ${err.message}`);
       // Retry on network/timeout errors (exponential backoff: 1s, 3s)
       if (attempt < MAX_RETRIES) { await new Promise(r => setTimeout(r, 1000 * (attempt + 1))); continue; }
+      endPerf({ status: 0, error: errMsg });
       throw lastErr;
     } finally {
       clearTimeout(timer);
     }
-
-    const duration = Math.round(performance.now() - start);
-    logger.api("POST", endpoint, res.status, duration);
 
     if (res.status === 401 || res.status === 403) {
       logger.security("IPTV_AUTH_REJECTED", { endpoint, status: res.status });
@@ -140,6 +140,7 @@ async function _iptvFetchInner(endpoint, options = {}) {
           continue;
         }
       }
+      endPerf({ status: res.status, error: lastErr.message });
       throw lastErr;
     }
 
@@ -149,19 +150,24 @@ async function _iptvFetchInner(endpoint, options = {}) {
       data = JSON.parse(text);
     } catch (_e) {
       logger.error("IPTV", `Invalid JSON response from ${endpoint}`);
+      endPerf({ status: res.status, error: "invalid JSON" });
       throw new Error("Server returned an invalid response. Please try again.");
     }
 
     const isSuccess = data?.status?.err_code === 0;
     if (!isSuccess) {
       logger.warn("IPTV", `API error on ${endpoint}: ${data?.status?.err_msg}`);
+      endPerf({ status: res.status, error: data?.status?.err_msg });
       throw new Error(data?.status?.err_msg || "Something went wrong!");
     }
 
     _cb.failures = 0; // reset circuit breaker on success
+    const entry = endPerf({ status: res.status, size: text.length });
+    logger.api("POST", endpoint, res.status, entry.duration);
     return data;
   }
 
+  endPerf({ status: 0, error: "max retries exhausted" });
   throw lastErr || new Error("Request failed after retries.");
 }
 
@@ -193,7 +199,7 @@ export async function getAdvertisements({ mobile, adclient = "fofi", srctype = "
 
   // Check channelStore (L1 in-memory → L2 IndexedDB) — no localStorage
   const cached = _getEntry(cacheKey);
-  if (cached?.data && (Date.now() - cached.ts < 30 * 60 * 1000)) return cached.data;
+  if (cached?.data && (Date.now() - cached.ts < 30 * 60 * 1000)) { perfMonitor.recordCacheHit("IPTV", "getAdvertisements", cacheKey); return cached.data; }
 
   const data = await iptvFetch("/ftauserads", {
     method: "POST",

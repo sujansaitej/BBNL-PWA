@@ -1,4 +1,7 @@
 // API services
+import logger from "../../utils/logger";
+import perfMonitor from "../../utils/apiPerfMonitor";
+
 function getBaseUrl() {
     // return import.meta.env.VITE_API_BASE_URL;
     if (import.meta.env.PROD) return import.meta.env.VITE_API_BASE_URL; // Use this in production
@@ -7,14 +10,25 @@ function getBaseUrl() {
 
 const API_TIMEOUT = 15000; // 15 seconds
 
-/** Fetch with AbortController timeout — prevents indefinite hangs on slow networks */
-async function apiFetchWithTimeout(url, options) {
+/** Fetch with AbortController timeout, perf monitoring, and structured logging */
+async function apiFetchWithTimeout(url, options, label = "Customer") {
+    const method = options.method || "POST";
+    const endPerf = perfMonitor.start(method, url, "Customer", label);
+    logger.debug("Customer", `${label} → ${method} ${url}`);
+
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT);
     try {
-        return await fetch(url, { ...options, signal: ctrl.signal });
+        const resp = await fetch(url, { ...options, signal: ctrl.signal });
+        const entry = endPerf({ status: resp.status });
+        logger.api(method, url, resp.status, entry.duration);
+        return resp;
     } catch (err) {
-        if (err.name === "AbortError") throw new Error("Request timed out. Please check your network and try again.");
+        const isTimeout = err.name === "AbortError";
+        const errMsg = isTimeout ? "timeout" : `network error: ${err.message}`;
+        endPerf({ status: 0, error: errMsg });
+        logger.error("Customer", `${label} ${errMsg}`, { method, url });
+        if (isTimeout) throw new Error("Request timed out. Please check your network and try again.");
         throw err;
     } finally {
         clearTimeout(timer);
@@ -55,7 +69,7 @@ export async function ads(type) {
     method: "POST",
     headers,
     body: formData,
-  });
+  }, "ads");
 
   if (!resp.ok) {
     throw new Error(`HTTP ${resp.status}`);

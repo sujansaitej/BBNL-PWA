@@ -6,7 +6,7 @@ import SignaturePad from "react-signature-canvas";
 import { PhotoIcon, DocumentIcon, CheckCircleIcon, XCircleIcon, InformationCircleIcon, PencilSquareIcon, XMarkIcon, EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
+import { MapContainer, Marker, TileLayer, useMapEvents, useMap } from "react-leaflet";
 import {
   checkUsernameAvailability,
   checkEmailAvailability,
@@ -347,17 +347,30 @@ const customMarker = L.icon({
   popupAnchor: [0, -40],
 });
 
+// Recenter map when center prop changes — defined at module level to avoid
+// React remounting the component on every parent render.
+function RecenterMap({ center }) {
+  const map = useMap();
+  useEffect(() => {
+    map.setView(center, map.getZoom());
+  }, [center[0], center[1]]);
+  return null;
+}
+
 // Small component to let user move a marker and update parent with lat/lng
 function LocationPicker({ center, onChange }) {
   const [pos, setPos] = useState(center);
+
+  // Sync marker position when center prop changes (e.g. from geolocation)
+  useEffect(() => {
+    setPos({ lat: center[0], lng: center[1] });
+  }, [center[0], center[1]]);
+
   function LocationMarker() {
     useMapEvents({
       click(e) {
         setPos(e.latlng);
         onChange(e.latlng);
-      },
-      dragend() {
-        // no-op
       },
     });
     return pos ? (
@@ -378,6 +391,7 @@ function LocationPicker({ center, onChange }) {
   return (
     <MapContainer center={center} zoom={14} scrollWheelZoom={true} style={{ height: 400, width: "100%" }}>
       <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+      <RecenterMap center={center} />
       <LocationMarker />
     </MapContainer>
   );
@@ -595,7 +609,8 @@ export default function Register() {
         (err) => {
           console.error("Geolocation error:", err);
           setShowMap(true); // fallback: just open map with existing center
-        }
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
     } else {
       toast.add("Geolocation not supported by your browser", { type: "error" });
@@ -818,7 +833,7 @@ export default function Register() {
       (err) => {
         // ignore
       },
-      { enableHighAccuracy: true }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   }, []);
 
@@ -907,7 +922,9 @@ export default function Register() {
               if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition((p) => {
                   reverseGeocode(p.coords.latitude, p.coords.longitude);
-                });
+                }, () => {
+                  toast.add("Could not get your location. Please check location permissions.", { type: "error" });
+                }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
               } else toast.add("Geolocation not available", { type: "error" });
             }} className="rounded border px-3 py-1 text-sm dark:text-gray-700">Use current location</button>
           </div>

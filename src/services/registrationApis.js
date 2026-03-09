@@ -1,4 +1,6 @@
 // Centralized API helpers for registration and validation
+import logger from "../utils/logger";
+import perfMonitor from "../utils/apiPerfMonitor";
 import { lsGet, lsSet } from "./lsCache";
 
 function getBaseUrl() {
@@ -32,14 +34,25 @@ function getHeadersForm() {
 const API_TIMEOUT = 15000; // 15 seconds
 const UPLOAD_TIMEOUT = 60000; // 60 seconds for file uploads
 
-/** Fetch with AbortController timeout — prevents indefinite hangs on slow networks */
-async function apiFetchWithTimeout(url, options, timeout = API_TIMEOUT) {
+/** Fetch with AbortController timeout, perf monitoring, and structured logging */
+async function apiFetchWithTimeout(url, options, timeout = API_TIMEOUT, label = "Registration") {
+    const method = options.method || "POST";
+    const endPerf = perfMonitor.start(method, url, "Registration", label);
+    logger.debug("Registration", `${label} → ${method} ${url}`);
+
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeout);
     try {
-        return await fetch(url, { ...options, signal: ctrl.signal });
+        const resp = await fetch(url, { ...options, signal: ctrl.signal });
+        const entry = endPerf({ status: resp.status });
+        logger.api(method, url, resp.status, entry.duration);
+        return resp;
     } catch (err) {
-        if (err.name === "AbortError") throw new Error("Request timed out. Please check your network and try again.");
+        const isTimeout = err.name === "AbortError";
+        const errMsg = isTimeout ? "timeout" : `network error: ${err.message}`;
+        endPerf({ status: 0, error: errMsg });
+        logger.error("Registration", `${label} ${errMsg}`, { method, url });
+        if (isTimeout) throw new Error("Request timed out. Please check your network and try again.");
         throw err;
     } finally {
         clearTimeout(timer);
@@ -66,7 +79,7 @@ async function postGeneralValidation(payload) {
     method: "POST",
     headers,
     body: JSON.stringify(payload),
-  });
+  }, API_TIMEOUT, "generalValidation");
   if (!resp.ok) {
     throw new Error(`HTTP ${resp.status}`);
   }
@@ -91,7 +104,7 @@ export async function checkUsernameAvailability(userid) {
       message: ok ? "Username available, proceed further" : data?.status?.err_msg || "Username not available",
     };
   } catch (err) {
-    console.error("checkUsernameAvailability error", err);
+    logger.error("Registration", "checkUsernameAvailability error", { error: err.message });
     return { available: false, raw: null, message: "Error checking username" };
   }
 }
@@ -111,7 +124,7 @@ export async function checkEmailAvailability(email) {
       message: ok ? "Email ID valid" : data?.status?.err_msg || "Email ID already exists",
     };
   } catch (err) {
-    console.error("checkEmailAvailability error", err);
+    logger.error("Registration", "checkEmailAvailability error", { error: err.message });
     return { available: false, raw: null, message: "Error checking email" };
   }
 }
@@ -131,7 +144,7 @@ export async function checkMobileAvailability(mobile) {
       message: ok ? "Mobile number valid" : data?.status?.err_msg || "Mobile number already exists",
     };
   } catch (err) {
-    console.error("checkMobileAvailability error", err);
+    logger.error("Registration", "checkMobileAvailability error", { error: err.message });
     return { available: false, raw: null, message: "Error checking mobile number" };
   }
 }
@@ -163,7 +176,7 @@ export async function uploadKycFile(username, file, fieldName) {
     method: "POST",
     headers,
     body: formData,
-  }, UPLOAD_TIMEOUT);
+  }, UPLOAD_TIMEOUT, "uploadKycFile");
   if (!resp.ok) throw new Error(`Upload failed ${resp.status}`);
   const data = await resp.json();
   return data;
@@ -176,11 +189,11 @@ export async function uploadKycFile(username, file, fieldName) {
 export async function submitRegistrationNecessities(logUname) {
   const cacheKey = `regnec_${logUname}`;
   const cached = lsGet(cacheKey, 30 * 60 * 1000); // 30 min TTL
-  if (cached) return cached;
+  if (cached) { perfMonitor.recordCacheHit("Registration", "submitRegistrationNecessities", cacheKey); return cached; }
   const url = `${getBaseUrl()}ServiceApis/registrationNecessities`;
   const headers = getHeadersJson();
   const body = JSON.stringify({ logUname });
-  const resp = await apiFetchWithTimeout(url, { method: "POST", headers, body });
+  const resp = await apiFetchWithTimeout(url, { method: "POST", headers, body }, API_TIMEOUT, "registrationNecessities");
   if (!resp.ok) throw new Error(`registrationNecessities failed ${resp.status}`);
   const data = await resp.json();
   lsSet(cacheKey, data);
@@ -191,7 +204,7 @@ export async function getOnuHwDets(op_id, onumacid) {
   const url     = `${getBaseUrl()}ServiceApis/getonuhardwaredetails`;
   const headers = getHeadersJson();
   const body    = JSON.stringify({ client_id: op_id, macid: onumacid });
-  const resp    = await apiFetchWithTimeout(url, { method: "POST", headers, body });
+  const resp    = await apiFetchWithTimeout(url, { method: "POST", headers, body }, API_TIMEOUT, "getOnuHwDets");
   if (!resp.ok) throw new Error(`Failed ${resp.status}`);
   const data = await resp.json();
   return data;
@@ -200,7 +213,7 @@ export async function getOnuHwDets(op_id, onumacid) {
 export async function registerCustomer(payload) {
   const url     = `${getBaseUrl()}ServiceApis/custservregistration`;
   const headers = getHeadersJson();
-  const resp    = await apiFetchWithTimeout(url, { method: "POST", headers, body: JSON.stringify(payload) });
+  const resp    = await apiFetchWithTimeout(url, { method: "POST", headers, body: JSON.stringify(payload) }, API_TIMEOUT, "registerCustomer");
   if (!resp.ok) throw new Error(`Customer registration failed ${resp.status}`);
   const data = await resp.json();
   return data;
@@ -226,7 +239,7 @@ export async function getPayDets(params) {
     method: "POST",
     headers,
     body, // already stringified
-  });
+  }, API_TIMEOUT, "getPayDets");
 
   if (!resp.ok) {
     throw new Error(`HTTP ${resp.status}`);
@@ -263,7 +276,7 @@ export async function payNow(params) {
     method: "POST",
     headers,
     body, // already stringified
-  });
+  }, API_TIMEOUT, "payNow");
 
   if (!resp.ok) {
     throw new Error(`HTTP ${resp.status}`);

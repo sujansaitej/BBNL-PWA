@@ -48,7 +48,7 @@ export default function PaymentHistory() {
         const user = JSON.parse(localStorage.getItem('user') || '{}');
         const apiopid = cableDetails?.body?.op_id || customerData?.op_id || user?.op_id;
         const cid = customerData?.customer_id;
-        console.log("🔵 [PaymentHistory] Fetching order history for:", { apiopid, cid, serviceType });
+        // Perf-tracked via orderApis
 
         let allOrders = [];
 
@@ -64,12 +64,12 @@ export default function PaymentHistory() {
                 p.cid === cid && (now - p.timestamp) < 24 * 60 * 60 * 1000
               );
               if (validPayments.length > 0) {
-                console.log("🟢 [PaymentHistory] Found recent local payments:", validPayments.length);
+                // Found recent local payments
                 allOrders = [...allOrders, ...validPayments.map(p => ({ ...p, _source: 'localStorage' }))];
               }
             }
           } catch (localErr) {
-            console.warn("⚠️ [PaymentHistory] Failed to read local payments:", localErr.message);
+            // Failed to read local payments — non-critical
           }
         }
 

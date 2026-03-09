@@ -1,4 +1,6 @@
 // Order history API integration
+import logger from "../utils/logger";
+import perfMonitor from "../utils/apiPerfMonitor";
 import { lsGet, lsSet } from "./lsCache";
 
 function getBaseUrl() {
@@ -8,14 +10,25 @@ function getBaseUrl() {
 
 const API_TIMEOUT = 15000; // 15 seconds
 
-/** Fetch with AbortController timeout — prevents indefinite hangs on slow networks */
-async function apiFetchWithTimeout(url, options) {
+/** Fetch with AbortController timeout, perf monitoring, and structured logging */
+async function apiFetchWithTimeout(url, options, label = "Order") {
+    const method = options.method || "POST";
+    const endPerf = perfMonitor.start(method, url, "Order", label);
+    logger.debug("Order", `${label} → ${method} ${url}`);
+
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT);
     try {
-        return await fetch(url, { ...options, signal: ctrl.signal });
+        const resp = await fetch(url, { ...options, signal: ctrl.signal });
+        const entry = endPerf({ status: resp.status });
+        logger.api(method, url, resp.status, entry.duration);
+        return resp;
     } catch (err) {
-        if (err.name === "AbortError") throw new Error("Request timed out. Please check your network and try again.");
+        const isTimeout = err.name === "AbortError";
+        const errMsg = isTimeout ? "timeout" : `network error: ${err.message}`;
+        endPerf({ status: 0, error: errMsg });
+        logger.error("Order", `${label} ${errMsg}`, { method, url });
+        if (isTimeout) throw new Error("Request timed out. Please check your network and try again.");
         throw err;
     } finally {
         clearTimeout(timer);
@@ -37,7 +50,7 @@ async function apiFetchWithTimeout(url, options) {
 export async function getOrderHistory({ apiopid, cid, servicekey }) {
   const cacheKey = `orderhist_${cid}_${servicekey || 'all'}`;
   const cached = lsGet(cacheKey, 5 * 60 * 1000); // 5 min TTL
-  if (cached) return cached;
+  if (cached) { perfMonitor.recordCacheHit("Order", "getOrderHistory", cacheKey); return cached; }
 
   const url = `${getBaseUrl()}apis/custpayhistory`;
 
@@ -62,7 +75,7 @@ export async function getOrderHistory({ apiopid, cid, servicekey }) {
     method: 'POST',
     headers,
     body,
-  });
+  }, "getOrderHistory");
 
   if (!resp.ok) {
     const errorText = await resp.text();
@@ -101,25 +114,22 @@ export async function getFofiOrderHistory({ userid, fofiboxid }) {
     servid: '3' // FoFi service ID
   };
 
-  console.log('🔵 [fofiOrderHistory] URL:', url);
-  console.log('🔵 [fofiOrderHistory] Payload:', JSON.stringify(payload, null, 2));
+  logger.debug("Order", "getFofiOrderHistory request", { userid, fofiboxid });
 
   const resp = await apiFetchWithTimeout(url, {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
     cache: 'no-store'
-  });
-
-  console.log('🔵 [fofiOrderHistory] Response status:', resp.status, resp.statusText);
+  }, "getFofiOrderHistory");
 
   if (!resp.ok) {
     const errorText = await resp.text();
-    console.error('❌ [fofiOrderHistory] Error:', errorText);
+    logger.error("Order", "getFofiOrderHistory error", { status: resp.status, error: errorText });
     throw new Error(`HTTP ${resp.status}: ${errorText}`);
   }
 
   const result = await resp.json();
-  console.log('🟢 [fofiOrderHistory] Response:', JSON.stringify(result, null, 2));
+  logger.debug("Order", "getFofiOrderHistory response", { errCode: result?.status?.err_code });
   return result;
 }

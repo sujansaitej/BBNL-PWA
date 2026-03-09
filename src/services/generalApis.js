@@ -1,5 +1,6 @@
 // General API services
 import logger from "../utils/logger";
+import perfMonitor from "../utils/apiPerfMonitor";
 import { lsGet, lsSet } from "./lsCache";
 
 function getBaseUrl() {
@@ -33,10 +34,10 @@ function getHeadersForm() {
 const API_TIMEOUT = 15000; // 15 seconds default
 const UPLOAD_TIMEOUT = 60000; // 60 seconds for file uploads
 
-/** Wrapper that adds timing, security logging, and timeout to every API call */
+/** Wrapper that adds timing, security logging, perf monitoring, and timeout to every API call */
 async function apiFetch(url, options, label, timeout = API_TIMEOUT) {
   const method = options.method || "GET";
-  const start = performance.now();
+  const endPerf = perfMonitor.start(method, url, "General", label);
   logger.debug("API", `${label} → ${method} ${url}`);
 
   const ctrl = new AbortController();
@@ -47,16 +48,17 @@ async function apiFetch(url, options, label, timeout = API_TIMEOUT) {
     resp = await fetch(url, { ...options, signal: ctrl.signal });
   } catch (err) {
     clearTimeout(timer);
-    const duration = Math.round(performance.now() - start);
     const isTimeout = err.name === "AbortError";
-    logger.error("API", `${label} ${isTimeout ? "timeout" : "network error"}: ${err.message}`, { method, url, duration: `${duration}ms` });
+    const errMsg = isTimeout ? "timeout" : `network error: ${err.message}`;
+    endPerf({ status: 0, error: errMsg });
+    logger.error("API", `${label} ${errMsg}`, { method, url });
     throw new Error(isTimeout ? "Request timed out. Please check your network and try again." : `Network error: ${err.message}`);
   } finally {
     clearTimeout(timer);
   }
 
-  const duration = Math.round(performance.now() - start);
-  logger.api(method, url, resp.status, duration);
+  const entry = endPerf({ status: resp.status });
+  logger.api(method, url, resp.status, entry.duration);
 
   if (resp.status === 401 || resp.status === 403) {
     logger.security("API_AUTH_REJECTED", { endpoint: url, status: resp.status, label });
@@ -135,7 +137,7 @@ export async function resendOTP(username) {
 export async function getWalBal(payload) {
   const cacheKey = `walbal_${payload.loginuname}_${payload.servicekey || 'internet'}`;
   const cached = lsGet(cacheKey, 5 * 60 * 1000); // 5 min TTL
-  if (cached) return cached;
+  if (cached) { perfMonitor.recordCacheHit("General", "getWalBal", cacheKey); return cached; }
   const url = `${getBaseUrl()}ServiceApis/myWallet`;
   const headers = getHeadersJson();
   const resp = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "getWalBal");
@@ -148,7 +150,7 @@ export async function getWalBal(payload) {
 export async function getCustList(payload, status) {
   const cacheKey = `custlist_${status || 'all'}`;
   const cached = lsGet(cacheKey, 10 * 60 * 1000); // 10 min TTL
-  if (cached) return cached;
+  if (cached) { perfMonitor.recordCacheHit("General", "getCustList", cacheKey); return cached; }
   const url = `${getBaseUrl()}ServiceApis/customersList?status=${encodeURIComponent(status || '')}`;
   const headers = getHeadersJson();
   const resp = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "getCustList");
@@ -161,7 +163,7 @@ export async function getCustList(payload, status) {
 export async function getServiceList() {
   const cacheKey = 'svclist_all';
   const cached = lsGet(cacheKey, 10 * 60 * 1000); // 10 min TTL
-  if (cached) return cached;
+  if (cached) { perfMonitor.recordCacheHit("General", "getServiceList", cacheKey); return cached; }
 
   const params = new URLSearchParams({ servtype: 'all', iskirana: 'false' });
   const url = `${getBaseUrl()}ServiceApis/servServiceList?${params.toString()}`;
@@ -195,7 +197,7 @@ export async function getUserAssignedItems(servkey, userid, skipCache = false) {
   const cacheKey = `uai_${servkey}_${userid}`;
   if (!skipCache) {
     const cached = lsGet(cacheKey, 2 * 60 * 1000); // 2 min TTL
-    if (cached) return cached;
+    if (cached) { perfMonitor.recordCacheHit("General", "getUserAssignedItems", cacheKey); return cached; }
   }
   const url = `${getBaseUrl()}ServiceApis/getUserAssignedItems`;
   const headers = getHeadersJson();
@@ -216,7 +218,7 @@ export async function getCableCustomerDetails(refid, skipCache = false) {
   const cacheKey = `cblcust_${refid}`;
   if (!skipCache) {
     const cached = lsGet(cacheKey, 2 * 60 * 1000); // 2 min TTL
-    if (cached) return cached;
+    if (cached) { perfMonitor.recordCacheHit("General", "getCableCustomerDetails", cacheKey); return cached; }
   }
   const url = `${getBaseUrl()}GeneralApi/cblCustDet`;
 
@@ -246,7 +248,7 @@ export async function getPrimaryCustomerDetails(userid, skipCache = false) {
   const cacheKey = `pricust_${userid}`;
   if (!skipCache) {
     const cached = lsGet(cacheKey, 2 * 60 * 1000); // 2 min TTL
-    if (cached) return cached;
+    if (cached) { perfMonitor.recordCacheHit("General", "getPrimaryCustomerDetails", cacheKey); return cached; }
   }
   const url = `${getBaseUrl()}cabletvapis/primaryCustdet`;
 
@@ -273,7 +275,7 @@ export async function getMyPlanDetails(params, skipCache = false) {
   const cacheKey = `plandets_${params.servicekey}_${params.userid}_${params.fofiboxid || ''}`;
   if (!skipCache) {
     const cached = lsGet(cacheKey, 2 * 60 * 1000); // 2 min TTL
-    if (cached) return cached;
+    if (cached) { perfMonitor.recordCacheHit("General", "getMyPlanDetails", cacheKey); return cached; }
   }
   const ts = Date.now();
   const url = `${getBaseUrl()}ServiceApis/getMyPlanDetails?_t=${ts}`;
@@ -308,7 +310,7 @@ export async function getMyPlanDetails(params, skipCache = false) {
 export async function getTktDepartments() {
   const cacheKey = 'tktdepts';
   const cached = lsGet(cacheKey, 30 * 60 * 1000); // 30 min TTL
-  if (cached) return cached;
+  if (cached) { perfMonitor.recordCacheHit("General", "getTktDepartments", cacheKey); return cached; }
   const url = `${getBaseUrl()}apis/getDepartments`;
   const headers = getHeadersJson();
   const resp = await apiFetch(url, { method: "GET", headers }, "getTktDepartments");
@@ -321,7 +323,7 @@ export async function getTktDepartments() {
 export async function getTickets(tabKey, allParams = {}) {
   const cacheKey = `tkts_${tabKey}_${allParams.user || ''}_${allParams.dept || ''}`;
   const cached = lsGet(cacheKey, 3 * 60 * 1000); // 3 min TTL
-  if (cached) return cached;
+  if (cached) { perfMonitor.recordCacheHit("General", "getTickets", cacheKey); return cached; }
   var ep = '';
   var inpParams = { apiopid: tabKey !== 'NEW CONNECTIONS' ? allParams.op_id : 'raghav' };
   switch (tabKey) {

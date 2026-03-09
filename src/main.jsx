@@ -16,6 +16,9 @@
 import "./api-connectivity-test";
 import { cleanupStalePWA } from "./pwa-cleanup";
 import { setupPwaNavGuard } from "./pwa-nav-guard";
+// API performance monitoring — tracks every API call across all services.
+// Access via console: __apiPerf.printReport() or __apiPerf.getReport()
+import perfMonitor from "./utils/apiPerfMonitor";
 // Start IndexedDB → L1 hydration early so IPTV data is ready before
 // lazy chunks load.  channelStore self-hydrates on import (~5 ms).
 import "./services/channelStore";
@@ -117,6 +120,30 @@ if (!cleanupTriggeredReload) {
       sessionStorage.removeItem(GUARD_KEY);
     } catch (_) {}
   })();
+}
+
+// ── API Performance auto-report ──────────────────────────────────────
+// Print a performance summary when the user backgrounds the app (tab hidden)
+// or every 2 minutes in dev mode.  In production, only logs when there are
+// slow calls (>5s) or high error rates.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") {
+    const r = perfMonitor.getReport();
+    if (r.session.totalCalls > 0) {
+      // In production, only print if there are issues
+      if (import.meta.env.DEV || r.session.errors > 0 || r.latency.p95Ms > 3000) {
+        perfMonitor.printReport();
+      }
+    }
+  }
+});
+
+// In dev mode, also print every 2 minutes for live monitoring
+if (import.meta.env.DEV) {
+  setInterval(() => {
+    const r = perfMonitor.getReport();
+    if (r.session.totalCalls > 0) perfMonitor.printReport();
+  }, 120000);
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(

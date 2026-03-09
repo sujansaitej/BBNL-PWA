@@ -1,4 +1,6 @@
 // FoFi Smart Box API services
+import logger from "../utils/logger";
+import perfMonitor from "../utils/apiPerfMonitor";
 import { lsGet, lsSet } from "./lsCache";
 
 function getBaseUrl() {
@@ -39,14 +41,28 @@ function getBasicAuthHeader() {
 
 const API_TIMEOUT = 15000; // 15 seconds
 
-/** Fetch with AbortController timeout — prevents indefinite hangs on slow networks */
-async function fofiApiFetch(url, options) {
+/** Fetch with AbortController timeout, perf monitoring, and structured logging */
+async function fofiApiFetch(url, options, label = "FoFi") {
+    const method = options.method || "POST";
+    const endPerf = perfMonitor.start(method, url, "FoFi", label);
+    logger.debug("FoFi", `${label} → ${method} ${url}`);
+
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT);
     try {
-        return await fetch(url, { ...options, signal: ctrl.signal });
+        const resp = await fetch(url, { ...options, signal: ctrl.signal });
+        const entry = endPerf({ status: resp.status });
+        logger.api(method, url, resp.status, entry.duration);
+        if (resp.status === 401 || resp.status === 403) {
+            logger.security("FOFI_AUTH_REJECTED", { endpoint: url, status: resp.status, label });
+        }
+        return resp;
     } catch (err) {
-        if (err.name === "AbortError") throw new Error("Request timed out. Please check your network and try again.");
+        const isTimeout = err.name === "AbortError";
+        const errMsg = isTimeout ? "timeout" : `network error: ${err.message}`;
+        endPerf({ status: 0, error: errMsg });
+        logger.error("FoFi", `${label} ${errMsg}`, { method, url });
+        if (isTimeout) throw new Error("Request timed out. Please check your network and try again.");
         throw err;
     } finally {
         clearTimeout(timer);
@@ -93,23 +109,20 @@ export async function generateFofiOrder(payload) {
         voipnumber: payload.voipnumber || ""
     };
 
-    console.log('🔵 [generateFofiOrder] Calling API:', url);
-    console.log('🔵 [generateFofiOrder] Full Payload:', JSON.stringify(orderPayload, null, 2));
-    console.log('🔵 [generateFofiOrder] Key Fields - planid:', orderPayload.planid, 'priceid:', orderPayload.priceid, 'fofiboxid:', orderPayload.fofiboxid);
+    logger.debug("FoFi", "generateFofiOrder request", { planid: orderPayload.planid, priceid: orderPayload.priceid, fofiboxid: orderPayload.fofiboxid });
 
     const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(orderPayload),
-    });
+    }, "generateFofiOrder");
 
     if (!resp.ok) {
         throw new Error(`Failed to generate FoFi order: HTTP ${resp.status}`);
     }
 
     const data = await resp.json();
-    console.log('🟢 [generateFofiOrder] Full Response:', JSON.stringify(data, null, 2));
-    console.log('🟢 [generateFofiOrder] Status:', data?.status || data?.error, 'Result:', data?.result || data?.body);
+    logger.debug("FoFi", "generateFofiOrder response", { errCode: data?.status?.err_code, result: data?.result });
     return data;
 }
 
@@ -121,7 +134,7 @@ export async function generateFofiOrder(payload) {
 export async function getSpecialInternetPlans(payload) {
     const cacheKey = `siplans_${payload.logUname || ''}`;
     const cached = lsGet(cacheKey, 10 * 60 * 1000); // 10 min TTL
-    if (cached) return cached;
+    if (cached) { perfMonitor.recordCacheHit("FoFi", "getSpecialInternetPlans", cacheKey); return cached; }
 
     const url = `${getBaseUrl()}ServiceApis/specialInternetPlans`;
     const headers = getHeadersJson();
@@ -130,7 +143,7 @@ export async function getSpecialInternetPlans(payload) {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    });
+    }, "getSpecialInternetPlans");
 
     if (!resp.ok) {
         throw new Error(`Failed to fetch special internet plans: HTTP ${resp.status}`);
@@ -150,21 +163,20 @@ export async function validateBeforeFofiBoxReg(payload) {
     const url = `${getBaseUrl()}ServiceApis/validateBeforeFofiBoxReg`;
     const headers = getHeadersJson();
 
-    console.log('🔵 [validateBeforeFofiBoxReg] Calling API:', url);
-    console.log('🔵 [validateBeforeFofiBoxReg] Payload:', payload);
+    logger.debug("FoFi", "validateBeforeFofiBoxReg request", { username: payload.username });
 
     const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    });
+    }, "validateBeforeFofiBoxReg");
 
     if (!resp.ok) {
         throw new Error(`Failed to validate before FoFi Box registration: HTTP ${resp.status}`);
     }
 
     const data = await resp.json();
-    console.log('🟢 [validateBeforeFofiBoxReg] Response:', data);
+    logger.debug("FoFi", "validateBeforeFofiBoxReg response", { errCode: data?.status?.err_code });
     return data;
 }
 
@@ -176,26 +188,25 @@ export async function validateBeforeFofiBoxReg(payload) {
 export async function getFofiUpgradePlans(payload) {
     const cacheKey = `fofupl_${payload.userid || ''}_${payload.moduletype || ''}`;
     const cached = lsGet(cacheKey, 10 * 60 * 1000); // 10 min TTL
-    if (cached) return cached;
+    if (cached) { perfMonitor.recordCacheHit("FoFi", "getFofiUpgradePlans", cacheKey); return cached; }
 
     const url = `${getBaseUrl()}ServiceApis/registrationNecessities`;
     const headers = getHeadersJson();
 
-    console.log('🔵 [getFofiUpgradePlans] Calling API:', url);
-    console.log('🔵 [getFofiUpgradePlans] Payload:', payload);
+    logger.debug("FoFi", "getFofiUpgradePlans request", { userid: payload.userid, moduletype: payload.moduletype });
 
     const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    });
+    }, "getFofiUpgradePlans");
 
     if (!resp.ok) {
         throw new Error(`Failed to fetch FoFi upgrade plans: HTTP ${resp.status}`);
     }
 
     const data = await resp.json();
-    console.log('🟢 [getFofiUpgradePlans] Response:', data);
+    logger.debug("FoFi", "getFofiUpgradePlans response", { errCode: data?.status?.err_code });
     lsSet(cacheKey, data);
     return data;
 }
@@ -209,21 +220,20 @@ export async function upgradeRegistration(payload) {
     const url = `${getBaseUrl()}ServiceApis/upgradeRegistration`;
     const headers = getHeadersJson();
 
-    console.log('🔵 [upgradeRegistration] Calling API:', url);
-    console.log('🔵 [upgradeRegistration] Payload:', payload);
+    logger.debug("FoFi", "upgradeRegistration request", { fofiboxid: payload.fofiboxid });
 
     const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    });
+    }, "upgradeRegistration");
 
     if (!resp.ok) {
         throw new Error(`Failed to submit upgrade registration: HTTP ${resp.status}`);
     }
 
     const data = await resp.json();
-    console.log('🟢 [upgradeRegistration] Response:', data);
+    logger.debug("FoFi", "upgradeRegistration response", { errCode: data?.status?.err_code });
     return data;
 }
 
@@ -236,21 +246,20 @@ export async function getFofiPaymentInfo(payload) {
     const url = `${getBaseUrl()}service/paymentinfo/fofi`;
     const headers = getHeadersJson();
 
-    console.log('🔵 [getFofiPaymentInfo] Calling API:', url);
-    console.log('🔵 [getFofiPaymentInfo] Payload:', payload);
+    logger.debug("FoFi", "getFofiPaymentInfo request", { fofi_box_id: payload.fofi_box_id, planid: payload.planid });
 
     const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    });
+    }, "getFofiPaymentInfo");
 
     if (!resp.ok) {
         throw new Error(`Failed to get FoFi payment info: HTTP ${resp.status}`);
     }
 
     const data = await resp.json();
-    console.log('🟢 [getFofiPaymentInfo] Response:', data);
+    logger.debug("FoFi", "getFofiPaymentInfo response", { errCode: data?.status?.err_code });
     return data;
 }
 
@@ -263,14 +272,13 @@ export async function validateFoFiAsset(payload) {
     const url = `${getBaseUrl()}fofi/fofiapis/validateAsset`;
     const headers = getBasicAuthHeader();
 
-    console.log('🔵 [validateFoFiAsset] Calling API:', url);
-    console.log('🔵 [validateFoFiAsset] Payload:', payload);
+    logger.debug("FoFi", "validateFoFiAsset request", { serialno: payload.serialno });
 
     const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    });
+    }, "validateFoFiAsset");
 
     if (!resp.ok) {
         throw new Error(`Failed to validate FoFi asset: HTTP ${resp.status}`);
@@ -293,7 +301,7 @@ export async function linkFoFiBox(payload) {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    });
+    }, "linkFoFiBox");
 
     if (!resp.ok) {
         throw new Error(`Failed to link FoFi box: HTTP ${resp.status}`);
@@ -314,7 +322,7 @@ export async function getFoFiPlans() {
     const resp = await fofiApiFetch(url, {
         method: "GET",
         headers,
-    });
+    }, "getFoFiPlans");
 
     if (!resp.ok) {
         throw new Error(`Failed to fetch FoFi plans: HTTP ${resp.status}`);
@@ -339,7 +347,7 @@ export async function validateDeviceByQR(payload) {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    });
+    }, "validateDeviceByQR");
 
     if (!resp.ok) {
         throw new Error(`Failed to validate device by QR: HTTP ${resp.status}`);
@@ -379,7 +387,7 @@ export async function fetchMACBySerial(payload) {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    });
+    }, "fetchMACBySerial");
 
     if (!resp.ok) {
         throw new Error(`Failed to fetch MAC address: HTTP ${resp.status}`);
@@ -420,7 +428,7 @@ export async function validateDeviceAvailability(payload) {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    });
+    }, "validateDeviceAvailability");
 
     if (!resp.ok) {
         throw new Error(`Failed to validate device availability: HTTP ${resp.status}`);
@@ -463,7 +471,7 @@ export async function registerFoFiDevice(payload) {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    });
+    }, "registerFoFiDevice");
 
     if (!resp.ok) {
         throw new Error(`Failed to register FoFi device: HTTP ${resp.status}`);
@@ -502,7 +510,7 @@ export async function getFoFiDeviceDetails(payload) {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    });
+    }, "getFoFiDeviceDetails");
 
     if (!resp.ok) {
         throw new Error(`Failed to fetch FoFi device details: HTTP ${resp.status}`);
@@ -555,7 +563,7 @@ export async function changeFoFiPlan(payload) {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    });
+    }, "changeFoFiPlan");
 
     if (!resp.ok) {
         throw new Error(`Failed to change FoFi plan: HTTP ${resp.status}`);
@@ -599,7 +607,7 @@ export async function createFoFiPaymentOrder(payload) {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    });
+    }, "createFoFiPaymentOrder");
 
     if (!resp.ok) {
         throw new Error(`Failed to create payment order: HTTP ${resp.status}`);
@@ -641,7 +649,7 @@ export async function verifyFoFiPayment(payload) {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    });
+    }, "verifyFoFiPayment");
 
     if (!resp.ok) {
         throw new Error(`Failed to verify payment: HTTP ${resp.status}`);
@@ -684,7 +692,7 @@ export async function processFoFiBillPayment(payload) {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    });
+    }, "processFoFiBillPayment");
 
     if (!resp.ok) {
         throw new Error(`Failed to process bill payment: HTTP ${resp.status}`);
@@ -729,7 +737,7 @@ export async function getFoFiPaymentHistory(payload) {
     const resp = await fofiApiFetch(url, {
         method: "GET",
         headers,
-    });
+    }, "getFoFiPaymentHistory");
 
     if (!resp.ok) {
         throw new Error(`Failed to fetch payment history: HTTP ${resp.status}`);
