@@ -90,11 +90,19 @@ const Tickets = () => {
   }
 
   const deptInitRef = useRef(true);
+  const dialogInitRef = useRef(true);
 
+  // Reset department filter and fetch fresh tickets when tab changes
   useEffect(() => {
     setSelectedDept('');
     getTkts(activeTab, '');
-  }, [activeTab, dialogOpen, tktdialogOpen]);
+  }, [activeTab]);
+
+  // Re-fetch after dialog closes (ticket picked/closed/transferred) — preserve department filter
+  useEffect(() => {
+    if (dialogInitRef.current) { dialogInitRef.current = false; return; }
+    getTkts(activeTab);
+  }, [dialogOpen, tktdialogOpen]);
 
   // Re-fetch when department filter changes
   useEffect(() => {

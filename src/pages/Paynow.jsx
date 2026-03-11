@@ -179,11 +179,6 @@ export default function Subscribe() {
       const data = await payNow(payNowInp);
       // console.log(data);
       if (data?.error === 0 || data?.status?.err_code === 0) {
-        localStorage.setItem('registrationData', '');
-        localStorage.setItem('groups', '');
-        localStorage.setItem('selectedPlan', '');
-        localStorage.setItem('filerefid', '');
-        try { sessionStorage.removeItem('paymentContext'); } catch (_) {}
         // Zero out balance after successful payment
         setIntWB(0);
         setPaydet(prev => ({ ...prev, "Balance Amount": 0 }));
@@ -193,7 +188,15 @@ export default function Subscribe() {
           message: 'Your payment has been processed successfully and the service has been activated.'
         });
         setAlertOpen(true);
+        // Delay cleanup until navigation so a page refresh during the
+        // 5-second countdown still shows payment data instead of the
+        // "No payment data available" error (BUG-004).
         setTimeout(() => {
+          localStorage.setItem('registrationData', '');
+          localStorage.setItem('groups', '');
+          localStorage.setItem('selectedPlan', '');
+          localStorage.setItem('filerefid', '');
+          try { sessionStorage.removeItem('paymentContext'); } catch (_) {}
           navigate('/');
         }, 5000);
         // window.location.href = '/';

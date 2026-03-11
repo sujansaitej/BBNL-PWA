@@ -30,12 +30,13 @@ export default function QRScanner({ onScan, onClose, onError }) {
             return;
         }
 
-        // Start scanning immediately (with small delay to prevent strict mode issues)
+        // Start scanning immediately (0ms defer keeps the user-gesture context
+        // alive on devices that gate getUserMedia behind a gesture check).
         const timer = setTimeout(() => {
             if (isMountedRef.current) {
                 startScanning();
             }
-        }, 100);
+        }, 0);
 
         // Cleanup on unmount
         return () => {

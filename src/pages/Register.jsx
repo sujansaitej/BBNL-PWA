@@ -357,6 +357,18 @@ function RecenterMap({ center }) {
   return null;
 }
 
+// Stable module-level component for handling map click events.
+// Defined outside LocationPicker so React never unmounts/remounts it on
+// parent re-renders — fixes BUG-002 (Android tap-to-pick not registering).
+function MapClickHandler({ onMapClick }) {
+  useMapEvents({
+    click(e) {
+      onMapClick(e.latlng);
+    },
+  });
+  return null;
+}
+
 // Small component to let user move a marker and update parent with lat/lng
 function LocationPicker({ center, onChange }) {
   const [pos, setPos] = useState(center);
@@ -366,33 +378,30 @@ function LocationPicker({ center, onChange }) {
     setPos({ lat: center[0], lng: center[1] });
   }, [center[0], center[1]]);
 
-  function LocationMarker() {
-    useMapEvents({
-      click(e) {
-        setPos(e.latlng);
-        onChange(e.latlng);
-      },
-    });
-    return pos ? (
-      <Marker
-        draggable
-        position={pos}
-        icon={customMarker}
-        eventHandlers={{
-          dragend(e) {
-            const ll = e.target.getLatLng();
-            setPos(ll);
-            onChange(ll);
-          },
-        }}
-      />
-    ) : null;
-  }
+  const handleMapClick = (latlng) => {
+    setPos(latlng);
+    onChange(latlng);
+  };
+
   return (
     <MapContainer center={center} zoom={14} scrollWheelZoom={true} style={{ height: 400, width: "100%" }}>
       <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
       <RecenterMap center={center} />
-      <LocationMarker />
+      <MapClickHandler onMapClick={handleMapClick} />
+      {pos && (
+        <Marker
+          draggable
+          position={pos}
+          icon={customMarker}
+          eventHandlers={{
+            dragend(e) {
+              const ll = e.target.getLatLng();
+              setPos(ll);
+              onChange(ll);
+            },
+          }}
+        />
+      )}
     </MapContainer>
   );
 }
@@ -599,6 +608,7 @@ export default function Register() {
 
   async function openMapgetLoc(){
     if (navigator.geolocation) {
+      toast.add("Getting your location...", { type: "info", duration: 2000 });
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           const { latitude, longitude } = pos.coords;
@@ -608,9 +618,10 @@ export default function Register() {
         },
         (err) => {
           console.error("Geolocation error:", err);
+          toast.add("Could not get location. You can pick manually on the map.", { type: "error" });
           setShowMap(true); // fallback: just open map with existing center
         },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
       );
     } else {
       toast.add("Geolocation not supported by your browser", { type: "error" });
@@ -833,7 +844,7 @@ export default function Register() {
       (err) => {
         // ignore
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
     );
   }, []);
 
@@ -920,11 +931,12 @@ export default function Register() {
             <button type="button" onClick={() => {
               // try geolocation fill if available
               if (navigator.geolocation) {
+                toast.add("Getting your location...", { type: "info", duration: 2000 });
                 navigator.geolocation.getCurrentPosition((p) => {
                   reverseGeocode(p.coords.latitude, p.coords.longitude);
                 }, () => {
                   toast.add("Could not get your location. Please check location permissions.", { type: "error" });
-                }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+                }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
               } else toast.add("Geolocation not available", { type: "error" });
             }} className="rounded border px-3 py-1 text-sm dark:text-gray-700">Use current location</button>
           </div>
