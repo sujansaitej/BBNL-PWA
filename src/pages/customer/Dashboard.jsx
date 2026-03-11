@@ -1,7 +1,7 @@
 // import DashboardContent from "../../components/Dashboard";
 import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
-import { ArrowUpOnSquareStackIcon, CurrencyRupeeIcon, ClipboardDocumentListIcon, ChartPieIcon, SignalIcon, TicketIcon, UserIcon } from '@heroicons/react/24/outline'
+import { ArrowUpOnSquareStackIcon, CurrencyRupeeIcon, ClipboardDocumentListIcon, ChartPieIcon, SignalIcon, TicketIcon, UserIcon, FilmIcon } from '@heroicons/react/24/outline'
 import { PlayCircleIcon } from '@heroicons/react/24/solid'
 import { Swiper, SwiperSlide } from 'swiper/react'
 import { Autoplay, Pagination } from 'swiper/modules'
@@ -123,6 +123,7 @@ export default function Dashboard() {
     const cardItems = [
         { id: 'renew', title: 'Renew', Icon: CurrencyRupeeIcon, path: '#' },
         { id: 'bills', title: 'Bills', Icon: ClipboardDocumentListIcon, path: '#' },
+        { id: 'ott', title: 'OTT', Icon: FilmIcon, path: '#' },
         { id: 'ticket', title: 'Tickets', Icon: TicketIcon, path: '#' },
         { id: 'profile', title: 'Profile', Icon: UserIcon, path: '#' },
         { id: 'datausage', title: 'Data Usage', Icon: ChartPieIcon, path: '#' },

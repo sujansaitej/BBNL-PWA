@@ -82,7 +82,7 @@ export default function Sidebar({ open, onClose }) {
             </button>
 
             <button
-              // onClick={() => alert("Go to OTT Wallet")}
+              onClick={() => { onClose(); comingsoon(); }}
               className="flex flex-col items-center focus:outline-none"
             >
               <div className="bg-blue-500 rounded-full p-2 shadow-md hover:bg-blue-700 transition">

@@ -7,7 +7,8 @@ import {
   Cog6ToothIcon,
   ChatBubbleOvalLeftEllipsisIcon,
   CurrencyRupeeIcon,
-  TvIcon
+  TvIcon,
+  FilmIcon
 } from "@heroicons/react/24/outline";
 import { Modal } from "@/components/ui";
 
@@ -89,10 +90,10 @@ export default function BottomBar() {
         <span className="text-xs">Live TV</span>
       </Link>
 
-      {/* Renew */}
+      {/* OTT */}
       <Link to="#" onClick={comingsoon} className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
-        <CurrencyRupeeIcon className="h-6 w-6" />
-        <span className="text-xs">Renew</span>
+        <FilmIcon className="h-6 w-6" />
+        <span className="text-xs">OTT</span>
       </Link>
 
       {/* Highlighted Dashboard (middle icon) */}
