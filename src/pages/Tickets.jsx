@@ -346,7 +346,7 @@ const Tickets = () => {
               placeholder="Search by Customer ID, Name, or Mobile"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full border rounded-lg py-2 pl-10 pr-3 text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition-shadow duration-200"
+              className="w-full border rounded-lg py-2 pl-10 pr-3 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition-shadow duration-200"
             />
             <Search className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
           </div>

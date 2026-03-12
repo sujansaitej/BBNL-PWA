@@ -143,7 +143,7 @@ export default function Customerlist() {
           <input
             type="text"
             placeholder="Search customer..."
-            className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-700 bg-white rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-[border-color,box-shadow] duration-200"
+            className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-[border-color,box-shadow] duration-200"
             // onChange={(e) => setPlans(filterPlans(e.target.value))}
             onChange={(e) => filterCustomers(e.target.value)}
             disabled={loading}

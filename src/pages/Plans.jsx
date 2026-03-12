@@ -96,7 +96,7 @@ export default function Plans() {
           <input
             type="text"
             placeholder="Search plans..."
-            className="w-full px-4 py-2 pr-10 border border-gray-300 bg-white dark:text-gray-700 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full px-4 py-2 pr-10 border border-gray-300 bg-white dark:bg-gray-800 text-gray-800 dark:text-white dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
             // onChange={(e) => setPlans(filterPlans(e.target.value))}
             onChange={(e) => filterPlans(e.target.value)}
             disabled={loading}

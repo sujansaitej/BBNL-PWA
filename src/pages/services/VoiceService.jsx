@@ -72,7 +72,7 @@ export default function VoiceService() {
                         <input
                             type="text"
                             placeholder="Search Plans"
-                            className="w-full border border-gray-300 rounded-md py-2.5 pl-4 pr-12 text-gray-800 text-base bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-[border-color,box-shadow,background-color] duration-200"
+                            className="w-full border border-gray-300 dark:border-gray-600 rounded-md py-2.5 pl-4 pr-12 text-gray-800 dark:text-white text-base bg-gray-50 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white dark:focus:bg-gray-700 transition-[border-color,box-shadow,background-color] duration-200"
                             value={searchTerm}
                             onChange={e => setSearchTerm(e.target.value)}
                         />

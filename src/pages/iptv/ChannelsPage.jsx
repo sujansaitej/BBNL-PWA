@@ -265,7 +265,7 @@ export default function ChannelsPage() {
         <div className="relative mb-4">
           <div className={`flex items-center bg-white border rounded-xl px-3 py-3 shadow-sm transition-[border-color,box-shadow] min-h-[48px] ${listening ? 'border-blue-400 ring-2 ring-blue-200' : 'border-gray-200 focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-200'}`}>
             <Search className="w-4 h-4 text-gray-400 mr-2 flex-shrink-0" />
-            <input type="text" placeholder={listening ? "Listening..." : "Search by name or channel number..."} value={search} onChange={(e) => setSearch(e.target.value)} className="w-full outline-none text-sm text-gray-700 bg-transparent placeholder-gray-400" />
+            <input type="text" placeholder={listening ? "Listening..." : "Search by name or channel number..."} value={search} onChange={(e) => setSearch(e.target.value)} className="w-full outline-none text-sm text-gray-700 dark:text-white bg-transparent placeholder-gray-400" />
             {search && (<button onClick={() => setSearch("")} className="ml-2 flex-shrink-0"><X className="w-4 h-4 text-gray-400" /></button>)}
             {hasSpeechSupport && (
               <div className="flex items-center gap-1 ml-2 flex-shrink-0">
