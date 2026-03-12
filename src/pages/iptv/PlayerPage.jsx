@@ -593,7 +593,7 @@ export default function PlayerPage() {
 
       <AnimatePresence>
         {controlsVisible && !showSheet && (
-          <motion.div key="top-bar" initial={{ opacity: 0, y: -30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -30 }} transition={{ duration: 0.3, ease: "easeOut" }} className="absolute top-0 left-0 right-0 z-30 px-4 pt-4 pb-2" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top, 1rem))', paddingLeft: 'max(1rem, env(safe-area-inset-left, 1rem))', paddingRight: 'max(1rem, env(safe-area-inset-right, 1rem))' }}>
+          <motion.div key="top-bar" initial={{ opacity: 0, y: -30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -30 }} transition={{ duration: 0.3, ease: "easeOut" }} className="absolute top-0 left-0 right-0 z-40 px-4 pt-4 pb-2" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top, 1rem))', paddingLeft: 'max(1rem, env(safe-area-inset-left, 1rem))', paddingRight: 'max(1rem, env(safe-area-inset-right, 1rem))' }} onClick={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-3">
               <button onClick={handleGoBack} className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center hover:bg-black/60 active:scale-95 transition-transform flex-shrink-0"><ArrowLeft className="w-5 h-5 text-white" /></button>
               {hasLogo && (cachedPosterUrl || logoSrc) && !logoError ? (<img src={cachedPosterUrl || logoSrc} alt={currentChannel.chtitle} onError={() => setLogoError(true)} className="w-9 h-9 rounded-lg object-contain bg-white/10 backdrop-blur-sm p-0.5 flex-shrink-0" />) : (<div className="w-9 h-9 rounded-lg bg-white/10 backdrop-blur-sm flex items-center justify-center flex-shrink-0"><Tv className="w-4 h-4 text-white/60" /></div>)}
@@ -619,7 +619,7 @@ export default function PlayerPage() {
 
       <AnimatePresence>
         {controlsVisible && status === "playing" && !showSheet && (
-          <motion.div key="bottom-bar" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 30 }} transition={{ duration: 0.3, ease: "easeOut" }} className="absolute bottom-0 left-0 right-0 z-30 px-4 pb-4 pt-2" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 1rem))', paddingLeft: 'max(1rem, env(safe-area-inset-left, 1rem))', paddingRight: 'max(1rem, env(safe-area-inset-right, 1rem))' }}>
+          <motion.div key="bottom-bar" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 30 }} transition={{ duration: 0.3, ease: "easeOut" }} className="absolute bottom-0 left-0 right-0 z-30 px-4 pb-4 pt-2" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 1rem))', paddingLeft: 'max(1rem, env(safe-area-inset-left, 1rem))', paddingRight: 'max(1rem, env(safe-area-inset-right, 1rem))' }} onClick={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
             <div className="w-full h-[3px] bg-white/15 rounded-full mb-4 overflow-hidden"><div className="h-full bg-red-500 rounded-full w-full relative"><div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-red-500 rounded-full shadow-lg shadow-red-500/50" /></div></div>
             <div className="flex items-center justify-between">
               {channelList.length > 0 && (<button onClick={(e) => { e.stopPropagation(); setShowSheet(true); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 active:bg-white/20 transition-colors"><ChevronUp className="w-3.5 h-3.5 text-white/60" /><span className="text-[11px] text-white/60 font-medium">Channels</span></button>)}
@@ -645,7 +645,7 @@ export default function PlayerPage() {
 
       <AnimatePresence>
         {status === "loading" && (
-          <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ exit: { duration: 0.4 } }} className="absolute inset-0 flex flex-col items-center justify-center z-30 bg-black/70 backdrop-blur-sm">
+          <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ exit: { duration: 0.4 } }} className="absolute inset-0 flex flex-col items-center justify-center z-30 bg-black/70 backdrop-blur-sm" onClick={(e) => e.stopPropagation()}>
             <div className="flex flex-col items-center">
               {hasLogo && (cachedPosterUrl || logoSrc) && !logoError ? (<div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center p-1.5 shadow-2xl mb-4"><img src={cachedPosterUrl || logoSrc} alt={currentChannel.chtitle} className="w-full h-full object-contain" onError={() => setLogoError(true)} /></div>) : (<div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center shadow-2xl mb-4"><Tv className="w-7 h-7 text-white/30" /></div>)}
               <h3 className="text-sm font-bold text-white mb-3">{currentChannel.chtitle}</h3>
@@ -657,7 +657,7 @@ export default function PlayerPage() {
 
       <AnimatePresence>
         {status === "error" && (
-          <motion.div key="error" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 flex flex-col items-center justify-center z-30 bg-black/95 px-6">
+          <motion.div key="error" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 flex flex-col items-center justify-center z-30 bg-black/95 px-6" onClick={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
             <div className="relative mb-5">
               <div className="w-20 h-20 rounded-full bg-red-500/10 flex items-center justify-center ring-2 ring-red-500/20">
                 {hasLogo && (cachedPosterUrl || logoSrc) && !logoError ? (<img src={cachedPosterUrl || logoSrc} alt={currentChannel.chtitle} className="w-12 h-12 rounded-lg object-contain" onError={() => setLogoError(true)} />) : (<Tv className="w-8 h-8 text-red-400" />)}
