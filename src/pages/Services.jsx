@@ -133,6 +133,11 @@ export default function Services() {
     );
 
     const handleServiceClick = (service) => {
+        // Route OTT service to FoFi Smart Box (which already handles OTT/combo plans)
+        if (service.id === 'ott') {
+            navigate(`/customer/${customerId}/service/fofi-smart-box`, { state: { customer: customerData } });
+            return;
+        }
         navigate(service.path, { state: { customer: customerData } });
     };
 
@@ -140,7 +145,7 @@ export default function Services() {
         return (
             <div className="min-h-screen flex flex-col bg-white dark:bg-gray-900">
                 {/* Teal Header */}
-                <header className="sticky top-0 z-40 flex items-center px-4 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg">
+                <header className="sticky top-0 z-40 flex items-center px-4 pb-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
                     <button onClick={() => navigate(-1)} className="p-1 mr-3">
                         <ArrowLeftIcon className="h-6 w-6 text-white" />
                     </button>
@@ -159,7 +164,7 @@ export default function Services() {
     return (
         <div className="min-h-screen flex flex-col bg-white dark:bg-gray-900">
             {/* Teal Header */}
-            <header className="sticky top-0 z-40 flex items-center px-4 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg">
+            <header className="sticky top-0 z-40 flex items-center px-4 pb-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
                 <button onClick={() => navigate(-1)} className="p-1 mr-3">
                     <ArrowLeftIcon className="h-6 w-6 text-white" />
                 </button>

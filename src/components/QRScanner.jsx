@@ -275,7 +275,7 @@ export default function QRScanner({ onScan, onClose, onError }) {
     return (
         <div className="fixed inset-0 z-[60] bg-black flex flex-col">
             {/* Header */}
-            <div className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-4 py-3 flex items-center justify-between shadow-lg">
+            <div className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-4 pb-3 flex items-center justify-between shadow-lg" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
                 <h2 className="text-lg font-medium">Scan QR Code</h2>
                 <button
                     onClick={handleClose}

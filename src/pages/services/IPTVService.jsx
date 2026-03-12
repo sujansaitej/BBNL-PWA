@@ -158,7 +158,7 @@ export default function IPTVService() {
         return (
             <div className="min-h-screen flex flex-col bg-gray-50">
                 {/* Blue Gradient Header */}
-                <div className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-4 py-3">
+                <div className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-4 pb-3" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
                     <div className="flex items-center gap-3 mb-4">
                         <button onClick={() => setView('overview')} className="p-1">
                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -276,7 +276,7 @@ export default function IPTVService() {
             />
 
             {/* Blue Gradient Header */}
-            <header className="sticky top-0 z-40 flex items-center px-4 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg">
+            <header className="sticky top-0 z-40 flex items-center px-4 pb-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
                 <button onClick={() => navigate('/customers')} className="p-1 mr-3">
                     <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />

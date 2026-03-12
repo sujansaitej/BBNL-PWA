@@ -45,7 +45,7 @@ export default function ServiceSelectionModal({ isOpen, onClose, onSelectService
     return (
         <div className="fixed inset-0 z-[70] flex flex-col bg-white">
             {/* Blue Gradient Header */}
-            <header className="flex items-center px-4 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg">
+            <header className="flex items-center px-4 pb-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
                 <button onClick={() => navigate('/customers')} className="p-1 mr-3">
                     <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />

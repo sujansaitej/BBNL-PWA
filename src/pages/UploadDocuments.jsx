@@ -515,7 +515,7 @@ export default function UploadDocuments() {
   return (
     <div className="min-h-screen flex flex-col bg-white">
       {/* Blue Gradient Header */}
-      <header className="sticky top-0 z-40 flex items-center px-4 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg">
+      <header className="sticky top-0 z-40 flex items-center px-4 pb-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
         <button onClick={() => navigate(-1)} className="p-1 mr-3">
           <ArrowLeftIcon className="h-6 w-6 text-white" />
         </button>

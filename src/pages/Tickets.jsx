@@ -298,7 +298,7 @@ const Tickets = () => {
             ? "translate-y-0 opacity-100"
             : "-translate-y-full opacity-0"
           }`}
-        style={{ height: "3rem" }}
+        style={{ minHeight: "3rem", paddingTop: 'env(safe-area-inset-top, 0px)' }}
       >
         <button
           onClick={() => window.history.back()}
