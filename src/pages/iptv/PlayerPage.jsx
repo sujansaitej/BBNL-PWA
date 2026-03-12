@@ -645,7 +645,7 @@ export default function PlayerPage() {
 
       <AnimatePresence>
         {status === "loading" && (
-          <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ exit: { duration: 0.4 } }} className="absolute inset-0 flex flex-col items-center justify-center z-30 bg-black/70 backdrop-blur-sm" onClick={(e) => e.stopPropagation()}>
+          <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ exit: { duration: 0.4 } }} className="absolute inset-0 flex flex-col items-center justify-center z-30 bg-black/70 backdrop-blur-sm" onClick={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
             <div className="flex flex-col items-center">
               {hasLogo && (cachedPosterUrl || logoSrc) && !logoError ? (<div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center p-1.5 shadow-2xl mb-4"><img src={cachedPosterUrl || logoSrc} alt={currentChannel.chtitle} className="w-full h-full object-contain" onError={() => setLogoError(true)} /></div>) : (<div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center shadow-2xl mb-4"><Tv className="w-7 h-7 text-white/30" /></div>)}
               <h3 className="text-sm font-bold text-white mb-3">{currentChannel.chtitle}</h3>
