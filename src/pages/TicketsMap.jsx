@@ -91,7 +91,7 @@ const TicketsMap = () => {
           setUserLocation([pos.coords.latitude, pos.coords.longitude]);
         },
         (err) => console.error("Geolocation error:", err),
-        { enableHighAccuracy: true }
+        { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
       );
     }
   }, []);
