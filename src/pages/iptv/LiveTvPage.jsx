@@ -46,7 +46,7 @@ const LangCard = memo(function LangCard({ lang, onClick }) {
   useEffect(() => { if (cachedSrc) setImgError(false); }, [cachedSrc]);
 
   return (
-    <motion.div ref={logoRef} whileTap={{ scale: 0.95 }} onClick={onClick} className="flex flex-col items-center cursor-pointer flex-shrink-0 w-[72px]" style={{ willChange: 'transform' }}>
+    <div ref={logoRef} onClick={onClick} className="flex flex-col items-center cursor-pointer flex-shrink-0 w-[72px] active:scale-95 transition-transform duration-150" style={{ touchAction: 'manipulation' }}>
       <div className="w-14 h-14 rounded-2xl overflow-hidden shadow-md mb-1.5 bg-gray-100 flex items-center justify-center">
         {cachedSrc && !imgError ? (
           <img src={cachedSrc} alt={lang.langtitle} className="w-full h-full object-cover" onError={() => setImgError(true)} />
@@ -57,7 +57,7 @@ const LangCard = memo(function LangCard({ lang, onClick }) {
         )}
       </div>
       <span className="text-[10px] font-semibold text-gray-600 text-center leading-tight truncate w-full">{lang.langtitle}</span>
-    </motion.div>
+    </div>
   );
 });
 
@@ -469,36 +469,6 @@ export default function LiveTvPage() {
           </div>
         </div>
 
-        <div className="relative mb-4">
-          <div className={`flex items-center bg-white border rounded-xl px-3 py-3 shadow-sm transition-[border-color,box-shadow] min-h-[48px] ${listening ? 'border-red-400 ring-2 ring-red-200' : 'border-gray-200 focus-within:border-red-300 focus-within:ring-1 focus-within:ring-red-200'}`}>
-            <Search className="w-4 h-4 text-gray-400 mr-2 flex-shrink-0" />
-            <input type="text" placeholder={listening ? "Listening..." : "Search by name or channel number..."} value={search} onChange={(e) => setSearch(e.target.value)} className="w-full outline-none text-sm text-gray-700 dark:text-white bg-transparent placeholder-gray-400" />
-            {search && (<button onClick={() => setSearch("")} className="ml-2 flex-shrink-0"><X className="w-4 h-4 text-gray-400" /></button>)}
-            {hasSpeechSupport && (
-              <div className="flex items-center gap-1 ml-2 flex-shrink-0">
-                <button onClick={() => setVoiceLang(prev => { const idx = voiceLangs.findIndex(l => l.code === prev); return voiceLangs[(idx + 1) % voiceLangs.length].code; })} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-[9px] font-bold text-gray-500 hover:bg-gray-200 active:bg-gray-300 transition-colors">
-                  {voiceLangs.find(l => l.code === voiceLang)?.label}
-                </button>
-                <button onClick={startVoiceSearch} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${micBlocked ? 'bg-gray-200 cursor-not-allowed' : listening ? 'bg-red-500 animate-pulse' : 'bg-gray-100 hover:bg-gray-200 active:bg-gray-300'}`}>
-                  {micBlocked ? <MicOff className="w-4 h-4 text-red-400" /> : <Mic className={`w-4 h-4 ${listening ? 'text-white' : 'text-gray-500'}`} />}
-                </button>
-              </div>
-            )}
-          </div>
-          <AnimatePresence>
-            {listening && (
-              <motion.p key="listening" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="text-[11px] text-red-500 font-medium mt-1.5 ml-1">
-                Speak a channel name or number...
-              </motion.p>
-            )}
-            {voiceError && !listening && (
-              <motion.p key="voice-error" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="text-[11px] text-orange-600 font-medium mt-1.5 ml-1">
-                {voiceError}
-              </motion.p>
-            )}
-          </AnimatePresence>
-        </div>
-
         {loading && (<div className="space-y-4"><ChannelListSkeleton count={6} /></div>)}
 
         {!loading && userNotFound && (
@@ -529,29 +499,65 @@ export default function LiveTvPage() {
 
         {!loading && !error && filteredChannels.length > 0 && (
           <>
-            {/* Languages horizontal scroll */}
-            {!search && languages.length > 0 && (
-              <div className="mb-4 sticky z-10 bg-gray-50 dark:bg-gray-900 -mx-4 px-4 pt-1 pb-1 shadow-[0_2px_4px_-1px_rgba(0,0,0,0.06)]" style={{ top: 'calc(4rem + env(safe-area-inset-top, 0px))' }}>
-                <div className="flex items-center justify-between mb-2.5 px-0.5">
-                  <div className="flex items-center gap-2">
-                    <Languages className="w-3.5 h-3.5 text-emerald-500" />
-                    <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Browse by Language</h3>
+            <div className="sticky z-30 bg-gray-50 dark:bg-gray-900 -mx-4 px-4 pt-1 pb-2 shadow-[0_2px_6px_-1px_rgba(0,0,0,0.08)]" style={{ top: 'var(--app-header-height, calc(4rem + env(safe-area-inset-top, 0px)))' }}>
+              <div className="relative mb-3">
+                <div className={`flex items-center bg-white border rounded-xl px-3 py-3 shadow-sm transition-[border-color,box-shadow] min-h-[48px] ${listening ? 'border-red-400 ring-2 ring-red-200' : 'border-gray-200 focus-within:border-red-300 focus-within:ring-1 focus-within:ring-red-200'}`}>
+                  <Search className="w-4 h-4 text-gray-400 mr-2 flex-shrink-0" />
+                  <input type="text" placeholder={listening ? "Listening..." : "Search by name or channel number..."} value={search} onChange={(e) => setSearch(e.target.value)} className="w-full outline-none text-sm text-gray-700 dark:text-white bg-transparent placeholder-gray-400" />
+                  {search && (<button onClick={() => setSearch("")} className="ml-2 flex-shrink-0"><X className="w-4 h-4 text-gray-400" /></button>)}
+                  {hasSpeechSupport && (
+                    <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                      <button onClick={() => setVoiceLang(prev => { const idx = voiceLangs.findIndex(l => l.code === prev); return voiceLangs[(idx + 1) % voiceLangs.length].code; })} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-[9px] font-bold text-gray-500 hover:bg-gray-200 active:bg-gray-300 transition-colors">
+                        {voiceLangs.find(l => l.code === voiceLang)?.label}
+                      </button>
+                      <button onClick={startVoiceSearch} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${micBlocked ? 'bg-gray-200 cursor-not-allowed' : listening ? 'bg-red-500 animate-pulse' : 'bg-gray-100 hover:bg-gray-200 active:bg-gray-300'}`}>
+                        {micBlocked ? <MicOff className="w-4 h-4 text-red-400" /> : <Mic className={`w-4 h-4 ${listening ? 'text-white' : 'text-gray-500'}`} />}
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <AnimatePresence>
+                  {listening && (
+                    <motion.p key="listening" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="text-[11px] text-red-500 font-medium mt-1.5 ml-1">
+                      Speak a channel name or number...
+                    </motion.p>
+                  )}
+                  {voiceError && !listening && (
+                    <motion.p key="voice-error" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="text-[11px] text-orange-600 font-medium mt-1.5 ml-1">
+                      {voiceError}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* Languages horizontal scroll */}
+              {!search && languages.length > 0 && (
+                <div className="pt-0.5">
+                  <div className="flex items-center justify-between mb-2.5 px-0.5">
+                    <div className="flex items-center gap-2">
+                      <Languages className="w-3.5 h-3.5 text-emerald-500" />
+                      <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Browse by Language</h3>
+                    </div>
+                    <button onClick={() => navigate("/cust/livetv/languages")} className="text-[11px] text-emerald-600 font-semibold">View All</button>
                   </div>
-                  <button onClick={() => navigate("/cust/livetv/languages")} className="text-[11px] text-emerald-600 font-semibold">View All</button>
+                  <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide" style={{ scrollbarWidth: "none", msOverflowStyle: "none", WebkitOverflowScrolling: "touch" }}>
+                    {languages.map((lang, idx) => (
+                      <LangCard
+                        key={lang.langid || idx}
+                        lang={lang}
+                        onClick={() => navigate("/cust/livetv/channels", { state: { langid: lang.langid, langTitle: lang.langtitle } })}
+                      />
+                    ))}
+                  </div>
                 </div>
-                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide" style={{ scrollbarWidth: "none", msOverflowStyle: "none", WebkitOverflowScrolling: "touch" }}>
-                  {languages.map((lang, idx) => (
-                    <LangCard
-                      key={lang.langid || idx}
-                      lang={lang}
-                      onClick={() => navigate("/cust/livetv/channels", { state: { langid: lang.langid, langTitle: lang.langtitle } })}
-                    />
-                  ))}
-                </div>
+              )}
+            </div>
+
+            {!search && ads.length > 0 && (
+              <div className="mt-4">
+                <AdBanner ad={ads[getNextAdIndex("livetv_top", ads.length)]} />
               </div>
             )}
-
-            {!search && ads.length > 0 && (<AdBanner ad={ads[getNextAdIndex("livetv_top", ads.length)]} />)}
 
             <div>
               <div className="flex items-center justify-between mb-2.5 px-0.5">

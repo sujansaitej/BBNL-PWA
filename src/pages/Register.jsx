@@ -17,54 +17,74 @@ import {
 } from "../services/registrationApis";
 import { Modal } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
-import { getUser } from "../services/safeStorage";
+import { getUser, safeGetArray } from "../services/safeStorage";
+import {
+  isLowMemoryDevice,
+  prepareForCameraCapture,
+  markCameraOpen,
+  clearCameraOpen,
+  consumeCameraKillFlag,
+} from "../utils/cameraPrep";
+import PhotoCaptureModal from "../components/PhotoCaptureModal";
 
-// Compress image client-side to fit under maxSizeMB using canvas
-async function compressImage(file, { maxWidth = 1920, maxHeight = 1920, maxSizeMB = 1.8 } = {}) {
-  // Skip non-image files
+// Compress image client-side to fit under maxSizeMB using canvas.
+// Strategy: step quality down first; if still over target, step dimensions
+// down and retry. Guarantees the result is <= maxSizeMB for any decodable
+// image (high-res document scans included).
+async function compressImage(file, { maxWidth = 1280, maxHeight = 1280, maxSizeMB = 1.5 } = {}) {
   if (!file.type.startsWith("image/")) return file;
-
   return new Promise((resolve) => {
     const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
     img.onload = () => {
-      let { width, height } = img;
+      URL.revokeObjectURL(objectUrl);
+      const targetBytes = maxSizeMB * 1024 * 1024;
+      const QUALITIES = [0.7, 0.55, 0.4, 0.3];
+      const DIM_STEPS = [1.0, 0.75, 0.5, 0.35];
+      let dimIdx = 0;
 
-      // Scale down if exceeds max dimensions
-      if (width > maxWidth || height > maxHeight) {
-        const ratio = Math.min(maxWidth / width, maxHeight / height);
-        width = Math.round(width * ratio);
-        height = Math.round(height * ratio);
-      }
+      const tryAtCurrentDim = () => {
+        const baseW = img.width, baseH = img.height;
+        const fitRatio = Math.min(maxWidth / baseW, maxHeight / baseH, 1.0);
+        const scale = fitRatio * DIM_STEPS[dimIdx];
+        const w = Math.max(1, Math.round(baseW * scale));
+        const h = Math.max(1, Math.round(baseH * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
 
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-
-      // Try progressively lower quality until under maxSizeMB
-      let quality = 0.82;
-      const tryCompress = () => {
-        canvas.toBlob(
-          (blob) => {
-            if (blob.size > maxSizeMB * 1024 * 1024 && quality > 0.3) {
-              quality -= 0.1;
-              tryCompress();
-            } else {
-              const compressed = new File([blob], file.name.replace(/\.\w+$/, ".jpg"), {
-                type: "image/jpeg",
-                lastModified: Date.now(),
-              });
-              resolve(compressed);
-            }
-          },
-          "image/jpeg",
-          quality
-        );
+        let qIdx = 0;
+        const nextQuality = () => {
+          canvas.toBlob(
+            (blob) => {
+              if (!blob) { resolve(file); return; }
+              if (blob.size <= targetBytes) {
+                const fileName = (file.name || "upload").replace(/\.\w+$/, ".jpg");
+                resolve(new File([blob], fileName, { type: "image/jpeg", lastModified: Date.now() }));
+                return;
+              }
+              if (qIdx < QUALITIES.length - 1) {
+                qIdx++;
+                nextQuality();
+              } else if (dimIdx < DIM_STEPS.length - 1) {
+                dimIdx++;
+                tryAtCurrentDim();
+              } else {
+                const fileName = (file.name || "upload").replace(/\.\w+$/, ".jpg");
+                resolve(new File([blob], fileName, { type: "image/jpeg", lastModified: Date.now() }));
+              }
+            },
+            "image/jpeg",
+            QUALITIES[qIdx]
+          );
+        };
+        nextQuality();
       };
-      tryCompress();
+      tryAtCurrentDim();
     };
-    img.onerror = () => resolve(file); // fallback to original on error
-    img.src = URL.createObjectURL(file);
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); resolve(file); };
+    img.src = objectUrl;
   });
 }
 
@@ -110,13 +130,13 @@ const FloatingInput = forwardRef(({ label, type = "text", name, cls, value, len 
 
       if (onChange) {
         if (onChange.length >= 2) {
-          onChange(val, name); // (value, name)
+          onChange(val, name);
         } else {
           const clonedEvent = {
             ...e,
             target: { ...e.target, value: val, name },
           };
-          onChange(clonedEvent); // (event)
+          onChange(clonedEvent);
         }
       }
     };
@@ -125,12 +145,11 @@ const FloatingInput = forwardRef(({ label, type = "text", name, cls, value, len 
       e.preventDefault();
     }
   };
-  
+
   return (
-    <div className="relative">
+    <div className="relative overflow-visible pt-3">
       <input
         id={name}
-        // type={type}
         type={isPassword && showPassword ? "text" : type}
         inputMode={onlyNumbers ? "numeric" : undefined}
         name={name}
@@ -139,31 +158,32 @@ const FloatingInput = forwardRef(({ label, type = "text", name, cls, value, len 
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         maxLength={len}
-        placeholder=""
-        // required={required}
-        className={`peer w-full rounded-xl border p-3 text-sm dark:text-gray-700 bg-white outline-none transition ${cls ? cls : ""}
+        placeholder=" "
+        className={`peer w-full rounded-xl border px-3 pb-2.5 pt-4 text-base sm:text-sm dark:text-gray-700 bg-white outline-none transition-colors ${cls ? cls : ""}
           ${error ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-gray-300 focus:border-blue-500 focus:ring-blue-500"}
         `}
         {...props}
       />
       <label
         htmlFor={name}
-        className={`absolute left-3 top-2 bg-white px-1 text-purple-700 text-sm transition-all
-          peer-placeholder-shown:top-3 peer-placeholder-shown:text-gray-400
-          peer-focus:-top-2 peer-focus:text-xs
-          ${value ? "-top-2.4 text-xs" : ""}
-          ${error ? "text-red-500 peer-focus:text-red-500" : "peer-focus:text-blue-500"}
+        className={`absolute left-2.5 z-[1] bg-white px-1.5 py-0.5 pointer-events-none transition-all duration-200
+          top-0 text-xs font-medium
+          peer-placeholder-shown:top-[26px] peer-placeholder-shown:text-sm peer-placeholder-shown:font-normal
+          peer-focus:top-0 peer-focus:text-xs peer-focus:font-medium
+          ${error
+            ? "text-red-500 peer-focus:text-red-500"
+            : "text-purple-700 peer-placeholder-shown:text-gray-400 peer-focus:text-blue-600"
+          }
         `}
       >
         {label} {required && <span className="text-red-500">*</span>}
       </label>
 
-      {/* Eye Icon for Password Toggle */}
       {isPassword && (
         <button
           type="button"
           onClick={() => setShowPassword(!showPassword)}
-          className="absolute right-3 top-3 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+          className="absolute right-3 top-[26px] text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
         >
           {showPassword ? (
             <EyeSlashIcon className="h-5 w-5" />
@@ -227,49 +247,179 @@ function smoothScrollTo(element, duration = 800) {
 //     </div>
 //   );
 // };
-const ThumbnailUploader = forwardRef(({ label, max = 1, username, fieldKey, multiple = false, error, required = false }, ref) => {
+const ThumbnailUploader = forwardRef(({ label, max = 1, username, fieldKey, multiple = false, error, required = false, onRequestUpload, onBeforeCapture, onRequestPhotoCapture }, ref) => {
   const [files, setFiles] = useState([]); // local preview
   const [uploading, setUploading] = useState(false);
   const toast = useToast();
 
-  const handleFileChange = async (e) => {
-    const selected = Array.from(e.target.files).slice(0, max - files.length);
+  // Process selected file(s) — shared by camera and file picker
+  const processFiles = async (selectedFiles) => {
+    const MAX_FILE_SIZE_MB = 2; // server accepts up to 2MB per file
+    const MAX_RAW_SIZE_MB = 15; // reject absurdly large captures up front
+    const selected = Array.from(selectedFiles).slice(0, max - files.length);
     for (let i = 0; i < selected.length; i++) {
       const rawFile = selected[i];
+
+      // HEIC/HEIF from iOS Photo Library can't be decoded by <img> on most
+      // devices, so compressImage silently returns the raw file and upload
+      // fails. Surface a clear action-oriented message instead.
+      const nameLower = (rawFile.name || '').toLowerCase();
+      const isHeic = /heic|heif/i.test(rawFile.type || '') ||
+                     nameLower.endsWith('.heic') || nameLower.endsWith('.heif');
+      if (isHeic) {
+        toast.add(
+          'This image is in HEIC format. Tap Camera to take a fresh photo, or on iPhone go to Settings → Camera → Formats → Most Compatible and retry.',
+          { type: "error", duration: 6000 }
+        );
+        continue;
+      }
+
+      // Validate raw file weight before showing the loader
+      if (rawFile.size > MAX_RAW_SIZE_MB * 1024 * 1024) {
+        const rawMB = (rawFile.size / (1024 * 1024)).toFixed(2);
+        toast.add(
+          `Image size (${rawMB} MB) is too large. Please retake with a lower resolution.`,
+          { type: "error", duration: 5000 }
+        );
+        continue;
+      }
+
       setUploading(true);
 
-      // Compress image before upload to avoid server 2MB limit
-      const file = await compressImage(rawFile);
-      const apiRes = await uploadKycFile(username, file, fieldKey + (i + 1));
+      try {
+        // Compress image before upload to avoid server 2MB limit
+        const file = await compressImage(rawFile);
 
-      setUploading(false);
-
-      if (apiRes?.status?.err_code === 0) {
-        const result = apiRes.body.result;
-
-        // Save to localStorage
-        const stored = JSON.parse(localStorage.getItem("filerefid") || "[]");
-        stored.push(parseInt(result.id));
-        localStorage.setItem("filerefid", JSON.stringify(stored));
-
-        setFiles((prev) => [...prev, file]);
-        switch (fieldKey) {
-          case "photo":
-            localStorage.setItem("photoFileId", result.id); break;
-          case "addrproof":
-            const apStored = JSON.parse(localStorage.getItem("addrproofIds") || "[]");
-            apStored.push(parseInt(result.id));
-            localStorage.setItem("addrproofIds", JSON.stringify(apStored));
-            break;
-          case "idcard":
-            const idStored = JSON.parse(localStorage.getItem("idcardIds") || "[]");
-            idStored.push(parseInt(result.id));
-            localStorage.setItem("idcardIds", JSON.stringify(idStored));
-            break;
+        // Validate compressed image weight — if still over the server limit,
+        // show a validation toast and skip upload instead of letting the
+        // server reject it after a long round-trip.
+        if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+          const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+          toast.add(
+            `Image size (${sizeMB} MB) exceeds the ${MAX_FILE_SIZE_MB} MB limit. Please retake the photo or choose a smaller image.`,
+            { type: "error", duration: 5000 }
+          );
+          continue;
         }
-      } else {
-        toast.add(apiRes?.status?.err_msg || "Upload failed", { type: "error" });
+
+        const apiRes = await uploadKycFile(username, file, fieldKey + (files.length + i + 1));
+
+        if (apiRes?.status?.err_code === 0) {
+          const result = apiRes.body.result;
+
+          // Save to localStorage
+          const stored = safeGetArray("filerefid");
+          stored.push(parseInt(result.id));
+          localStorage.setItem("filerefid", JSON.stringify(stored));
+
+          setFiles((prev) => [...prev, file]);
+          switch (fieldKey) {
+            case "photo":
+              localStorage.setItem("photoFileId", result.id); break;
+            case "addrproof":
+              const apStored = safeGetArray("addrproofIds");
+              apStored.push(parseInt(result.id));
+              localStorage.setItem("addrproofIds", JSON.stringify(apStored));
+              break;
+            case "idcard":
+              const idStored = safeGetArray("idcardIds");
+              idStored.push(parseInt(result.id));
+              localStorage.setItem("idcardIds", JSON.stringify(idStored));
+              break;
+          }
+        } else {
+          toast.add(apiRes?.status?.err_msg || "Upload failed", { type: "error" });
+        }
+      } catch (err) {
+        console.error("File upload error:", err);
+        toast.add("Upload failed. Please try again.", { type: "error" });
+      } finally {
+        setUploading(false);
       }
+    }
+  };
+
+  // Open camera to capture photo — uses the in-page PhotoCaptureModal
+  // instead of the native <input capture> flow. This keeps the browser
+  // tab foregrounded throughout capture so MIUI / low-RAM Android can't
+  // kill us mid-photo (see Bug 11). Falls back to the File picker if
+  // the user's device has no camera or permission is denied.
+  const handleCameraCapture = () => {
+    // Still save the form draft — harmless on the in-page path and
+    // protects against accidental navigation / low-memory reloads.
+    if (onBeforeCapture) onBeforeCapture();
+    if (onRequestPhotoCapture) {
+      onRequestPhotoCapture((file) => {
+        if (file) processFiles([file]);
+      });
+    }
+  };
+
+  // Open file picker to select from gallery/files.
+  //
+  // MIUI / Redmi treatment: any image-restricted accept value triggers
+  // MIUI's "Select an image" chooser, which includes a Camera option
+  // that tab-kills our PWA on capture. Detect MIUI and use accept="*/*"
+  // so the operator lands in the file manager directly. On Samsung /
+  // Pixel / iOS we keep the explicit extension list — those devices
+  // honour it correctly. Validation downstream rejects non-image
+  // selections.
+  // Open Media picker — single tap straight to the device gallery.
+  //
+  // accept="image/*" is the value that consistently routes to the
+  // gallery / system Photo Picker on every Android skin we've tested:
+  //   - Pixel / stock Android 13+ → system Photo Picker (no Camera)
+  //   - Samsung One UI → Gallery picker (no Camera)
+  //   - MIUI / Redmi / HyperOS → MIUI Gallery (no Camera tile)
+  //   - iOS → Photos picker
+  //
+  // We deliberately do NOT include explicit extensions or wildcard
+  // (the previous values, ".jpg,.jpeg,..." and "*/*") because:
+  //   - extension lists trigger MIUI's chooser-with-Camera-tile
+  //   - "*/*" opens the Files / Documents app (not the gallery),
+  //     which was the second-tap-confusion QA reported.
+  // image/* is the canonical gallery-direct shape and works the same
+  // on every device.
+  const handleFilePick = () => {
+    if (onBeforeCapture) onBeforeCapture();
+    markCameraOpen();
+    prepareForCameraCapture();
+    document.activeElement?.blur();
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    if (multiple) input.multiple = true;
+    input.style.display = 'none';
+    document.body.appendChild(input);
+    const cleanup = () => {
+      try { document.body.removeChild(input); } catch (_) {}
+      clearCameraOpen();
+      document.activeElement?.blur();
+    };
+    input.onchange = (e) => {
+      const picked = Array.from(e.target.files || []);
+      if (picked.length === 0) { cleanup(); return; }
+      // accept="image/*" already filters to images at the OS level;
+      // the regex below is belt-and-braces for the rare device that
+      // lets through non-images.
+      const okExt = /\.(jpe?g|png|gif|webp|bmp)$/i;
+      const okMime = /^image\/(jpeg|jpg|png|gif|webp|bmp)$/i;
+      const valid = picked.filter(f => okMime.test(f.type || '') || okExt.test(f.name || ''));
+      if (valid.length > 0) processFiles(valid);
+      cleanup();
+    };
+    input.addEventListener('cancel', cleanup);
+    input.click();
+  };
+
+  // When + is clicked, pass camera/files handlers to parent to show bottom sheet
+  const handlePlusClick = () => {
+    if (uploading) return;
+    // Bottom sheet gives the user both Camera (routes to our in-page
+    // PhotoCaptureModal — no tab-kill risk) and Files (native file
+    // picker — user can pick existing photos / PDFs from the gallery).
+    if (onRequestUpload) {
+      onRequestUpload({ onCamera: handleCameraCapture, onFiles: handleFilePick });
     }
   };
 
@@ -278,21 +428,37 @@ const ThumbnailUploader = forwardRef(({ label, max = 1, username, fieldKey, mult
     newFiles.splice(idx, 1);
     setFiles(newFiles);
 
-    // Remove from localStorage
-    const stored = JSON.parse(localStorage.getItem("filerefid") || "[]");
-    const updated = stored.filter((_, i) => i !== idx);
-    localStorage.setItem("filerefid", JSON.stringify(updated));
+    // Get the actual ID being deleted from field-specific storage
+    let deletedId = null;
+    try {
+      if(fieldKey === "photo"){
+         deletedId = parseInt(localStorage.getItem("photoFileId"));
+         localStorage.setItem("photoFileId", "");
+      } else if(fieldKey === "addrproof"){
+        const aapStored = safeGetArray("addrproofIds");
+        if (idx < aapStored.length) {
+          deletedId = aapStored[idx];
+          aapStored.splice(idx, 1);
+          localStorage.setItem("addrproofIds", JSON.stringify(aapStored));
+        }
+      } else if(fieldKey === "idcard"){
+        const aidStored = safeGetArray("idcardIds");
+        if (idx < aidStored.length) {
+          deletedId = aidStored[idx];
+          aidStored.splice(idx, 1);
+          localStorage.setItem("idcardIds", JSON.stringify(aidStored));
+        }
+      }
 
-    if(fieldKey === "photo"){
-       localStorage.setItem("photoFileId", "");
-    } else if(fieldKey === "addrproof"){
-      const aapStored = JSON.parse(localStorage.getItem("addrproofIds") || "[]");
-      const updated = aapStored.filter((_, i) => i !== idx);
-      localStorage.setItem("addrproofIds", JSON.stringify(updated));
-    } else if(fieldKey === "idcard"){
-      const aidStored = JSON.parse(localStorage.getItem("idcardIds") || "[]");
-      const updated = aidStored.filter((_, i) => i !== idx);
-      localStorage.setItem("idcardIds", JSON.stringify(updated));
+      // Remove the correct ID from global filerefid by value
+      if (deletedId) {
+        const stored = safeGetArray("filerefid");
+        const idIdx = stored.indexOf(deletedId);
+        if (idIdx !== -1) stored.splice(idIdx, 1);
+        localStorage.setItem("filerefid", JSON.stringify(stored));
+      }
+    } catch (e) {
+      console.error("Error cleaning up file references:", e);
     }
   };
 
@@ -317,7 +483,12 @@ const ThumbnailUploader = forwardRef(({ label, max = 1, username, fieldKey, mult
           </div>
         ))}
         {files.length < max && (
-          <label className="flex h-16 w-16 cursor-pointer items-center justify-center rounded-lg border border-dashed border-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700">
+          <button
+            type="button"
+            disabled={uploading}
+            onClick={handlePlusClick}
+            className="flex h-16 w-16 cursor-pointer items-center justify-center rounded-lg border border-dashed border-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+          >
             {uploading ? (
               <svg
                 className="h-6 w-6 animate-spin text-blue-500"
@@ -331,8 +502,7 @@ const ThumbnailUploader = forwardRef(({ label, max = 1, username, fieldKey, mult
             ) : (
               <span className="text-gray-500">+</span>
             )}
-            <input type="file" accept="image/*;capture=camera" multiple={multiple} className="hidden" onChange={handleFileChange} />
-          </label>
+          </button>
         )}
       </div>
       {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
@@ -406,35 +576,58 @@ function LocationPicker({ center, onChange }) {
   );
 }
 
+// Storage key for persisting form data across camera captures.
+// On Android, opening the native camera via <input capture> can cause
+// the OS to kill the browser tab AND clear sessionStorage with it, so we
+// persist the draft to localStorage. It is cleared on successful submit
+// and when the user navigates away from the Register page.
+const REG_FORM_SESSION_KEY = 'register_form_draft';
+
+const EMPTY_FORM = {
+  username: "",
+  firstname: "",
+  lastname: "",
+  mobileno: "",
+  emailid: "",
+  dob: "",
+  password: "",
+  cust_gstn: "",
+  address: "",
+  houseno: "",
+  floor: "",
+  main: "",
+  cross: "",
+  area: "",
+  city: "",
+  post: "",
+  pincode: "",
+  billaddress: "",
+  latitude: "",
+  longitude: "",
+  photo: "",
+  addrproof: [],
+  idcard: [],
+  termsAccepted: false,
+};
+
+function getInitialFormState() {
+  try {
+    const saved = localStorage.getItem(REG_FORM_SESSION_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // Don't clear the draft here — keep it alive so a second camera
+      // kill also restores correctly. It's cleared on successful submit
+      // or when the user navigates away from the Register page.
+      return parsed;
+    }
+  } catch (_) {}
+  return { ...EMPTY_FORM };
+}
+
 export default function Register() {
   const navigate = useNavigate();
   const toast = useToast();
-  const [form, setForm] = useState({
-    username: "",
-    firstname: "",
-    lastname: "",
-    mobileno: "",
-    emailid: "",
-    dob: "",
-    password: "",
-    cust_gstn: "",
-    address: "",
-    houseno: "",
-    floor: "",
-    main: "",
-    cross: "",
-    area: "",
-    city: "",
-    post: "",
-    pincode: "",
-    billaddress: "",
-    latitude: "",
-    longitude: "",
-    photo: "",
-    addrproof: [],
-    idcard: [],
-    termsAccepted: false,
-  });
+  const [form, setForm] = useState(getInitialFormState);
 
   const refs = {
     username: useRef(null),
@@ -469,6 +662,98 @@ export default function Register() {
   const [signature, setSignature] = useState(null);
   const sigCanvas = useRef();
 
+  // ── Form persistence across camera captures ──
+  // Save form data to sessionStorage on every change so it survives
+  // if Android kills the browser tab while the native camera is open.
+  const formRef = useRef(form);
+  formRef.current = form; // always points to latest form state
+
+  const saveFormDraft = () => {
+    try {
+      localStorage.setItem(REG_FORM_SESSION_KEY, JSON.stringify(formRef.current));
+    } catch (_) {}
+  };
+
+  // Auto-save form on every change (debounced to avoid excessive writes)
+  useEffect(() => {
+    const timer = setTimeout(() => saveFormDraft(), 300);
+    return () => clearTimeout(timer);
+  }, [form]);
+
+  // Last-resort save when the page is about to be hidden/killed
+  // (pagehide fires reliably on mobile, beforeunload does not)
+  useEffect(() => {
+    const onPageHide = () => saveFormDraft();
+    window.addEventListener('pagehide', onPageHide);
+    return () => window.removeEventListener('pagehide', onPageHide);
+  }, []);
+
+  // Clear the draft when leaving the Register page (unmount)
+  useEffect(() => {
+    return () => {
+      // Only clear if navigating away, not if the page is being killed
+      // (pagehide with persisted=true means the page is being cached, not destroyed)
+      if (document.visibilityState !== 'hidden') {
+        localStorage.removeItem(REG_FORM_SESSION_KEY);
+      }
+    };
+  }, []);
+
+  // Fresh-start cleanup: if there is no saved form draft on mount,
+  // the operator is starting a brand-new customer registration — wipe
+  // any file-reference IDs left over from a previous (possibly aborted)
+  // session. Without this, filerefid / photoFileId / addrproofIds /
+  // idcardIds accumulate across sessions and get attached to the next
+  // customer on submit, which is exactly the "other user's photos show
+  // up in new customer's Uploaded Documents" bug QA reported.
+  useEffect(() => {
+    const hasDraft = !!localStorage.getItem(REG_FORM_SESSION_KEY);
+    if (!hasDraft) {
+      localStorage.removeItem('photoFileId');
+      localStorage.removeItem('addrproofIds');
+      localStorage.removeItem('idcardIds');
+      localStorage.removeItem('filerefid');
+      localStorage.removeItem('registrationData');
+    }
+  }, []);
+
+  // Detect if page was killed by Android while camera was open.
+  // The app_camera_open flag is set before the camera launches and
+  // cleared when the camera returns normally. If it's still set on
+  // mount, the page was killed mid-capture → notify the user and
+  // scroll the photo field into view so they can retry immediately.
+  useEffect(() => {
+    if (consumeCameraKillFlag()) {
+      if (form.username) {
+        toast.add(
+          'Your form was saved but the photo was lost when the camera reloaded the page. Tap Customer Photo below to retake it.',
+          { type: 'info', duration: 6000 }
+        );
+      }
+      // Scroll to the photo field so the retake CTA is immediately visible.
+      setTimeout(() => {
+        try {
+          const el = refs.photo?.current;
+          if (el && typeof el.scrollIntoView === 'function') {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        } catch (_) {}
+      }, 150);
+    }
+    // One-time device-specific warning for known-aggressive memory
+    // managers (MIUI / Redmi / Xiaomi / budget Samsung). Shown only
+    // once per session so it doesn't spam repeat visitors.
+    try {
+      if (isLowMemoryDevice() && !sessionStorage.getItem('miui_camera_hint_shown')) {
+        sessionStorage.setItem('miui_camera_hint_shown', '1');
+        toast.add(
+          'On this phone the camera can briefly reload the page. Your form will be saved — just retake the photo if that happens.',
+          { type: 'info', duration: 6000 }
+        );
+      }
+    } catch (_) {}
+  }, []);
+
   const [checking, setChecking] = useState(false);
   const [usernameStatus, setUsernameStatus] = useState(null);
   const [emailStatus, setEmailStatus] = useState(null);
@@ -483,6 +768,24 @@ export default function Register() {
   const [editable, setEditable] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
+  const [uploadSheet, setUploadSheet] = useState({ open: false, onCamera: null, onFiles: null });
+  // Photo capture modal — rendered at parent level so every
+  // ThumbnailUploader can request a capture via a shared instance.
+  // The onCapture callback is stored here and invoked when the modal
+  // hands back a File. Scoping it here also means we can keep exactly
+  // one active modal even if the user somehow triggers two uploaders.
+  const [photoCapture, setPhotoCapture] = useState({ open: false, onCapture: null, title: 'Take Photo', fileName: 'capture.jpg' });
+  const openPhotoCapture = (fieldKey, onCaptureCb) => {
+    setPhotoCapture({
+      open: true,
+      onCapture: onCaptureCb,
+      title: fieldKey === 'photo' ? 'Take Customer Photo' :
+             fieldKey === 'addrproof' ? 'Capture Address Proof' :
+             fieldKey === 'idcard' ? 'Capture ID Proof' : 'Take Photo',
+      fileName: `${fieldKey || 'capture'}.jpg`,
+    });
+  };
+  const closePhotoCapture = () => setPhotoCapture({ open: false, onCapture: null, title: 'Take Photo', fileName: 'capture.jpg' });
 
   // debounce email check: when pattern satisfied
   const debouncedEmailCheck = useRef(
@@ -595,7 +898,7 @@ export default function Register() {
       const docUp = await uploadKycFile(form.username, file, "signature");
       if (docUp?.status?.err_code === 0) {
         const result = docUp.body.result;
-        const stored = JSON.parse(localStorage.getItem("filerefid") || "[]");
+        const stored = safeGetArray("filerefid");
         stored.push(parseInt(result.id));
         localStorage.setItem("filerefid", JSON.stringify(stored));
         // alert("Signature saved");
@@ -608,7 +911,7 @@ export default function Register() {
 
   async function openMapgetLoc(){
     if (navigator.geolocation) {
-      toast.add("Getting your location...", { type: "info", duration: 2000 });
+      toast.add("Getting your location...", { type: "info", duration: 3000 });
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           const { latitude, longitude } = pos.coords;
@@ -618,10 +921,13 @@ export default function Register() {
         },
         (err) => {
           console.error("Geolocation error:", err);
-          toast.add("Could not get location. You can pick manually on the map.", { type: "error" });
+          const msg = err.code === 1
+            ? "Location permission denied. Please allow location access in Settings."
+            : "Could not get location. You can pick manually on the map.";
+          toast.add(msg, { type: "error" });
           setShowMap(true); // fallback: just open map with existing center
         },
-        { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+        { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
       );
     } else {
       toast.add("Geolocation not supported by your browser", { type: "error" });
@@ -632,42 +938,29 @@ export default function Register() {
   async function reverseGeocode(lat, lng) {
     try {
       const u = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`;
-    //   const u = `/nominatim/reverse?format=jsonv2&lat=${lat}&lon=${lng}`;
-      const r = await fetch(u, { headers: { "User-Agent": "MyApp/1.0 (contact@example.com)" } });
+      const r = await fetch(u);
       if (!r.ok) throw new Error("Geocode error");
       const d = await r.json();
       const addr = d.address || {};
-
-      form.houseno = addr.house_number || "";
-      form.floor = addr.floor || "";
-      form.main = addr.street || "";
-      form.cross = addr.road || "";
-      form.area = addr.suburb || addr.neighbourhood || "";
-      form.city = addr.city || addr.town || addr.village || "";
-      form.post = addr.suburb || "";
-      form.pincode = addr.postcode || "";
-      // form.state = addr.state || "";
-      // form.country = addr.country || "";
-
-      // const structuredAddress = {
-      //   houseno: addr.house_number || "",
-      //   floor: addr.floor || "",
-      //   main: addr.street || "",
-      //   cross: addr.road || "",
-      //   area: addr.suburb || addr.neighbourhood || "",
-      //   city: addr.city || addr.town || addr.village || "",
-      //   post: addr.suburb || "",
-      //   // state: addr.state || "",
-      //   pincode: addr.postcode || "",
-      //   // country: addr.country || "",
-      // };
-
       const display = d.display_name || "";
       setReverseAddress(display);
-      setForm((p) => ({ ...p, address: display, latitude: lat, longitude: lng }));
-
+      setForm((p) => ({
+        ...p,
+        address: display,
+        latitude: lat,
+        longitude: lng,
+        houseno: addr.house_number || "",
+        floor: addr.floor || "",
+        main: addr.street || "",
+        cross: addr.road || "",
+        area: addr.suburb || addr.neighbourhood || "",
+        city: addr.city || addr.town || addr.village || "",
+        post: addr.suburb || "",
+        pincode: addr.postcode || "",
+      }));
     } catch (err) {
       console.error("reverseGeocode", err);
+      toast.add("Could not fetch address. Please try again.", { type: "error" });
     }
   }
 
@@ -751,8 +1044,8 @@ export default function Register() {
     if (!form.billaddress) newErrors.billaddress = "Billing address is required";
 
     if (!localStorage.getItem("photoFileId")) newErrors.photo = "Customer photo is required";
-    if (!JSON.parse(localStorage.getItem("addrproofIds") || "[]").length) newErrors.addrproof = "Address proof is required";
-    if (!JSON.parse(localStorage.getItem("idcardIds") || "[]").length) newErrors.idcard = "ID proof is required";
+    if (!safeGetArray("addrproofIds").length) newErrors.addrproof = "Address proof is required";
+    if (!safeGetArray("idcardIds").length) newErrors.idcard = "ID proof is required";
     if (!signature) newErrors.signature = "Signature is required";
     
     if (!form.termsAccepted) newErrors.termsAccepted = "Accept the terms";
@@ -817,11 +1110,18 @@ export default function Register() {
       const regRes = await submitRegistrationNecessities(logUname);
 
       // Save data in localStorage
-      const filerefid = JSON.parse(localStorage.getItem("filerefid") || "[]");
+      const filerefid = safeGetArray("filerefid");
       const data = { ...form, isKirana: false }; //signature
       if (filerefid.length > 0) data.filerefid = filerefid;
       localStorage.setItem("registrationData", JSON.stringify(data));
 
+      // Clear the form draft and per-file staging keys on successful
+      // submission so the next Add User starts empty.
+      localStorage.removeItem(REG_FORM_SESSION_KEY);
+      localStorage.removeItem("photoFileId");
+      localStorage.removeItem("addrproofIds");
+      localStorage.removeItem("idcardIds");
+      localStorage.removeItem("filerefid");
       toast.add('Registration submitted successfully!', { type: 'success' });
       navigate("/plans");
     } catch (err) {
@@ -832,19 +1132,15 @@ export default function Register() {
     }
   };
 
-  // effect: try to get geolocation to center map
+  // effect: try to get geolocation to center map (low accuracy is faster on iPhone)
   useEffect(() => {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        setMapPos({ lat, lng });
+        setMapPos({ lat: pos.coords.latitude, lng: pos.coords.longitude });
       },
-      (err) => {
-        // ignore
-      },
-      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+      () => {},
+      { enableHighAccuracy: false, timeout: 30000, maximumAge: 60000 }
     );
   }, []);
 
@@ -855,6 +1151,7 @@ export default function Register() {
   }, [usernameStatus?.available]);
 
   return (
+    <>
     <Layout>
     <form onSubmit={handleSubmit} className="max-w-2xl mx-auto space-y-6 p-4" noValidate autoComplete="off">
       {/* ACCOUNT */}
@@ -872,14 +1169,10 @@ export default function Register() {
                 >
                     <PencilSquareIcon className="h-5 w-5" />
                 </button>
-                {/* Custom tooltip */}
-                {/* <div className="absolute -top-8 right-0 px-2 py-1 text-xs text-white bg-gray-800 rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                    Click to edit username
-                </div> */}
               </div>
             )}
           </div>
-          <button type="button" onClick={handleCheckUsername} disabled={checking} className="rounded-lg border border-blue-500 px-3 py-3 text-sm text-blue-500 hover:bg-blue-50">
+          <button type="button" onClick={handleCheckUsername} disabled={checking} className="mt-3 rounded-xl border border-blue-500 px-4 pb-2.5 pt-4 text-sm text-blue-500 hover:bg-blue-50 shrink-0">
             {checking ? "Checking..." : "Check"}
           </button>
         </div>
@@ -931,18 +1224,23 @@ export default function Register() {
             <button type="button" onClick={() => {
               // try geolocation fill if available
               if (navigator.geolocation) {
-                toast.add("Getting your location...", { type: "info", duration: 2000 });
+                toast.add("Getting your location...", { type: "info", duration: 3000 });
                 navigator.geolocation.getCurrentPosition((p) => {
                   reverseGeocode(p.coords.latitude, p.coords.longitude);
-                }, () => {
-                  toast.add("Could not get your location. Please check location permissions.", { type: "error" });
-                }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+                }, (err) => {
+                  const msg = err.code === 1
+                    ? "Location permission denied. Please allow location access in Settings."
+                    : err.code === 3
+                    ? "Location timed out. Please try again or check GPS settings."
+                    : "Could not get your location. Please try again.";
+                  toast.add(msg, { type: "error" });
+                }, { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 });
               } else toast.add("Geolocation not available", { type: "error" });
             }} className="rounded border px-3 py-1 text-sm dark:text-gray-700">Use current location</button>
           </div>
           {errors.address && <p className="text-xs text-red-500">{errors.address}</p>}
           {form.address &&
-            <div className="grid grid-cols-2 md:grid-cols-2 gap-3 mt-3">
+            <div className="grid grid-cols-2 md:grid-cols-2 gap-x-3 gap-y-5 mt-3">
               <FloatingInput label="House/Flat No." name="houseno" ref={refs.houseno} value={form.houseno} onChange={handleChange} error={errors.houseno} required />
               <FloatingInput label="Floor" name="floor" ref={refs.floor} value={form.floor} onChange={handleChange} error={errors.floor} />
               <FloatingInput label="Cross" name="cross" ref={refs.cross} value={form.cross} onChange={handleChange} error={errors.cross} />
@@ -969,9 +1267,9 @@ export default function Register() {
       {/* KYC DOCUMENTS */}
       <div className="rounded-xl bg-white p-4 shadow space-y-3">
         <h2 className="text-lg font-semibold dark:text-gray-700">KYC Documents</h2>
-        <ThumbnailUploader label="Customer Photo" files={photo} setFiles={setPhoto} icon={PhotoIcon} max={1} username={form.username} fieldKey="photo" error={errors.photo} ref={refs.photo} required />
-        <ThumbnailUploader label="Address Proof (max 3)" files={addressProof} setFiles={setAddressProof} icon={DocumentIcon} multiple max={3} username={form.username} fieldKey="addrproof" error={errors.addrproof} ref={refs.addrproof} required />
-        <ThumbnailUploader label="ID Proof (max 2)" files={idProof} setFiles={setIdProof} icon={DocumentIcon} multiple max={2} username={form.username} fieldKey="idcard" error={errors.idcard} ref={refs.idcard} required />
+        <ThumbnailUploader label="Customer Photo" files={photo} setFiles={setPhoto} icon={PhotoIcon} max={1} username={form.username} fieldKey="photo" error={errors.photo} ref={refs.photo} required onBeforeCapture={saveFormDraft} onRequestUpload={(handlers) => setUploadSheet({ open: true, ...handlers })} onRequestPhotoCapture={(cb) => openPhotoCapture('photo', cb)} />
+        <ThumbnailUploader label="Address Proof (max 3)" files={addressProof} setFiles={setAddressProof} icon={DocumentIcon} multiple max={3} username={form.username} fieldKey="addrproof" error={errors.addrproof} ref={refs.addrproof} required onBeforeCapture={saveFormDraft} onRequestUpload={(handlers) => setUploadSheet({ open: true, ...handlers })} onRequestPhotoCapture={(cb) => openPhotoCapture('addrproof', cb)} />
+        <ThumbnailUploader label="ID Proof (max 2)" files={idProof} setFiles={setIdProof} icon={DocumentIcon} multiple max={2} username={form.username} fieldKey="idcard" error={errors.idcard} ref={refs.idcard} required onBeforeCapture={saveFormDraft} onRequestUpload={(handlers) => setUploadSheet({ open: true, ...handlers })} onRequestPhotoCapture={(cb) => openPhotoCapture('idcard', cb)} />
       </div>
 
       {/* Signature */}
@@ -1013,7 +1311,7 @@ export default function Register() {
             <p className="mt-2 text-xs text-black-600">Selected Address: <span className="text-blue-600">{reverseAddress}</span></p>
             <div className="mt-2 flex gap-2">
               {/* <button type="button" onClick={() => { setForm((p) => ({ ...p, address: reverseAddress })); setShowMap(false); }} className="px-3 py-1 rounded border">Use this address</button> */}
-              <button onClick={() => { setForm((p) => ({ ...p, address: reverseAddress })); setShowMap(false); }} disabled={reverseAddress ? false : true} className="bg-transparent hover:bg-indigo-500 text-blue-700 hover:text-white px-4 border border-blue-500 hover:border-transparent rounded py-1">
+              <button type="button" onClick={() => { setForm((p) => ({ ...p, address: reverseAddress })); setShowMap(false); }} disabled={reverseAddress ? false : true} className="bg-transparent hover:bg-indigo-500 text-blue-700 hover:text-white px-4 border border-blue-500 hover:border-transparent rounded py-1">
                 Use this address
               </button>
               <button type="button" onClick={() => setShowMap(false)} className="bg-transparent hover:bg-red-500 text-red-700 hover:text-white px-4 border border-red-500 hover:border-transparent rounded py-1">Close</button>
@@ -1027,5 +1325,91 @@ export default function Register() {
       <Terms />
     </Modal>
     </Layout>
+
+    {/* Upload Options Bottom Sheet — rendered OUTSIDE Layout to escape overflow-x-hidden */}
+    {uploadSheet.open && (
+      <div className="fixed inset-0 z-[9999] flex items-end justify-center" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}>
+        {/* Backdrop */}
+        <div
+          className="absolute inset-0 bg-black/40"
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+          onClick={() => setUploadSheet({ open: false, onCamera: null, onFiles: null })}
+        />
+        {/* Bottom Sheet */}
+        <div className="relative w-full bg-gray-50 rounded-t-2xl shadow-2xl" style={{ animation: 'slideUpSheet 0.3s ease-out', position: 'relative', zIndex: 1 }}>
+          {/* Cancel */}
+          <div className="px-5 pt-4 pb-2">
+            <button
+              type="button"
+              onClick={() => setUploadSheet({ open: false, onCamera: null, onFiles: null })}
+              className="text-blue-600 font-medium text-base"
+            >
+              Cancel
+            </button>
+          </div>
+          {/* Icons Row */}
+          <div className="flex gap-6 px-5 pt-2" style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom, 1.5rem))' }}>
+            {/* Camera */}
+            <button
+              type="button"
+              onClick={() => { setUploadSheet({ open: false, onCamera: null, onFiles: null }); uploadSheet.onCamera?.(); }}
+              className="flex flex-col items-center gap-2"
+            >
+              <div className="w-16 h-16 rounded-2xl bg-white shadow-md flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8 text-gray-700">
+                  <path d="M12 9a3.75 3.75 0 1 0 0 7.5A3.75 3.75 0 0 0 12 9Z" />
+                  <path fillRule="evenodd" d="M9.344 3.071a49.52 49.52 0 0 1 5.312 0c.967.052 1.83.585 2.332 1.39l.821 1.317c.24.383.645.643 1.11.71.386.054.77.113 1.152.177 1.432.239 2.429 1.493 2.429 2.909V18a2.25 2.25 0 0 1-2.25 2.25H3.75A2.25 2.25 0 0 1 1.5 18V9.574c0-1.416.997-2.67 2.429-2.909.382-.064.766-.123 1.151-.178a1.56 1.56 0 0 0 1.11-.71l.822-1.315a2.942 2.942 0 0 1 2.332-1.39ZM6.75 12.75a5.25 5.25 0 1 1 10.5 0 5.25 5.25 0 0 1-10.5 0Zm12-1.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <span className="text-xs text-gray-700 font-medium">Camera</span>
+            </button>
+
+            {/* Media picker — was "Files" before. Renamed to match
+                the reference app and to make the intent unambiguous:
+                this opens the device gallery / file manager for an
+                EXISTING image, not the camera. The icon is a photo-
+                stack so operators don't confuse it with the camera
+                tile that MIUI's chooser used to show. The underlying
+                handleFilePick already uses the wildcard accept value
+                on MIUI to bypass MIUI's image chooser entirely. */}
+            <button
+              type="button"
+              onClick={() => { setUploadSheet({ open: false, onCamera: null, onFiles: null }); uploadSheet.onFiles?.(); }}
+              className="flex flex-col items-center gap-2"
+            >
+              <div className="w-16 h-16 rounded-2xl bg-white shadow-md flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8 text-blue-600">
+                  {/* Photo-stack / media-library icon */}
+                  <path fillRule="evenodd" d="M1.5 6a2.25 2.25 0 0 1 2.25-2.25h16.5A2.25 2.25 0 0 1 22.5 6v9.75a2.25 2.25 0 0 1-2.25 2.25H3.75A2.25 2.25 0 0 1 1.5 15.75V6Zm1.5 0a.75.75 0 0 1 .75-.75h16.5a.75.75 0 0 1 .75.75v6.69l-3.22-3.22a.75.75 0 0 0-1.06 0L13.06 12.5l-2.97-2.97a.75.75 0 0 0-1.06 0L3 15.56V6Z" clipRule="evenodd" />
+                  <path d="M16.5 8.25a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z" />
+                </svg>
+              </div>
+              <span className="text-xs text-gray-700 font-medium">Media picker</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* In-page camera modal — replaces the native <input capture> path
+        so MIUI / low-RAM Android phones don't kill the tab mid-capture.
+        Files path is unchanged and uses the bottom sheet above. */}
+    <PhotoCaptureModal
+      isOpen={photoCapture.open}
+      title={photoCapture.title}
+      fileName={photoCapture.fileName}
+      onCapture={(file) => {
+        try { photoCapture.onCapture?.(file); } finally { closePhotoCapture(); }
+      }}
+      onClose={closePhotoCapture}
+    />
+
+    <style>{`
+      @keyframes slideUpSheet {
+        from { transform: translateY(100%); }
+        to { transform: translateY(0); }
+      }
+    `}</style>
+    </>
   );
 }

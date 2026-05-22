@@ -1,38 +1,113 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Modal from './Modal';
+import { loadKycWithRetry } from '../../utils/kycRetry';
+import { useToast } from './Toast';
 
-export default function ServiceSelectionModal({ isOpen, onClose, onSelectService, customer, services: propServices }) {
+export default function ServiceSelectionModal({ isOpen, onClose, onSelectService, customer, services: propServices, currentServiceKey, fofiboxid, cableDetails }) {
     const navigate = useNavigate();
+    const toast = useToast();
     const [selectedService, setSelectedService] = useState('');
     const [comingSoonOpen, setComingSoonOpen] = useState(false);
+    const [uploadLoading, setUploadLoading] = useState(false);
+    const uploadRequestInFlightRef = useRef(false);
 
-    // Default services (fallback if no services provided)
-    const defaultServices = [
-        { id: 'fofi', name: 'Fo-Fi Smart Box', path: 'fofi-smart-box' },
-        { id: 'voice', name: 'Voice Call', path: 'voice' },
-        { id: 'internet', name: 'Internet', path: 'internet' },
-        { id: 'iptv', name: 'Cable TV', path: 'iptv' }
+    // Upload Document — same KYC retry pattern as Services.jsx and
+    // each service page. Closes the modal first so the user lands
+    // cleanly on the upload screen with no overlay.
+    const handleUploadDocument = async () => {
+        if (uploadRequestInFlightRef.current) return;
+        uploadRequestInFlightRef.current = true;
+        setUploadLoading(true);
+        try {
+            const cid = customer?.customer_id || customer?.username;
+            const response = await loadKycWithRetry({ cid, reqtype: 'update' });
+            if (response?.status?.err_code === 0) {
+                onClose();
+                navigate('/upload-documents', { state: { customer, kycData: response.body } });
+            } else {
+                toast.add('Failed to load documents: ' + (response?.status?.err_msg || 'Unknown error'), { type: 'error' });
+            }
+        } catch (err) {
+            toast.add('Failed to load documents. Please try again.', { type: 'error' });
+        } finally {
+            setUploadLoading(false);
+            uploadRequestInFlightRef.current = false;
+        }
+    };
+
+    // Order History — pass currentServiceKey so the destination
+    // page only shows bills for the service the operator was just
+    // viewing. Falls back to "all" when the modal is opened from a
+    // context with no specific service.
+    const handleOrderHistory = () => {
+        const state = { customer };
+        if (currentServiceKey) {
+            // Map the service-route key the modal callers use to the
+            // serviceType label PaymentHistory expects.
+            const routeToServiceType = {
+                'iptv': 'cabletv',
+                'fofi-smart-box': 'fofi',
+                'internet': 'internet',
+                'voice': 'voice',
+            };
+            state.serviceType = routeToServiceType[currentServiceKey] || currentServiceKey;
+            if (cableDetails) state.cableDetails = cableDetails;
+            if (fofiboxid) state.fofiboxid = fofiboxid;
+        }
+        onClose();
+        navigate('/payment-history', { state });
+    };
+
+    // Static service order — must match Services.jsx ALLOWED_SERVICES exactly
+    const SERVICE_ORDER = [
+        { route: 'iptv',           displayName: 'Cable TV' },
+        { route: 'fofi-smart-box', displayName: 'Fo-Fi Smart Box' },
+        { route: 'voice',          displayName: 'Voice Call' },
+        { route: 'internet',       displayName: 'Internet' },
     ];
+
+    // Resolve any API service key/name to a known route
+    function resolveRoute(key, name) {
+        const k = (key || '').toLowerCase().trim();
+        const n = (name || '').toLowerCase().trim();
+        if (k === 'internet' || n === 'internet') return 'internet';
+        if (k === 'voice' || k === 'voicecall' || k === 'voice_call' || k === 'voice-call'
+            || n === 'voice call' || n === 'voice' || n === 'unlimited calling') return 'voice';
+        if (k === 'fofi' || k === 'fofi-smart-box' || k === 'fofi_smart_box' || k === 'fofismartbox'
+            || n.includes('fo-fi') || n.includes('fofi') || n.includes('smart box')) return 'fofi-smart-box';
+        if (k === 'iptv' || k === 'cabletv' || k === 'cable_tv' || k === 'cable-tv'
+            || n === 'cable tv' || n === 'iptv' || n === 'cabletv') return 'iptv';
+        return null;
+    }
 
     // Services to hide from the UI
     const hiddenServices = ['games', 'multi service', 'ip camera'];
 
     // Services not yet available (show "Coming Soon" on click)
-    const comingSoonServices = ['cable tv', 'voice call service', 'voice call', 'iptv'];
+    const comingSoonServices = ['voice call service', 'voice call'];
 
-    // Use services from props if available, otherwise use default
-    const services = (propServices && propServices.length > 0
-        ? propServices.map((service, idx) => ({
-            id: service.servkey || service.id || `service-${idx}`,
-            name: service.title || service.servname || service.name || `Service ${idx + 1}`,
-            path: service.servkey || service.id || `service-${idx}`
-        }))
-        : defaultServices
-    ).filter(service => !hiddenServices.includes(service.name.toLowerCase()));
+    // Build the service list in the SAME static order every time,
+    // using API display names when available
+    const services = (() => {
+        const apiNames = new Map();
+        if (propServices && propServices.length > 0) {
+            for (const svc of propServices) {
+                const key = svc.servkey || svc.id || '';
+                const name = svc.title || svc.servname || svc.name || '';
+                const route = resolveRoute(key, name);
+                if (route && !apiNames.has(route)) apiNames.set(route, name);
+            }
+        }
+        return SERVICE_ORDER.map(s => ({
+            id: s.route,
+            name: apiNames.get(s.route) || s.displayName,
+            path: s.route,
+        }));
+    })().filter(service => !hiddenServices.includes(service.name.toLowerCase()));
 
     const handleServiceClick = (service) => {
-        if (comingSoonServices.includes(service.name.toLowerCase())) {
+        if (service.id === 'voice' || comingSoonServices.includes(service.name.toLowerCase())) {
             setComingSoonOpen(true);
             return;
         }
@@ -93,6 +168,31 @@ export default function ServiceSelectionModal({ isOpen, onClose, onSelectService
                                 </div>
                             )}
                         </div>
+                    </div>
+                )}
+
+                {/* Action Buttons — mirror the Services.jsx layout so
+                    the modal-version of "Choose Service" has parity
+                    with the standalone page. Buttons only render when
+                    a current service context exists; on the standalone
+                    page these are also there but driven by Services.jsx
+                    state. Order History from here filters to only the
+                    bills for the service the operator was viewing. */}
+                {currentServiceKey && (
+                    <div className="flex gap-3 mb-5">
+                        <button
+                            onClick={handleUploadDocument}
+                            disabled={uploadLoading}
+                            className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 px-4 rounded-full text-sm shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed leading-tight"
+                        >
+                            {uploadLoading ? 'Loading...' : <>{`Upload`}<br />{`Document`}</>}
+                        </button>
+                        <button
+                            onClick={handleOrderHistory}
+                            className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 px-4 rounded-full text-sm shadow-md hover:shadow-lg"
+                        >
+                            Order History
+                        </button>
                     </div>
                 )}
 

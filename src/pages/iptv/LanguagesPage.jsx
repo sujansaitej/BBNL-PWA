@@ -32,7 +32,7 @@ const LangCard = memo(function LangCard({ lang, onClick }) {
   useEffect(() => { if (cachedSrc) setImgError(false); }, [cachedSrc]);
 
   return (
-    <motion.div ref={logoRef} variants={item} whileTap={{ scale: 0.95 }} onClick={onClick} className="flex flex-col items-center cursor-pointer group" style={{ willChange: 'transform, opacity' }}>
+    <motion.div ref={logoRef} variants={item} onClick={onClick} className="flex flex-col items-center cursor-pointer group active:scale-95 transition-transform duration-150" style={{ touchAction: 'manipulation' }}>
       <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-md mb-2 bg-gray-100 flex items-center justify-center group-active:shadow-sm transition-shadow">
         {cachedSrc && !imgError ? (
           <img src={cachedSrc} alt={lang.langtitle} className="w-full h-full object-cover" onError={() => setImgError(true)} />

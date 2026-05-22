@@ -15,6 +15,16 @@ export default function QRScanner({ onScan, onClose, onError }) {
     const scanIntervalRef = useRef(null);
     const isProcessingRef = useRef(false);
     const isMountedRef = useRef(true);
+    // Re-entry guard. Rapid Retry / popstate-restart can call
+    // startScanning() while a previous getUserMedia() is still in
+    // flight. Two simultaneous getUserMedia calls fail with
+    // NotReadableError on most Samsung / OnePlus / Realme builds.
+    const inFlightRef = useRef(false);
+    // Readiness timers: soft = kick scan early if events don't fire
+    // on this device; hard = surface an error after 8s instead of
+    // leaving the "Starting camera" overlay stuck forever.
+    const softTimeoutRef = useRef(null);
+    const hardTimeoutRef = useRef(null);
 
     // Auto-start camera on mount
     useEffect(() => {
@@ -50,6 +60,12 @@ export default function QRScanner({ onScan, onClose, onError }) {
     const startScanning = async () => {
         // Skip if component unmounted
         if (!isMountedRef.current) return;
+        // Re-entry guard — see ref declaration above.
+        if (inFlightRef.current) {
+            console.warn('📷 [QRScanner] startScanning() ignored — another call is in flight');
+            return;
+        }
+        inFlightRef.current = true;
 
         // Stop any existing stream/interval before starting fresh (e.g. on Retry)
         stopScanning();
@@ -66,24 +82,92 @@ export default function QRScanner({ onScan, onClose, onError }) {
             // Skip if component unmounted during permission check
             if (!isMountedRef.current) return;
 
-            // Request camera with fallback options
-            let stream;
+            // Wake the device subsystem and collect every videoinput
+            // deviceId we can see, for the explicit-deviceId fallback
+            // attempts below. On Samsung One UI 4.x (Galaxy M51 /
+            // A-series) the first getUserMedia call after a cold
+            // WebView start can return NotFoundError; warming
+            // enumerateDevices fixes most cases, and explicit
+            // deviceId attempts catch the rest.
+            let videoDeviceIds = [];
             try {
-                stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'environment' }
-                });
-            } catch (e) {
-                // Only retry without facingMode for constraint errors (e.g. no back camera).
-                // For permission/hardware errors, re-throw immediately — retrying would
-                // either fail identically or show a duplicate permission prompt.
-                if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError' ||
-                    e.name === 'NotFoundError' || e.name === 'NotReadableError' ||
-                    e.name === 'SecurityError') {
-                    throw e;
+                if (navigator.mediaDevices.enumerateDevices) {
+                    const list = await navigator.mediaDevices.enumerateDevices();
+                    videoDeviceIds = list.filter(d => d.kind === 'videoinput')
+                        .map(d => d.deviceId).filter(Boolean);
+                    console.log(`📷 [QRScanner] enumerateDevices → ${videoDeviceIds.length} videoinput device(s)`);
                 }
-                stream = await navigator.mediaDevices.getUserMedia({
-                    video: true
-                });
+            } catch (_) {}
+
+            // Progressive constraint fallback — different Android
+            // skins / browser engines accept different constraint
+            // shapes and a single one-shot getUserMedia often returns
+            // an immediately-ended track on Samsung A-series and some
+            // MIUI devices. Iterate until we get a LIVE track.
+            const csAttempts = [
+                { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, _name: 'ideal-env+720p' },
+                { video: { facingMode: { ideal: 'environment' } }, _name: 'ideal-env-only' },
+                { video: { facingMode: 'environment' }, _name: 'string-env' },
+                { video: true, _name: 'video-true' },
+                // Per-device explicit deviceId attempts — the Samsung
+                // M51 escape hatch when facingMode resolution all
+                // fails with NotFoundError.
+                ...videoDeviceIds.map((id, i) => ({
+                    video: { deviceId: { exact: id } },
+                    _name: `deviceId-${i}`,
+                })),
+            ];
+
+            const runAttempts = async () => {
+                let s = null;
+                let last = null;
+                for (const cs of csAttempts) {
+                    try {
+                        console.log(`📷 [QRScanner] Trying ${cs._name}...`);
+                        // eslint-disable-next-line no-unused-vars
+                        const { _name, ...constraint } = cs;
+                        const got = await navigator.mediaDevices.getUserMedia(constraint);
+                        const tracks = got.getVideoTracks();
+                        const live = tracks.some(t => t.readyState === 'live');
+                        console.log(`📷 [QRScanner] ${cs._name} → tracks=${tracks.length}, live=${live}`);
+                        if (!live) {
+                            try { tracks.forEach(t => t.stop()); } catch (_) {}
+                            continue;
+                        }
+                        s = got;
+                        break;
+                    } catch (e) {
+                        last = e;
+                        console.warn(`📷 [QRScanner] ${cs._name} threw: ${e?.name} ${e?.message}`);
+                        if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError' ||
+                            e.name === 'SecurityError') {
+                            throw e;
+                        }
+                    }
+                }
+                return { stream: s, lastErr: last };
+            };
+
+            let { stream, lastErr } = await runAttempts();
+            // Samsung One UI cold-start NotFoundError quirk — wait
+            // 500ms, re-warm enumerateDevices, then retry the ladder
+            // once. If the camera really doesn't exist (tablets, dev
+            // boxes), the second pass will fail again and we surface
+            // the original error.
+            if (!stream && lastErr && lastErr.name === 'NotFoundError') {
+                console.warn('📷 [QRScanner] NotFoundError on cold start — retrying after 500ms warm-up');
+                await new Promise(r => setTimeout(r, 500));
+                try {
+                    if (navigator.mediaDevices.enumerateDevices) {
+                        await navigator.mediaDevices.enumerateDevices();
+                    }
+                } catch (_) {}
+                const second = await runAttempts();
+                if (second.stream) stream = second.stream;
+                else lastErr = second.lastErr || lastErr;
+            }
+            if (!stream) {
+                throw lastErr || new Error('All camera-start attempts failed');
             }
 
             // Skip if component unmounted during camera request
@@ -94,34 +178,159 @@ export default function QRScanner({ onScan, onClose, onError }) {
 
             streamRef.current = stream;
 
-            if (videoRef.current) {
-                videoRef.current.srcObject = stream;
+            // Mid-stream track-loss handler — if another app grabs the
+            // camera or the OS revokes the sensor (low-power mode,
+            // Knox container switch), the track flips to "ended" and
+            // the scanner shows a frozen black frame. Detect it,
+            // surface a clear error, and let the user Retry.
+            try {
+                stream.getVideoTracks().forEach(t => {
+                    t.onended = () => {
+                        if (!isMountedRef.current) return;
+                        if (streamRef.current !== stream) return;
+                        console.warn('📷 [QRScanner] video track ended unexpectedly');
+                        stopScanning();
+                        setError('Camera was disconnected (another app may have taken it). Tap Retry.');
+                    };
+                });
+            } catch (_) {}
 
-                // Use oncanplay which fires when enough data is available
-                videoRef.current.oncanplay = () => {
-                    if (isMountedRef.current && streamRef.current) {
-                        setScanStatus('scanning');
-                        startQRDetection();
-                    }
+            if (videoRef.current) {
+                const v = videoRef.current;
+                // Belt-and-braces video attributes — Samsung Internet
+                // sometimes ignores the JSX-set values when srcObject
+                // is bound first. Set them imperatively before binding.
+                try {
+                    v.setAttribute('playsinline', 'true');
+                    v.setAttribute('webkit-playsinline', 'true');
+                    v.muted = true;
+                    v.autoplay = true;
+                } catch (_) {}
+
+                // CRITICAL: bind readiness listeners BEFORE setting
+                // srcObject. Samsung Internet (and some One UI WebView
+                // builds) fires `loadedmetadata` SYNCHRONOUSLY when an
+                // already-live MediaStream is attached via srcObject.
+                // If we bind listeners after that assignment, the
+                // event has already fired and been missed — operators
+                // saw "Starting camera..." spin until the 8s hard
+                // timeout. Reordering covers Samsung; on Chrome / iOS
+                // Safari the event is async so behaviour is unchanged.
+                let probeInterval = null;
+                let probeAttempts = 0;
+                let videoReady = false;
+                const markReady = () => {
+                    if (videoReady) return;
+                    if (!isMountedRef.current || !streamRef.current) return;
+                    videoReady = true;
+                    if (softTimeoutRef.current) { clearTimeout(softTimeoutRef.current); softTimeoutRef.current = null; }
+                    if (hardTimeoutRef.current) { clearTimeout(hardTimeoutRef.current); hardTimeoutRef.current = null; }
+                    if (probeInterval) { clearInterval(probeInterval); probeInterval = null; }
+                    setScanStatus('scanning');
+                    console.log('📷 [QRScanner] markReady — stream is live');
+                    startQRDetection();
                 };
 
-                // Fallback: start scanning after short delay if event doesn't fire
-                setTimeout(() => {
-                    if (isMountedRef.current && streamRef.current) {
-                        setScanStatus('scanning');
-                        startQRDetection();
+                v.oncanplay = markReady;
+                v.onloadedmetadata = markReady;
+                v.onloadeddata = markReady;
+                v.onplaying = markReady;
+
+                // Now safe to bind the stream — listeners will catch
+                // loadedmetadata whether it's sync (Samsung) or async.
+                v.srcObject = stream;
+
+                // 100 ms videoWidth poll — Samsung can deliver frames
+                // without ever firing the readiness events at all.
+                // Poll for ≤ 2 s and promote the moment videoWidth
+                // becomes non-zero (means a frame has been decoded).
+                probeInterval = setInterval(() => {
+                    if (videoReady) { clearInterval(probeInterval); probeInterval = null; return; }
+                    probeAttempts += 1;
+                    if ((videoRef.current?.videoWidth || 0) > 0) {
+                        console.log(`📷 [QRScanner] probe-timer: videoWidth=${videoRef.current?.videoWidth} after ${probeAttempts*100}ms`);
+                        markReady();
+                    } else if (probeAttempts >= 20) {
+                        clearInterval(probeInterval); probeInterval = null;
                     }
-                }, 1500);
+                }, 100);
+
+                // Soft fallback at 800ms — only promotes when video
+                // dimensions are non-zero (frames are decoding). The
+                // previous "trackLive OR dim" rule promoted on
+                // trackLive alone — track was reported live but no
+                // frames had arrived yet, so the "Starting camera"
+                // overlay disappeared before the user saw any video,
+                // leaving a permanent black screen on Galaxy M51 and
+                // similar Samsung One UI builds. Requiring dim means
+                // we only promote once a real frame has decoded.
+                softTimeoutRef.current = setTimeout(() => {
+                    if (videoReady) return;
+                    const trackLive = stream.getVideoTracks().some(t => t.readyState === 'live');
+                    const dim = (videoRef.current?.videoWidth || 0) > 0;
+                    console.log(`📷 [QRScanner] soft-timeout: trackLive=${trackLive}, videoWidth=${videoRef.current?.videoWidth}`);
+                    if (dim) markReady();
+                }, 800);
+
+                // Hard fallback: if we still don't have readiness after 8s,
+                // tear the stream down and prompt the user to retry. This
+                // prevents the "Starting camera" overlay from locking
+                // forever on devices where play() stalls silently. Samsung
+                // M51 / One UI 4.x typically hits this when power-saving
+                // is on or Knox restricts the sensor — surface device-
+                // aware guidance so the operator knows what to fix.
+                hardTimeoutRef.current = setTimeout(() => {
+                    if (videoReady || !isMountedRef.current) return;
+                    stopScanning();
+                    const ua = navigator.userAgent || '';
+                    const isSamsung = /SamsungBrowser|SM-[A-Z]\d|Galaxy/i.test(ua);
+                    setError(
+                        isSamsung
+                            ? 'Camera started but no video. On Samsung:\n1. Disable Power-saving / Battery-saver for this app.\n2. Close Bixby Vision and any open Camera apps.\n3. Settings → Apps → this app → Permissions → Camera (set to Allow).\nThen tap Retry.'
+                            : "Camera didn't start. Close other apps using the camera and tap Retry. If this keeps happening, restart the app."
+                    );
+                }, 8000);
 
                 try {
-                    await videoRef.current.play();
-                } catch (playErr) {
-                    // AbortError is expected when component unmounts during play
-                    if (playErr.name === 'AbortError') {
-                        console.log('Video play aborted (component unmounted)');
-                        return;
+                    const playResult = videoRef.current.play();
+                    // Older Android WebViews return undefined from play()
+                    // instead of a Promise. Guard the await.
+                    if (playResult && typeof playResult.then === 'function') {
+                        // Race against a 3s timeout. On some Samsung /
+                        // Vivo / Realme builds, play() can hang
+                        // indefinitely while still delivering frames —
+                        // the readiness events and the videoWidth probe
+                        // still promote the spinner, but a blocked
+                        // await would leak the in-flight guard. A
+                        // PlayTimeout is treated as non-fatal.
+                        await Promise.race([
+                            playResult,
+                            new Promise((_, reject) => setTimeout(() => {
+                                const e = new Error('play() did not resolve within 3s');
+                                e.name = 'PlayTimeout';
+                                reject(e);
+                            }, 3000)),
+                        ]);
                     }
-                    throw playErr;
+                } catch (playErr) {
+                    if (playErr.name === 'PlayTimeout') {
+                        // Don't fail — soft timeout / probe will take over.
+                        console.warn('📷 [QRScanner] play() didn\'t resolve in 3s — relying on probe');
+                    } else if (playErr.name === 'NotAllowedError') {
+                        // Samsung Internet sometimes rejects play() with
+                        // NotAllowedError even after permission grant.
+                        // Retry once after a tick — many times the
+                        // second attempt succeeds because the
+                        // user-gesture token has propagated.
+                        await new Promise(r => setTimeout(r, 100));
+                        try { await videoRef.current.play(); } catch (_) {}
+                    } else if (playErr.name === 'AbortError') {
+                        return;
+                    } else {
+                        if (softTimeoutRef.current) { clearTimeout(softTimeoutRef.current); softTimeoutRef.current = null; }
+                        if (hardTimeoutRef.current) { clearTimeout(hardTimeoutRef.current); hardTimeoutRef.current = null; }
+                        throw playErr;
+                    }
                 }
             }
         } catch (err) {
@@ -130,17 +339,35 @@ export default function QRScanner({ onScan, onClose, onError }) {
 
             console.error('Camera access error:', err);
 
+            // Device-aware messaging — installed-PWA vs browser-tab
+            // permission location differs, and Samsung One UI returns
+            // NotFoundError for permission/Knox issues that Chrome
+            // would have surfaced as NotAllowedError.
+            const ua = navigator.userAgent || '';
+            const isSamsung = /SamsungBrowser|SM-[A-Z]\d|Galaxy/i.test(ua);
+            const isStandalone = window.matchMedia?.('(display-mode: standalone)').matches
+                || window.navigator?.standalone === true;
+            const permissionHint = isStandalone
+                ? 'Settings → Apps → this app → Permissions → Camera (set to Allow)'
+                : 'the lock icon in the address bar (set Camera to Allow)';
+
             let errorMessage = 'Camera access denied.';
             if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-                errorMessage = 'Camera permission denied. Please allow camera access:\n\n1. Tap the lock/info icon in the address bar\n2. Find "Camera" and set to "Allow"\n3. Tap "Retry" below';
+                errorMessage = `Camera permission denied. Open ${permissionHint}, then tap Retry.`;
             } else if (err.name === 'NotFoundError') {
-                errorMessage = 'No camera found on this device.';
+                errorMessage = isSamsung
+                    ? "Camera couldn't open. On Samsung devices, check:\n" +
+                      "1. Settings → Apps → this app → Permissions → Camera (must be Allow).\n" +
+                      "2. Close Bixby Vision and any open Camera apps.\n" +
+                      "3. Disable Power-saving / Battery-saver mode.\n" +
+                      "Then tap Retry."
+                    : 'Camera not available. Check that camera permission is granted and no other app is using it. Then tap Retry.';
             } else if (err.name === 'NotReadableError') {
-                errorMessage = 'Camera is in use by another app. Please close other apps using the camera and tap "Retry".';
+                errorMessage = 'Camera is in use by another app. Close the other app (Camera, Bixby Vision, video calls) and tap Retry.';
             } else if (err.name === 'OverconstrainedError') {
-                errorMessage = 'Camera configuration not supported. Please tap "Retry".';
+                errorMessage = 'Camera configuration not supported on this device. Tap Retry.';
             } else if (err.name === 'SecurityError') {
-                errorMessage = 'Camera access blocked. Please ensure you are using HTTPS and camera permissions are enabled.';
+                errorMessage = 'Camera access blocked. Ensure HTTPS is in use and camera permissions are enabled.';
             } else if (err.name === 'AbortError') {
                 // Ignore abort errors - they happen during normal cleanup
                 return;
@@ -148,6 +375,13 @@ export default function QRScanner({ onScan, onClose, onError }) {
 
             setError(errorMessage);
             onError?.(err.message);
+        } finally {
+            // Always clear the re-entry guard, regardless of how we
+            // exit (success / handled error / unmount-skip / explicit
+            // return). Without this, a transient failure leaves the
+            // guard set, and Retry / popstate-restart silently
+            // no-ops.
+            inFlightRef.current = false;
         }
     };
 
@@ -160,6 +394,10 @@ export default function QRScanner({ onScan, onClose, onError }) {
             clearInterval(scanIntervalRef.current);
             scanIntervalRef.current = null;
         }
+        // Clear readiness timers so they can't resurrect the overlay
+        // or fire a Retry prompt after the component has moved on.
+        if (softTimeoutRef.current) { clearTimeout(softTimeoutRef.current); softTimeoutRef.current = null; }
+        if (hardTimeoutRef.current) { clearTimeout(hardTimeoutRef.current); hardTimeoutRef.current = null; }
 
         if (streamRef.current) {
             streamRef.current.getTracks().forEach(track => track.stop());
@@ -167,6 +405,12 @@ export default function QRScanner({ onScan, onClose, onError }) {
         }
 
         if (videoRef.current) {
+            // Detach the event handlers too so a late-firing event on
+            // a stale element doesn't call back into markReady.
+            videoRef.current.oncanplay = null;
+            videoRef.current.onloadedmetadata = null;
+            videoRef.current.onloadeddata = null;
+            videoRef.current.onplaying = null;
             videoRef.current.srcObject = null;
         }
     };
@@ -178,27 +422,49 @@ export default function QRScanner({ onScan, onClose, onError }) {
                 const barcodeDetector = new window.BarcodeDetector({
                     formats: ['qr_code']
                 });
+                console.log('🔵 [QRScanner] using native BarcodeDetector');
 
+                let attempts = 0;
+                let detectErrors = 0;
                 scanIntervalRef.current = setInterval(async () => {
                     if (isProcessingRef.current) return;
 
                     if (videoRef.current && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
                         try {
                             isProcessingRef.current = true;
+                            attempts++;
                             const barcodes = await barcodeDetector.detect(videoRef.current);
                             if (barcodes.length > 0) {
+                                console.log(`✅ [QRScanner] BarcodeDetector hit after ${attempts} attempts`);
                                 handleQRCodeDetected(barcodes[0].rawValue);
+                            } else if (attempts === 20 || attempts === 60 || attempts === 120) {
+                                // Periodic heartbeat: at ~3s, ~9s, ~18s
+                                console.log(`🔵 [QRScanner] BarcodeDetector ${attempts} attempts, no QR yet (errors=${detectErrors})`);
                             }
                             isProcessingRef.current = false;
                         } catch (err) {
+                            detectErrors++;
+                            if (detectErrors === 1) {
+                                // First error — log and fall back to
+                                // jsQR which doesn't share whatever the
+                                // native detector is choking on.
+                                console.warn('⚠️ [QRScanner] BarcodeDetector failed, falling back to jsQR:', err?.message);
+                                clearInterval(scanIntervalRef.current);
+                                scanIntervalRef.current = null;
+                                isProcessingRef.current = false;
+                                startCanvasQRDetection();
+                                return;
+                            }
                             isProcessingRef.current = false;
                         }
                     }
                 }, 150);
             } catch (err) {
+                console.warn('⚠️ [QRScanner] BarcodeDetector init failed, using jsQR:', err?.message);
                 startCanvasQRDetection();
             }
         } else {
+            console.log('🔵 [QRScanner] BarcodeDetector unavailable, using jsQR');
             startCanvasQRDetection();
         }
     };
@@ -206,11 +472,16 @@ export default function QRScanner({ onScan, onClose, onError }) {
     // Canvas-based QR code detection fallback
     const startCanvasQRDetection = () => {
         const canvas = canvasRef.current;
-        if (!canvas) return;
+        if (!canvas) {
+            console.warn('⚠️ [QRScanner] canvas ref missing — cannot start jsQR detection');
+            return;
+        }
+        console.log('🔵 [QRScanner] using jsQR fallback (canvas-based)');
 
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
         let scanInterval = 250;
         let consecutiveFailures = 0;
+        let attempts = 0;
 
         const scan = () => {
             if (isProcessingRef.current) return;
@@ -218,6 +489,10 @@ export default function QRScanner({ onScan, onClose, onError }) {
             if (videoRef.current && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
                 try {
                     isProcessingRef.current = true;
+                    attempts++;
+                    if (attempts === 20 || attempts === 60 || attempts === 120) {
+                        console.log(`🔵 [QRScanner] jsQR ${attempts} attempts, no QR yet`);
+                    }
 
                     if (canvas.width !== videoRef.current.videoWidth) {
                         canvas.width = videoRef.current.videoWidth;
@@ -226,16 +501,48 @@ export default function QRScanner({ onScan, onClose, onError }) {
 
                     ctx.drawImage(videoRef.current, 0, 0);
 
+                    // Multi-region detection. Production "Scan from TV"
+                    // failures were caused by holding the phone too
+                    // close (QR exceeds the 60% center crop) or the QR
+                    // being slightly off-centre. Try the centre crop
+                    // first (cheap, fast), then the full frame, then
+                    // attempt inverted detection — TV screens often
+                    // render the QR with non-standard contrast (light-
+                    // on-dark or with reflections) that 'dontInvert'
+                    // misses.
+                    const tryDetect = (imgData, label) => {
+                        // Pass 1: standard
+                        let qr = jsQR(imgData.data, imgData.width, imgData.height, {
+                            inversionAttempts: 'dontInvert',
+                        });
+                        if (qr && qr.data) {
+                            console.log(`✅ [QRScanner] detected (${label}, dontInvert)`);
+                            return qr;
+                        }
+                        // Pass 2: try inverted (TV screens, reflections)
+                        qr = jsQR(imgData.data, imgData.width, imgData.height, {
+                            inversionAttempts: 'onlyInvert',
+                        });
+                        if (qr && qr.data) {
+                            console.log(`✅ [QRScanner] detected (${label}, onlyInvert)`);
+                            return qr;
+                        }
+                        return null;
+                    };
+
+                    // Centre crop first (faster — most QRs are aimed there)
                     const centerX = Math.floor(canvas.width * 0.2);
                     const centerY = Math.floor(canvas.height * 0.2);
                     const regionWidth = Math.floor(canvas.width * 0.6);
                     const regionHeight = Math.floor(canvas.height * 0.6);
+                    const centerData = ctx.getImageData(centerX, centerY, regionWidth, regionHeight);
+                    let qrCode = tryDetect(centerData, 'centre');
 
-                    const imageData = ctx.getImageData(centerX, centerY, regionWidth, regionHeight);
-
-                    const qrCode = jsQR(imageData.data, imageData.width, imageData.height, {
-                        inversionAttempts: 'dontInvert',
-                    });
+                    // Full frame fallback — covers off-centre / large QRs
+                    if (!qrCode) {
+                        const fullData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                        qrCode = tryDetect(fullData, 'full');
+                    }
 
                     if (qrCode && qrCode.data) {
                         handleQRCodeDetected(qrCode.data);

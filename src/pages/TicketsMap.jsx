@@ -105,7 +105,7 @@ const TicketsMap = () => {
       const params = { user: userdet?.username, op_id: userdet?.op_id, dept: 'Departments' };
       try {
         setLoading(true);
-        markers.length = 0;
+        setMarkers([]);
         const data = await getTickets(tabKey, params);
         const statusKey = tabKey === 'OPEN' ? 'ticketstatus' : 'status';
         const statusObj = data?.[statusKey];
@@ -133,7 +133,13 @@ const TicketsMap = () => {
               resolved_time: ticket.resolved_time ? formatTo12Hour(ticket.resolved_time) : ''
             }));
           }
-          setMarkers(cleanedTickets);
+          // Filter out markers with invalid coordinates to prevent Leaflet errors
+          const validMarkers = cleanedTickets.filter(t => {
+            const lat = tabKey === 'PENDING' ? t.lat : t.latitude;
+            const lng = tabKey === 'PENDING' ? t.lng : t.longitude;
+            return lat && lng && !isNaN(lat) && !isNaN(lng);
+          });
+          setMarkers(validMarkers);
           setLoading(false);
           // console.log(data?.body);
         } else {
@@ -260,7 +266,7 @@ const TicketsMap = () => {
               }}
             >
               <Popup>
-                {popupLoading && !selectedMarkerData[tid] ? (
+                {popupLoading && !selectedMarkerData.tid ? (
                   <div className="text-gray-500">Loading details...</div>
                 ) : selectedMarkerData.tid ? (
                   <div className="text-sm">

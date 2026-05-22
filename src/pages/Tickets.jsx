@@ -92,9 +92,10 @@ const Tickets = () => {
   const deptInitRef = useRef(true);
   const dialogInitRef = useRef(true);
 
-  // Reset department filter and fetch fresh tickets when tab changes
+  // Reset department filter, search term, and fetch fresh tickets when tab changes
   useEffect(() => {
     setSelectedDept('');
+    setSearchTerm('');
     getTkts(activeTab, '');
   }, [activeTab]);
 
@@ -115,7 +116,7 @@ const Tickets = () => {
     const params = { user: userdet?.username, op_id: userdet?.op_id, dept };
     try {
       setLoading(true);
-      tickets.length = 0;
+      setTickets([]);
       const data = await getTickets(tabKey, params);
       const statusKey = tabKey === 'OPEN' ? 'ticketstatus' : 'status';
       const statusObj = data?.[statusKey];

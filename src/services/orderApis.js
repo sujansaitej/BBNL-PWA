@@ -37,15 +37,18 @@ async function apiFetchWithTimeout(url, options, label = "Order") {
 
 /**
  * Get Order/Payment History
- * API: apis/custpayhistory
- * Method: POST (form-urlencoded)
- * Headers as per client documentation:
- *   Authorization: c4f79e15f8c6ed0715a8ea44aebc38d8
- *   username: e2798af12a7a0f4f70b4d69efbc25f4d
- *   password: c1f377afbaa874acbb6b61f66957710a
- *   apptype: employee
- *   Content-Type: application/x-www-form-urlencoded
- * Body: apiopid=BBNL_OP49&cid=iptvuser&servicekey=fofi
+ *
+ * Endpoint:  POST /netmon/apis/custpayhistory
+ * Body:      form-urlencoded — apiopid + cid only (per netmon contract).
+ * Headers:   Authorization / username / password / apptype as per
+ *            backend client documentation.
+ *
+ * The backend does NOT accept a servicekey filter here — it returns
+ * every payment for the customer. The `servicekey` parameter we pass
+ * in is used ONLY for cache-keying so different service overviews
+ * (Internet / Cable TV / FoFi) get isolated caches and a fresh fetch
+ * after a service-scoped Pay action. Per-service display filtering
+ * happens in PaymentHistory.jsx after the response lands.
  */
 export async function getOrderHistory({ apiopid, cid, servicekey }) {
   const cacheKey = `orderhist_${cid}_${servicekey || 'all'}`;
@@ -54,22 +57,22 @@ export async function getOrderHistory({ apiopid, cid, servicekey }) {
 
   const url = `${getBaseUrl()}apis/custpayhistory`;
 
-  // Headers matching client documentation exactly
+  // Headers — exactly match the netmon contract.
   const headers = {
     'Authorization': 'c4f79e15f8c6ed0715a8ea44aebc38d8',
     'username': 'e2798af12a7a0f4f70b4d69efbc25f4d',
     'password': 'c1f377afbaa874acbb6b61f66957710a',
     'apptype': 'employee',
-    'X-App-Package': 'com.bbnl.smartphone',
     'Content-Type': 'application/x-www-form-urlencoded',
   };
 
-  // Body: form-urlencoded with apiopid, cid, and optional servicekey
-  const bodyParams = { apiopid, cid };
-  if (servicekey) {
-    bodyParams.servicekey = servicekey;
-  }
-  const body = new URLSearchParams(bodyParams).toString();
+  // Body — only the two fields the backend reads. servicekey is
+  // intentionally NOT sent; backend ignores it and the cache-key
+  // captures the service distinction client-side.
+  const body = new URLSearchParams({
+    apiopid: apiopid || '',
+    cid: cid || '',
+  }).toString();
 
   const resp = await apiFetchWithTimeout(url, {
     method: 'POST',
@@ -100,7 +103,7 @@ export async function getFofiOrderHistory({ userid, fofiboxid }) {
     'Authorization': import.meta.env.VITE_API_AUTH_KEY,
     'username': import.meta.env.VITE_API_USERNAME,
     'password': import.meta.env.VITE_API_PASSWORD,
-    'appkeytype': import.meta.env.VITE_API_APP_USER_TYPE,
+    'appkeytype': localStorage.getItem('loginType') == "franchisee" ? import.meta.env.VITE_API_APP_USER_TYPE : import.meta.env.VITE_API_APP_USER_TYPE_CUST,
     'appversion': import.meta.env.VITE_API_APP_VERSION,
     'X-App-Package': 'com.bbnl.smartphone',
     'Content-Type': 'application/json',
@@ -132,4 +135,43 @@ export async function getFofiOrderHistory({ userid, fofiboxid }) {
   const result = await resp.json();
   logger.debug("Order", "getFofiOrderHistory response", { errCode: result?.status?.err_code });
   return result;
+}
+
+/**
+ * Service-aware order history selector.
+ *
+ * Routes to the most accurate endpoint available for the requested
+ * service. Returns the SAME shape as getOrderHistory — `{ status, body }`
+ * — so callers do not need to know which endpoint produced the result.
+ *
+ * - FoFi context with fofiboxid → dedicated /ServiceApis/cabletv/orderhistory
+ *   (server-side filtered by servid=3). On any failure or empty body we
+ *   fall back to the generic endpoint so operators are never left with a
+ *   blank screen during a backend hiccup.
+ * - All other services → generic /apis/custpayhistory (returns ALL
+ *   payments; caller must filter client-side via the registry resolver).
+ */
+export async function getOrderHistoryFor(serviceType, { apiopid, cid, userid, fofiboxid } = {}) {
+  const wantsFofiDedicated =
+    String(serviceType || '').toLowerCase() === 'fofi' && fofiboxid;
+
+  if (wantsFofiDedicated) {
+    try {
+      const fofiResp = await getFofiOrderHistory({ userid: userid || cid, fofiboxid });
+      const hasUsableBody = Array.isArray(fofiResp?.body) && fofiResp.body.length > 0;
+      const noServerError = (fofiResp?.status?.err_code ?? 0) === 0;
+      if (hasUsableBody || noServerError) {
+        return { ...fofiResp, _source: 'fofi-dedicated' };
+      }
+      logger.warn("Order", "FoFi dedicated endpoint returned no usable data, falling back", {
+        errCode: fofiResp?.status?.err_code,
+        bodyLen: Array.isArray(fofiResp?.body) ? fofiResp.body.length : null,
+      });
+    } catch (err) {
+      logger.warn("Order", "FoFi dedicated endpoint failed, falling back to generic", { err: err?.message });
+    }
+  }
+
+  const generic = await getOrderHistory({ apiopid, cid, servicekey: serviceType });
+  return { ...generic, _source: 'generic' };
 }

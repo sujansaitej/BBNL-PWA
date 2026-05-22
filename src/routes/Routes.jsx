@@ -1,7 +1,13 @@
 import { lazy, Suspense } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useParams } from "react-router-dom";
 import PrivateRoute from "./PrivateRoute";
 import ErrorBoundary from "../components/ErrorBoundary";
+
+// Redirect unknown service routes back to the customer's services list
+function ServiceFallback() {
+  const { customerId } = useParams();
+  return <Navigate to={`/customer/${customerId}/services`} replace />;
+}
 
 // Lightweight loading fallback
 const PageLoader = () => (
@@ -16,39 +22,19 @@ function ssSet(k, v) { try { sessionStorage.setItem(k, v); } catch (_) {} }
 function ssRemove(k) { try { sessionStorage.removeItem(k); } catch (_) {} }
 
 // Retry wrapper for lazy imports — handles chunk 404s after deployments.
-// On failure it purges stale caches + reloads once so the browser fetches
-// fresh chunk filenames. If the reload already happened, the error
-// propagates to ErrorBoundary which shows a user-friendly recovery UI.
+// On failure it lets ErrorBoundary handle recovery (single retry path).
+// Previous approach had two independent retry loops (lazyRetry + ErrorBoundary)
+// with separate guard keys, causing up to 4 reloads before showing the error UI.
 function lazyRetry(importFn) {
   return lazy(() =>
     importFn()
       .then((mod) => {
-        // Successful load — clear the retry flag so future deploys can also retry
         ssRemove("chunk-reload");
         return mod;
       })
       .catch((err) => {
-        const key = "chunk-reload";
-        if (!ssGet(key)) {
-          ssSet(key, "1");
-          // Purge runtime caches that may hold stale chunk references,
-          // then reload to fetch fresh assets from the server.
-          (async () => {
-            try {
-              if ("caches" in window) {
-                const names = await caches.keys();
-                const stale = names.filter(
-                  (n) => n === "app-assets" || n.startsWith("workbox-precache")
-                );
-                await Promise.allSettled(stale.map((n) => caches.delete(n)));
-              }
-            } catch (_) {}
-            window.location.reload();
-          })();
-          return new Promise(() => {}); // never resolves — page is reloading
-        }
-        ssRemove(key);
-        // Already retried — let ErrorBoundary handle it
+        // Let ErrorBoundary handle all recovery (it purges caches + reloads once).
+        // This avoids a double-retry loop between lazyRetry and ErrorBoundary.
         throw err;
       })
   );
@@ -76,6 +62,8 @@ const PaymentHistory = lazyRetry(() => import("../pages/PaymentHistory"));
 const UploadDocuments = lazyRetry(() => import("../pages/UploadDocuments"));
 const FofiPayment = lazyRetry(() => import("../pages/FofiPayment"));
 const CustomerDashboard = lazyRetry(() => import("../pages/customer/Dashboard"));
+const OTTHub = lazyRetry(() => import("../pages/customer/OTTHub"));
+const OTTPlayer = lazyRetry(() => import("../pages/customer/OTTPlayer"));
 const LiveTvPage = lazyRetry(() => import("../pages/iptv/LiveTvPage"));
 const ChannelsPage = lazyRetry(() => import("../pages/iptv/ChannelsPage"));
 const LanguagesPage = lazyRetry(() => import("../pages/iptv/LanguagesPage"));
@@ -231,6 +219,15 @@ export default function AppRoutes() {
             </PrivateRoute>
           }
         />
+        {/* Catch-all for undefined service routes — redirect back to services list instead of login */}
+        <Route
+          path="/customer/:customerId/service/*"
+          element={
+            <PrivateRoute>
+              <ServiceFallback />
+            </PrivateRoute>
+          }
+        />
         <Route
           path="/payment-history"
           element={
@@ -255,6 +252,10 @@ export default function AppRoutes() {
             </PrivateRoute>
           }
         />
+
+        {/* ── OTT Routes ── */}
+        <Route path="/cust/ott" element={<OTTHub />} />
+        <Route path="/cust/ott/player" element={<OTTPlayer />} />
 
         {/* ── IPTV Live TV Routes (no auth required) ── */}
         <Route path="/cust/livetv" element={<LiveTvPage />} />

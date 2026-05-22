@@ -45,14 +45,12 @@ function ssGet(key) {
 function ssSet(key, val) {
   try { sessionStorage.setItem(key, val); } catch (_) {}
 }
-function ssRemove(key) {
-  try { sessionStorage.removeItem(key); } catch (_) {}
-}
 
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
     this.state = { hasError: false, error: null, recovering: false };
+    this._recoverTimer = null;
   }
 
   static getDerivedStateFromError(error) {
@@ -68,6 +66,13 @@ export default class ErrorBoundary extends React.Component {
       if (!ssGet(key)) {
         ssSet(key, "1");
         this.setState({ recovering: true });
+
+        // Safety timeout: if reload doesn't happen within 8s, show error UI
+        // so the user is never stuck on a spinner indefinitely.
+        this._recoverTimer = setTimeout(() => {
+          this.setState({ recovering: false });
+        }, 8000);
+
         purgeAllCaches().then(() => window.location.reload());
         return;
       }
@@ -75,10 +80,18 @@ export default class ErrorBoundary extends React.Component {
     }
   }
 
+  componentWillUnmount() {
+    if (this._recoverTimer) clearTimeout(this._recoverTimer);
+  }
+
   handleClearAndReload = () => {
-    // Set guard so auto-recovery won't fire again after this manual reload
     ssSet("eb-cache-recovery", "1");
     this.setState({ recovering: true });
+
+    this._recoverTimer = setTimeout(() => {
+      this.setState({ recovering: false });
+    }, 8000);
+
     purgeAllCaches().then(() => window.location.reload());
   };
 
@@ -98,6 +111,12 @@ export default class ErrorBoundary extends React.Component {
     }
 
     if (this.state.hasError) {
+      const errMsg = this.state.error?.message || "Unknown error";
+      const errStack = this.state.error?.stack || "";
+      // Extract just the first useful line of the stack for display
+      const stackLines = errStack.split("\n").filter(l => l.trim());
+      const shortStack = stackLines.slice(0, 3).join("\n");
+
       return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 px-6 text-center">
           <div className="w-16 h-16 mb-4 rounded-full bg-red-100 flex items-center justify-center">
@@ -106,9 +125,22 @@ export default class ErrorBoundary extends React.Component {
             </svg>
           </div>
           <h1 className="text-xl font-semibold text-gray-800 mb-2">Something went wrong</h1>
-          <p className="text-sm text-gray-500 mb-6">
+          <p className="text-sm text-gray-500 mb-4">
             The app encountered an unexpected error. Please try reloading.
           </p>
+
+          {/* Error details — helps diagnose the issue from a screenshot */}
+          <div className="w-full max-w-md mb-6 p-3 bg-red-50 border border-red-200 rounded-lg text-left overflow-auto max-h-40">
+            <p className="text-xs font-semibold text-red-700 mb-1">Error:</p>
+            <p className="text-xs text-red-600 break-words">{errMsg}</p>
+            {shortStack && (
+              <>
+                <p className="text-xs font-semibold text-red-700 mt-2 mb-1">Stack:</p>
+                <pre className="text-[10px] text-red-500 whitespace-pre-wrap break-words">{shortStack}</pre>
+              </>
+            )}
+          </div>
+
           <div className="flex gap-3">
             <button
               onClick={this.handleClearAndReload}

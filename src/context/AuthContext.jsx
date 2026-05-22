@@ -27,6 +27,14 @@ export function AuthProvider({ children }) {
             localStorage.removeItem("loginTimestamp");
             localStorage.removeItem("loginType");
             localStorage.removeItem("otprefid");
+            // Match logout() — clear registration-form drafts on expiry
+            // so stale data doesn't carry into the next session.
+            localStorage.removeItem("register_form_draft");
+            localStorage.removeItem("registrationData");
+            localStorage.removeItem("photoFileId");
+            localStorage.removeItem("addrproofIds");
+            localStorage.removeItem("idcardIds");
+            localStorage.removeItem("filerefid");
             lsClearAll();
             logger.security("SESSION_EXPIRED", {
               username: parsed.username,
@@ -73,6 +81,15 @@ export function AuthProvider({ children }) {
     localStorage.removeItem("loginTimestamp");
     localStorage.removeItem("loginType");
     localStorage.removeItem("otprefid");
+    // Registration-form draft keys — without these, re-login reveals
+    // the previous operator's in-progress Add User data (and survives
+    // PWA reinstall on Android WebView).
+    localStorage.removeItem("register_form_draft");
+    localStorage.removeItem("registrationData");
+    localStorage.removeItem("photoFileId");
+    localStorage.removeItem("addrproofIds");
+    localStorage.removeItem("idcardIds");
+    localStorage.removeItem("filerefid");
     lsClearAll();
     logger.security("LOGOUT", { username: prev });
   };

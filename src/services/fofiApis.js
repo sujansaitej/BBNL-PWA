@@ -2,6 +2,7 @@
 import logger from "../utils/logger";
 import perfMonitor from "../utils/apiPerfMonitor";
 import { lsGet, lsSet } from "./lsCache";
+import { getServiceSignal, isBackgroundMode } from "./navigationController";
 
 function getBaseUrl() {
     if (import.meta.env.PROD) return import.meta.env.VITE_API_BASE_URL;
@@ -13,9 +14,8 @@ function getHeadersJson() {
         Authorization: import.meta.env.VITE_API_AUTH_KEY,
         username: import.meta.env.VITE_API_USERNAME,
         password: import.meta.env.VITE_API_PASSWORD,
-        appkeytype: import.meta.env.VITE_API_APP_USER_TYPE,
+        appkeytype: localStorage.getItem('loginType') == "franchisee" ? import.meta.env.VITE_API_APP_USER_TYPE : import.meta.env.VITE_API_APP_USER_TYPE_CUST,
         appversion: import.meta.env.VITE_API_APP_VERSION,
-        "X-App-Package": "com.bbnl.smartphone",
         "Content-Type": "application/json",
     };
 }
@@ -25,23 +25,24 @@ function getHeadersForm() {
         Authorization: import.meta.env.VITE_API_AUTH_KEY,
         username: import.meta.env.VITE_API_USERNAME,
         password: import.meta.env.VITE_API_PASSWORD,
-        appkeytype: import.meta.env.VITE_API_APP_USER_TYPE,
+        appkeytype: localStorage.getItem('loginType') == "franchisee" ? import.meta.env.VITE_API_APP_USER_TYPE : import.meta.env.VITE_API_APP_USER_TYPE_CUST,
         appversion: import.meta.env.VITE_API_APP_VERSION,
-        "X-App-Package": "com.bbnl.smartphone",
     };
 }
 
 function getBasicAuthHeader() {
     return {
         Authorization: "Basic Zm9maWxhYkBnbWFpbC5jb206MTIzNDUtNTQzMjE=",
-        "X-App-Package": "com.bbnl.smartphone",
         "Content-Type": "application/json",
     };
 }
 
-const API_TIMEOUT = 15000; // 15 seconds
+// Matches generalApis.js — 30 s covers real-world 3G tail latency on
+// low-tier franchisee phones. 15 s was timing out before the server
+// could respond on slow networks.
+const API_TIMEOUT = 30000; // 30 seconds
 
-/** Fetch with AbortController timeout, perf monitoring, and structured logging */
+/** Fetch with AbortController timeout, perf monitoring, navigation abort, and structured logging */
 async function fofiApiFetch(url, options, label = "FoFi") {
     const method = options.method || "POST";
     const endPerf = perfMonitor.start(method, url, "FoFi", label);
@@ -49,6 +50,22 @@ async function fofiApiFetch(url, options, label = "FoFi") {
 
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT);
+
+    // Link to navigation controller — abort if user navigated to another page.
+    // Skip for background/prefetch requests so cache-warming isn't killed on navigation.
+    const _bg = isBackgroundMode();
+    let navSignal, onNavAbort;
+    if (!_bg) {
+        navSignal = getServiceSignal();
+        onNavAbort = () => ctrl.abort();
+        if (navSignal.aborted) {
+            clearTimeout(timer);
+            endPerf({ status: 0, error: "navigation cancelled" });
+            throw new Error("Request cancelled — navigated away.");
+        }
+        navSignal.addEventListener('abort', onNavAbort, { once: true });
+    }
+
     try {
         const resp = await fetch(url, { ...options, signal: ctrl.signal });
         const entry = endPerf({ status: resp.status });
@@ -59,6 +76,11 @@ async function fofiApiFetch(url, options, label = "FoFi") {
         return resp;
     } catch (err) {
         const isTimeout = err.name === "AbortError";
+        // Distinguish navigation abort from timeout
+        if (isTimeout && navSignal?.aborted) {
+            endPerf({ status: 0, error: "navigation cancelled" });
+            throw new Error("Request cancelled — navigated away.");
+        }
         const errMsg = isTimeout ? "timeout" : `network error: ${err.message}`;
         endPerf({ status: 0, error: errMsg });
         logger.error("FoFi", `${label} ${errMsg}`, { method, url });
@@ -66,6 +88,7 @@ async function fofiApiFetch(url, options, label = "FoFi") {
         throw err;
     } finally {
         clearTimeout(timer);
+        if (navSignal) navSignal.removeEventListener('abort', onNavAbort);
     }
 }
 
@@ -95,7 +118,7 @@ export async function generateFofiOrder(payload) {
         gateway: payload.gateway || "",
         gatewaytxnid: payload.gatewaytxnid || "",
         orderedbytype: payload.orderedbytype || "crmapp",
-        paidamount: String(payload.paidamount || "0"),
+        paidamount: Number(payload.paidamount || "0"),  // Backend expects numeric type, not string
         paymentmode: payload.paymentmode || "offline",
         payresponse: payload.payresponse || "",
         paytype: payload.paytype || "upgrade",
@@ -160,6 +183,10 @@ export async function getSpecialInternetPlans(payload) {
  * @returns {Promise<Object>} Response containing validation status
  */
 export async function validateBeforeFofiBoxReg(payload) {
+    const cacheKey = `valbfr_${payload.username || ''}`;
+    const cached = lsGet(cacheKey, 5 * 60 * 1000); // 5 min TTL
+    if (cached) { perfMonitor.recordCacheHit("FoFi", "validateBeforeFofiBoxReg", cacheKey); return cached; }
+
     const url = `${getBaseUrl()}ServiceApis/validateBeforeFofiBoxReg`;
     const headers = getHeadersJson();
 
@@ -177,6 +204,7 @@ export async function validateBeforeFofiBoxReg(payload) {
 
     const data = await resp.json();
     logger.debug("FoFi", "validateBeforeFofiBoxReg response", { errCode: data?.status?.err_code });
+    lsSet(cacheKey, data);
     return data;
 }
 
@@ -272,7 +300,7 @@ export async function validateFoFiAsset(payload) {
     const url = `${getBaseUrl()}fofi/fofiapis/validateAsset`;
     const headers = getBasicAuthHeader();
 
-    logger.debug("FoFi", "validateFoFiAsset request", { serialno: payload.serialno });
+    logger.debug("FoFi", "validateFoFiAsset request", { serialno: payload.serialno, mac_addr: payload.mac_addr, userid: payload.userid, boxid: payload.boxid });
 
     const resp = await fofiApiFetch(url, {
         method: "POST",
@@ -280,11 +308,15 @@ export async function validateFoFiAsset(payload) {
         body: JSON.stringify(payload),
     }, "validateFoFiAsset");
 
-    if (!resp.ok) {
+    // Try to parse the body even on !resp.ok — the backend returns
+    // err_msg on 4xx too (e.g. "device not belongs op(BBNL_OP49)").
+    // If we blanket-throw on HTTP status, we lose the actionable message.
+    let data = null;
+    try { data = await resp.json(); } catch (_) { data = null; }
+    if (!resp.ok && !data?.status?.err_msg) {
         throw new Error(`Failed to validate FoFi asset: HTTP ${resp.status}`);
     }
-
-    const data = await resp.json();
+    logger.debug("FoFi", "validateFoFiAsset response", { errCode: data?.status?.err_code, errMsg: data?.status?.err_msg });
     return data;
 }
 

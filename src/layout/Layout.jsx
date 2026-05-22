@@ -7,7 +7,7 @@ export default function Layout({ children, hideHeader = false, hideBottomNav = f
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <div className="min-h-screen flex flex-col overflow-x-hidden">
+    <div className="min-h-screen flex flex-col overflow-x-clip">
       {/* Header */}
       {!hideHeader && <Header onOpenSidebar={() => setSidebarOpen(true)} />}
 

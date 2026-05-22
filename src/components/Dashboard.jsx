@@ -1,23 +1,31 @@
 
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useState, useCallback } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { UsersIcon, BellAlertIcon, SignalIcon, TicketIcon, ChartBarIcon, ArchiveBoxIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
 import { getAdvertisements, getIptvMobile } from "../services/iptvApi"
 import { proxyImageUrl } from "../services/iptvImage"
 import { Swiper, SwiperSlide } from 'swiper/react'
 import { Autoplay } from 'swiper/modules'
 import 'swiper/css'
-import { getWalBal } from "../services/generalApis";
+import { getCustList, getTickets, getWalBal } from "../services/generalApis";
 import { Modal } from "@/components/ui";
 import { getUser } from "../services/safeStorage";
 
 export default function Dashboard() {
-  const logUname = getUser().username || "";
+  const user = getUser();
+  const logUname = user.username || "";
+  const opId = user.op_id || "";
+  const location = useLocation();
   const [intWB, setIntWB] = useState(0);
   const [fofiWB, setFofiWB] = useState(0);
   const [adList, setAdList] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [greet, setGreet] = useState(false);
+  const [dashboardCounts, setDashboardCounts] = useState({
+    todayExpiry: 0,
+    liveUsers: 0,
+    tickets: 0,
+  });
 
   // Show welcome greeting on first login (once)
   useEffect(() => {
@@ -34,22 +42,82 @@ export default function Dashboard() {
     }
   }, []);
 
-  useEffect(() => {
-    // Fetch everything in parallel — wallet balances + ads all at once
-    const mobile = getIptvMobile();
+  // Refresh wallet balances — called on mount and when page regains focus.
+  // skipCache=true bypasses the localStorage cache so the balance is fresh
+  // (e.g. after a payment that changed the actual balance on the server).
+  function refreshWalletBalances(skipCache = false) {
+    if (!logUname) return;
     Promise.all([
-      getWalBal({ loginuname: logUname, servicekey: 'internet' }).catch(() => null),
-      getWalBal({ loginuname: logUname, servicekey: 'fofi' }).catch(() => null),
-      mobile ? getAdvertisements({ mobile }).catch(() => null) : Promise.resolve(null),
-    ]).then(([intData, fofiData, adData]) => {
+      getWalBal({ loginuname: logUname, servicekey: 'internet' }, skipCache).catch(() => null),
+      getWalBal({ loginuname: logUname, servicekey: 'fofi' }, skipCache).catch(() => null),
+    ]).then(([intData, fofiData]) => {
       if (intData?.status?.err_code === 0)
         setIntWB((intData?.body?.wallet_balance || 0).toFixed(2));
       if (fofiData?.status?.err_code === 0)
         setFofiWB((fofiData?.body?.wallet_balance || 0).toFixed(2));
-      const list = (adData?.body?.[0]?.ads || []).filter(a => a.content);
-      if (list.length > 0) setAdList(list);
     });
+  }
+
+  function refreshDashboardCounts(skipCache = false) {
+    if (!logUname) return;
+
+    const customerPayload = { username: logUname, servid: 1, search: [{ platform: "iptv", providerid: 5 }] };
+    const ticketPayload = { user: logUname, op_id: opId, dept: '' };
+
+    Promise.all([
+      getCustList(customerPayload, 'expiring').catch(() => null),
+      getCustList(customerPayload, 'live').catch(() => null),
+      getTickets('PENDING', ticketPayload).catch(() => null),
+    ]).then(([expiringData, liveData, ticketData]) => {
+      setDashboardCounts({
+        todayExpiry: expiringData?.status?.err_code === 0 && Array.isArray(expiringData?.body) ? expiringData.body.length : 0,
+        liveUsers: liveData?.status?.err_code === 0 && Array.isArray(liveData?.body) ? liveData.body.length : 0,
+        tickets: ticketData?.status?.err_code === 0 && Array.isArray(ticketData?.body) ? ticketData.body.length : 0,
+      });
+    });
+  }
+
+  useEffect(() => {
+    // Fetch everything in parallel — wallet balances + ads all at once
+    const mobile = getIptvMobile();
+    refreshWalletBalances();
+    refreshDashboardCounts();
+    if (mobile) {
+      getAdvertisements({ mobile }).then(adData => {
+        const list = (adData?.body?.[0]?.ads || []).filter(a => a.content);
+        if (list.length > 0) setAdList(list);
+      }).catch(() => {});
+    }
+
+    // Re-fetch wallet balances when user navigates back to this page
+    // (e.g. after payment, the app navigates to '/' but the balance is stale)
+    // skipCache=true so we always hit the API, not the 5-min localStorage cache
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshWalletBalances(true);
+        refreshDashboardCounts(true);
+      }
+    };
+    const onPageShow = () => {
+      refreshWalletBalances(true);
+      refreshDashboardCounts(true);
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pageshow', onPageShow);
+    window.addEventListener('focus', onPageShow);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('pageshow', onPageShow);
+      window.removeEventListener('focus', onPageShow);
+    };
   }, []);
+
+  // Re-fetch wallet when navigating back to dashboard (e.g. after payment)
+  // location.key changes on each navigation — skip cache to get fresh balance
+  useEffect(() => {
+    refreshWalletBalances(true);
+    refreshDashboardCounts(true);
+  }, [location.key]);
 
   const cardItems = [
     { id: 'addUser', title: 'Add User', Icon: UsersIcon, path: '/register' },
@@ -92,6 +160,9 @@ export default function Dashboard() {
               <Icon className="h-5 w-5 text-indigo-600 dark:text-indigo-300" />
             </div>
             <p className="text-[13px] leading-tight font-semibold">{title}</p>
+            {id === 'todayExpiry' && <p className="mt-1 text-[12px] font-semibold text-indigo-600 dark:text-indigo-300">{dashboardCounts.todayExpiry}</p>}
+            {id === 'liveUsers' && <p className="mt-1 text-[12px] font-semibold text-indigo-600 dark:text-indigo-300">{dashboardCounts.liveUsers}</p>}
+            {id === 'tickets' && <p className="mt-1 text-[12px] font-semibold text-indigo-600 dark:text-indigo-300">P-{dashboardCounts.tickets}</p>}
           </Link>
         ))}
       </div>

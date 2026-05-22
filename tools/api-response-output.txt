@@ -1,0 +1,4259 @@
+﻿Testing apis/makepayment for userid=iptvuser, opid=BBNL_OP49
+
+
+======================================================================
+  A) General Headers (employee appkeytype)
+  HTTP 200
+======================================================================
+Request body: { apiopid: 'BBNL_OP49', apptype: 'crmapp', apiuserid: 'iptvuser' }
+
+Full Response JSON:
+{
+  "error": 0,
+  "atomconfig": {
+    "mode": "live",
+    "login": "1398",
+    "pass": "BBNL@123",
+    "prodid": "Multi",
+    "currency": "INR",
+    "hashkey": "2727885556618727aa",
+    "responsehaskey": "7132902fa18f57d76b"
+  },
+  "atomlocalconfig": "1",
+  "result": {
+    "message": [],
+    "iptv_pkgname": "",
+    "iptv_pkgid": "",
+    "ispending": "no",
+    "planrate": 1,
+    "prevbalance": 0,
+    "srvid": "573",
+    "oldtotamt": 0,
+    "oldpaidamt": 0,
+    "penalty": {
+      "month": 0,
+      "amt": 0,
+      "total": 0
+    },
+    "plantype": "unlimited",
+    "current_expiry": "2026-08-30 23:59:59",
+    "gstno": "",
+    "planname": "3days_plan_bbnl",
+    "mobile": "8971912737",
+    "onlinepay": "enable",
+    "othcharge": {
+      "amt": 0,
+      "reason": ""
+    },
+    "wallet": {
+      "flag": 1,
+      "avlbal": "13713.51"
+    },
+    "planrates": {
+      "1": {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": "1.00",
+        "planamt": 1,
+        "subtotal": 1,
+        "noofdays": 30,
+        "total": 1,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "29-Sep-2026",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0.18,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 1,
+          "prate": "1.00",
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 1,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 1,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 1,
+        "title": "1 Month"
+      },
+      "3": {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 90,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "28-Nov-2026",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 3,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 3,
+        "title": "3 Months"
+      },
+      "6": {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 180,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "26-Feb-2027",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 6,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 6,
+        "title": "6 Months"
+      },
+      "12": {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 360,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "25-Aug-2027",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 12,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 12,
+        "title": "12 Months"
+      }
+    },
+    "planrates_android": [
+      {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": "1.00",
+        "planamt": 1,
+        "subtotal": 1,
+        "noofdays": 30,
+        "total": 1,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "29-Sep-2026",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0.18,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 1,
+          "prate": "1.00",
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 1,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 1,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 1,
+        "title": "1 Month"
+      },
+      {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 90,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "28-Nov-2026",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 3,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 3,
+        "title": "3 Months"
+      },
+      {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 180,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "26-Feb-2027",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 6,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 6,
+        "title": "6 Months"
+      },
+      {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 360,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "25-Aug-2027",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 12,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 12,
+        "title": "12 Months"
+      }
+    ],
+    "merchanttxnid": "0605202669fadf5576746",
+    "easebuzzpay_cred": {
+      "fofieasebuzz": {
+        "key": "J1Y6UTE561",
+        "salt": "Z147KD2MLW",
+        "env": "prod"
+      },
+      "easebuzz": {
+        "key": "P0O87KRJ4R",
+        "salt": "PM1XH32XM4",
+        "env": "prod"
+      },
+      "easebuzztest": {
+        "key": "2PBP7IABZ2",
+        "salt": "DAH88E3UWQ",
+        "env": "test"
+      }
+    }
+  }
+}
+
+--- KEY FIELDS ---
+planname: 3days_plan_bbnl
+planrate: 1
+total: undefined
+balamt: undefined
+cgst: undefined
+sgst: undefined
+
+planrates_android (4 entries):
+
+  [0]:
+    planname: undefined
+    planrate: 1.00
+    total: 1
+    balamt: undefined
+    month: 1
+    cgst: undefined
+    sgst: undefined
+    shareinfo: {
+      "bbnlshare": 0,
+      "optrshare": 0,
+      "tds": 0,
+      "gst": 0.18,
+      "softcharge": 10,
+      "totbbnlshare": 10,
+      "agrCost": 0,
+      "custdisc": 0,
+      "othamt": 0,
+      "balamt": 0,
+      "checkuserpayable": 0,
+      "penaltyamt": 0,
+      "month": 1,
+      "prate": "1.00",
+      "custpaidamt": 0,
+      "bbnlpercent": "0",
+      "voicecallshare": 0,
+      "fofishare": 0,
+      "ftashare": 0,
+      "bokehshare": 0,
+      "internetprice": 1,
+      "voicecallprice": 0,
+      "fofiprice": 0,
+      "ftaprice": 0,
+      "bokehprice": 0,
+      "tdspercent": "2.0",
+      "gstpercent": "18.00",
+      "freeinternet": "paidnet",
+      "balancemonth": 0,
+      "cable_bbnlshare": 0,
+      "cable_oprtrshare": 0,
+      "cable_bbnlgst": 0,
+      "cable_oprtrgst": 0,
+      "internet_bbnlgst": 0,
+      "internet_oprtrgst": 0,
+      "cabletv_pkgid": "",
+      "cable_custrate": 0,
+      "prated": 1,
+      "cable_pkgname": "",
+      "is_my_plan_is_cabletv": false,
+      "isNewSchemeOperator": "no",
+      "getNewSchemeOperatorPrice": null,
+      "license_fee": 0,
+      "box_cost_applied": 0,
+      "box_cost_original": 0,
+      "customer_zone": "",
+      "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+      },
+      "waive_license_fee": false
+}
+    ALL KEYS: discount, othcharge, planrate, planamt, subtotal, noofdays, total, taxdetails, validity, plandiscount, shareinfo, mprod, split, month, title
+
+  [1]:
+    planname: undefined
+    planrate: undefined
+    total: undefined
+    balamt: undefined
+    month: 3
+    cgst: undefined
+    sgst: undefined
+    shareinfo: {
+      "bbnlshare": 0,
+      "optrshare": 0,
+      "tds": 0,
+      "gst": 0,
+      "softcharge": 10,
+      "totbbnlshare": 10,
+      "agrCost": 0,
+      "custdisc": 0,
+      "othamt": 0,
+      "balamt": 0,
+      "checkuserpayable": 0,
+      "penaltyamt": 0,
+      "month": 3,
+      "prate": 0,
+      "custpaidamt": 0,
+      "bbnlpercent": "0",
+      "voicecallshare": 0,
+      "fofishare": 0,
+      "ftashare": 0,
+      "bokehshare": 0,
+      "internetprice": 0,
+      "voicecallprice": 0,
+      "fofiprice": 0,
+      "ftaprice": 0,
+      "bokehprice": 0,
+      "tdspercent": "2.0",
+      "gstpercent": "18.00",
+      "freeinternet": "paidnet",
+      "balancemonth": 0,
+      "cable_bbnlshare": 0,
+      "cable_oprtrshare": 0,
+      "cable_bbnlgst": 0,
+      "cable_oprtrgst": 0,
+      "internet_bbnlgst": 0,
+      "internet_oprtrgst": 0,
+      "cabletv_pkgid": "",
+      "cable_custrate": 0,
+      "prated": 0,
+      "cable_pkgname": "",
+      "is_my_plan_is_cabletv": false,
+      "isNewSchemeOperator": "no",
+      "getNewSchemeOperatorPrice": null,
+      "license_fee": 0,
+      "box_cost_applied": 0,
+      "box_cost_original": 0,
+      "customer_zone": "",
+      "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+      },
+      "waive_license_fee": false
+}
+    ALL KEYS: discount, othcharge, planrate, planamt, subtotal, noofdays, total, taxdetails, validity, plandiscount, shareinfo, mprod, split, month, title
+
+  [2]:
+    planname: undefined
+    planrate: undefined
+    total: undefined
+    balamt: undefined
+    month: 6
+    cgst: undefined
+    sgst: undefined
+    shareinfo: {
+      "bbnlshare": 0,
+      "optrshare": 0,
+      "tds": 0,
+      "gst": 0,
+      "softcharge": 10,
+      "totbbnlshare": 10,
+      "agrCost": 0,
+      "custdisc": 0,
+      "othamt": 0,
+      "balamt": 0,
+      "checkuserpayable": 0,
+      "penaltyamt": 0,
+      "month": 6,
+      "prate": 0,
+      "custpaidamt": 0,
+      "bbnlpercent": "0",
+      "voicecallshare": 0,
+      "fofishare": 0,
+      "ftashare": 0,
+      "bokehshare": 0,
+      "internetprice": 0,
+      "voicecallprice": 0,
+      "fofiprice": 0,
+      "ftaprice": 0,
+      "bokehprice": 0,
+      "tdspercent": "2.0",
+      "gstpercent": "18.00",
+      "freeinternet": "paidnet",
+      "balancemonth": 0,
+      "cable_bbnlshare": 0,
+      "cable_oprtrshare": 0,
+      "cable_bbnlgst": 0,
+      "cable_oprtrgst": 0,
+      "internet_bbnlgst": 0,
+      "internet_oprtrgst": 0,
+      "cabletv_pkgid": "",
+      "cable_custrate": 0,
+      "prated": 0,
+      "cable_pkgname": "",
+      "is_my_plan_is_cabletv": false,
+      "isNewSchemeOperator": "no",
+      "getNewSchemeOperatorPrice": null,
+      "license_fee": 0,
+      "box_cost_applied": 0,
+      "box_cost_original": 0,
+      "customer_zone": "",
+      "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+      },
+      "waive_license_fee": false
+}
+    ALL KEYS: discount, othcharge, planrate, planamt, subtotal, noofdays, total, taxdetails, validity, plandiscount, shareinfo, mprod, split, month, title
+
+  [3]:
+    planname: undefined
+    planrate: undefined
+    total: undefined
+    balamt: undefined
+    month: 12
+    cgst: undefined
+    sgst: undefined
+    shareinfo: {
+      "bbnlshare": 0,
+      "optrshare": 0,
+      "tds": 0,
+      "gst": 0,
+      "softcharge": 10,
+      "totbbnlshare": 10,
+      "agrCost": 0,
+      "custdisc": 0,
+      "othamt": 0,
+      "balamt": 0,
+      "checkuserpayable": 0,
+      "penaltyamt": 0,
+      "month": 12,
+      "prate": 0,
+      "custpaidamt": 0,
+      "bbnlpercent": "0",
+      "voicecallshare": 0,
+      "fofishare": 0,
+      "ftashare": 0,
+      "bokehshare": 0,
+      "internetprice": 0,
+      "voicecallprice": 0,
+      "fofiprice": 0,
+      "ftaprice": 0,
+      "bokehprice": 0,
+      "tdspercent": "2.0",
+      "gstpercent": "18.00",
+      "freeinternet": "paidnet",
+      "balancemonth": 0,
+      "cable_bbnlshare": 0,
+      "cable_oprtrshare": 0,
+      "cable_bbnlgst": 0,
+      "cable_oprtrgst": 0,
+      "internet_bbnlgst": 0,
+      "internet_oprtrgst": 0,
+      "cabletv_pkgid": "",
+      "cable_custrate": 0,
+      "prated": 0,
+      "cable_pkgname": "",
+      "is_my_plan_is_cabletv": false,
+      "isNewSchemeOperator": "no",
+      "getNewSchemeOperatorPrice": null,
+      "license_fee": 0,
+      "box_cost_applied": 0,
+      "box_cost_original": 0,
+      "customer_zone": "",
+      "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+      },
+      "waive_license_fee": false
+}
+    ALL KEYS: discount, othcharge, planrate, planamt, subtotal, noofdays, total, taxdetails, validity, plandiscount, shareinfo, mprod, split, month, title
+
+======================================================================
+  B) General Headers (customer appkeytype)
+  HTTP 200
+======================================================================
+Request body: { apiopid: 'BBNL_OP49', apptype: 'crmapp', apiuserid: 'iptvuser' }
+
+Full Response JSON:
+{
+  "error": 0,
+  "atomconfig": {
+    "mode": "live",
+    "login": "1398",
+    "pass": "BBNL@123",
+    "prodid": "Multi",
+    "currency": "INR",
+    "hashkey": "2727885556618727aa",
+    "responsehaskey": "7132902fa18f57d76b"
+  },
+  "atomlocalconfig": "1",
+  "result": {
+    "message": [],
+    "iptv_pkgname": "",
+    "iptv_pkgid": "",
+    "ispending": "no",
+    "planrate": 1,
+    "prevbalance": 0,
+    "srvid": "573",
+    "oldtotamt": 0,
+    "oldpaidamt": 0,
+    "penalty": {
+      "month": 0,
+      "amt": 0,
+      "total": 0
+    },
+    "plantype": "unlimited",
+    "current_expiry": "2026-08-30 23:59:59",
+    "gstno": "",
+    "planname": "3days_plan_bbnl",
+    "mobile": "8971912737",
+    "onlinepay": "enable",
+    "othcharge": {
+      "amt": 0,
+      "reason": ""
+    },
+    "wallet": {
+      "flag": 1,
+      "avlbal": "13713.51"
+    },
+    "planrates": {
+      "1": {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": "1.00",
+        "planamt": 1,
+        "subtotal": 1,
+        "noofdays": 30,
+        "total": 1,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "29-Sep-2026",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0.18,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 1,
+          "prate": "1.00",
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 1,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 1,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 1,
+        "title": "1 Month"
+      },
+      "3": {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 90,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "28-Nov-2026",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 3,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 3,
+        "title": "3 Months"
+      },
+      "6": {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 180,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "26-Feb-2027",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 6,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 6,
+        "title": "6 Months"
+      },
+      "12": {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 360,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "25-Aug-2027",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 12,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 12,
+        "title": "12 Months"
+      }
+    },
+    "planrates_android": [
+      {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": "1.00",
+        "planamt": 1,
+        "subtotal": 1,
+        "noofdays": 30,
+        "total": 1,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "29-Sep-2026",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0.18,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 1,
+          "prate": "1.00",
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 1,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 1,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 1,
+        "title": "1 Month"
+      },
+      {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 90,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "28-Nov-2026",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 3,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 3,
+        "title": "3 Months"
+      },
+      {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 180,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "26-Feb-2027",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 6,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 6,
+        "title": "6 Months"
+      },
+      {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 360,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "25-Aug-2027",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 12,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 12,
+        "title": "12 Months"
+      }
+    ],
+    "merchanttxnid": "0605202669fadf56aa3b4",
+    "easebuzzpay_cred": {
+      "fofieasebuzz": {
+        "key": "J1Y6UTE561",
+        "salt": "Z147KD2MLW",
+        "env": "prod"
+      },
+      "easebuzz": {
+        "key": "P0O87KRJ4R",
+        "salt": "PM1XH32XM4",
+        "env": "prod"
+      },
+      "easebuzztest": {
+        "key": "2PBP7IABZ2",
+        "salt": "DAH88E3UWQ",
+        "env": "test"
+      }
+    }
+  }
+}
+
+--- KEY FIELDS ---
+planname: 3days_plan_bbnl
+planrate: 1
+total: undefined
+balamt: undefined
+cgst: undefined
+sgst: undefined
+
+planrates_android (4 entries):
+
+  [0]:
+    planname: undefined
+    planrate: 1.00
+    total: 1
+    balamt: undefined
+    month: 1
+    cgst: undefined
+    sgst: undefined
+    shareinfo: {
+      "bbnlshare": 0,
+      "optrshare": 0,
+      "tds": 0,
+      "gst": 0.18,
+      "softcharge": 10,
+      "totbbnlshare": 10,
+      "agrCost": 0,
+      "custdisc": 0,
+      "othamt": 0,
+      "balamt": 0,
+      "checkuserpayable": 0,
+      "penaltyamt": 0,
+      "month": 1,
+      "prate": "1.00",
+      "custpaidamt": 0,
+      "bbnlpercent": "0",
+      "voicecallshare": 0,
+      "fofishare": 0,
+      "ftashare": 0,
+      "bokehshare": 0,
+      "internetprice": 1,
+      "voicecallprice": 0,
+      "fofiprice": 0,
+      "ftaprice": 0,
+      "bokehprice": 0,
+      "tdspercent": "2.0",
+      "gstpercent": "18.00",
+      "freeinternet": "paidnet",
+      "balancemonth": 0,
+      "cable_bbnlshare": 0,
+      "cable_oprtrshare": 0,
+      "cable_bbnlgst": 0,
+      "cable_oprtrgst": 0,
+      "internet_bbnlgst": 0,
+      "internet_oprtrgst": 0,
+      "cabletv_pkgid": "",
+      "cable_custrate": 0,
+      "prated": 1,
+      "cable_pkgname": "",
+      "is_my_plan_is_cabletv": false,
+      "isNewSchemeOperator": "no",
+      "getNewSchemeOperatorPrice": null,
+      "license_fee": 0,
+      "box_cost_applied": 0,
+      "box_cost_original": 0,
+      "customer_zone": "",
+      "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+      },
+      "waive_license_fee": false
+}
+    ALL KEYS: discount, othcharge, planrate, planamt, subtotal, noofdays, total, taxdetails, validity, plandiscount, shareinfo, mprod, split, month, title
+
+  [1]:
+    planname: undefined
+    planrate: undefined
+    total: undefined
+    balamt: undefined
+    month: 3
+    cgst: undefined
+    sgst: undefined
+    shareinfo: {
+      "bbnlshare": 0,
+      "optrshare": 0,
+      "tds": 0,
+      "gst": 0,
+      "softcharge": 10,
+      "totbbnlshare": 10,
+      "agrCost": 0,
+      "custdisc": 0,
+      "othamt": 0,
+      "balamt": 0,
+      "checkuserpayable": 0,
+      "penaltyamt": 0,
+      "month": 3,
+      "prate": 0,
+      "custpaidamt": 0,
+      "bbnlpercent": "0",
+      "voicecallshare": 0,
+      "fofishare": 0,
+      "ftashare": 0,
+      "bokehshare": 0,
+      "internetprice": 0,
+      "voicecallprice": 0,
+      "fofiprice": 0,
+      "ftaprice": 0,
+      "bokehprice": 0,
+      "tdspercent": "2.0",
+      "gstpercent": "18.00",
+      "freeinternet": "paidnet",
+      "balancemonth": 0,
+      "cable_bbnlshare": 0,
+      "cable_oprtrshare": 0,
+      "cable_bbnlgst": 0,
+      "cable_oprtrgst": 0,
+      "internet_bbnlgst": 0,
+      "internet_oprtrgst": 0,
+      "cabletv_pkgid": "",
+      "cable_custrate": 0,
+      "prated": 0,
+      "cable_pkgname": "",
+      "is_my_plan_is_cabletv": false,
+      "isNewSchemeOperator": "no",
+      "getNewSchemeOperatorPrice": null,
+      "license_fee": 0,
+      "box_cost_applied": 0,
+      "box_cost_original": 0,
+      "customer_zone": "",
+      "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+      },
+      "waive_license_fee": false
+}
+    ALL KEYS: discount, othcharge, planrate, planamt, subtotal, noofdays, total, taxdetails, validity, plandiscount, shareinfo, mprod, split, month, title
+
+  [2]:
+    planname: undefined
+    planrate: undefined
+    total: undefined
+    balamt: undefined
+    month: 6
+    cgst: undefined
+    sgst: undefined
+    shareinfo: {
+      "bbnlshare": 0,
+      "optrshare": 0,
+      "tds": 0,
+      "gst": 0,
+      "softcharge": 10,
+      "totbbnlshare": 10,
+      "agrCost": 0,
+      "custdisc": 0,
+      "othamt": 0,
+      "balamt": 0,
+      "checkuserpayable": 0,
+      "penaltyamt": 0,
+      "month": 6,
+      "prate": 0,
+      "custpaidamt": 0,
+      "bbnlpercent": "0",
+      "voicecallshare": 0,
+      "fofishare": 0,
+      "ftashare": 0,
+      "bokehshare": 0,
+      "internetprice": 0,
+      "voicecallprice": 0,
+      "fofiprice": 0,
+      "ftaprice": 0,
+      "bokehprice": 0,
+      "tdspercent": "2.0",
+      "gstpercent": "18.00",
+      "freeinternet": "paidnet",
+      "balancemonth": 0,
+      "cable_bbnlshare": 0,
+      "cable_oprtrshare": 0,
+      "cable_bbnlgst": 0,
+      "cable_oprtrgst": 0,
+      "internet_bbnlgst": 0,
+      "internet_oprtrgst": 0,
+      "cabletv_pkgid": "",
+      "cable_custrate": 0,
+      "prated": 0,
+      "cable_pkgname": "",
+      "is_my_plan_is_cabletv": false,
+      "isNewSchemeOperator": "no",
+      "getNewSchemeOperatorPrice": null,
+      "license_fee": 0,
+      "box_cost_applied": 0,
+      "box_cost_original": 0,
+      "customer_zone": "",
+      "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+      },
+      "waive_license_fee": false
+}
+    ALL KEYS: discount, othcharge, planrate, planamt, subtotal, noofdays, total, taxdetails, validity, plandiscount, shareinfo, mprod, split, month, title
+
+  [3]:
+    planname: undefined
+    planrate: undefined
+    total: undefined
+    balamt: undefined
+    month: 12
+    cgst: undefined
+    sgst: undefined
+    shareinfo: {
+      "bbnlshare": 0,
+      "optrshare": 0,
+      "tds": 0,
+      "gst": 0,
+      "softcharge": 10,
+      "totbbnlshare": 10,
+      "agrCost": 0,
+      "custdisc": 0,
+      "othamt": 0,
+      "balamt": 0,
+      "checkuserpayable": 0,
+      "penaltyamt": 0,
+      "month": 12,
+      "prate": 0,
+      "custpaidamt": 0,
+      "bbnlpercent": "0",
+      "voicecallshare": 0,
+      "fofishare": 0,
+      "ftashare": 0,
+      "bokehshare": 0,
+      "internetprice": 0,
+      "voicecallprice": 0,
+      "fofiprice": 0,
+      "ftaprice": 0,
+      "bokehprice": 0,
+      "tdspercent": "2.0",
+      "gstpercent": "18.00",
+      "freeinternet": "paidnet",
+      "balancemonth": 0,
+      "cable_bbnlshare": 0,
+      "cable_oprtrshare": 0,
+      "cable_bbnlgst": 0,
+      "cable_oprtrgst": 0,
+      "internet_bbnlgst": 0,
+      "internet_oprtrgst": 0,
+      "cabletv_pkgid": "",
+      "cable_custrate": 0,
+      "prated": 0,
+      "cable_pkgname": "",
+      "is_my_plan_is_cabletv": false,
+      "isNewSchemeOperator": "no",
+      "getNewSchemeOperatorPrice": null,
+      "license_fee": 0,
+      "box_cost_applied": 0,
+      "box_cost_original": 0,
+      "customer_zone": "",
+      "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+      },
+      "waive_license_fee": false
+}
+    ALL KEYS: discount, othcharge, planrate, planamt, subtotal, noofdays, total, taxdetails, validity, plandiscount, shareinfo, mprod, split, month, title
+
+======================================================================
+  C) Payment Headers (employee appkeytype)
+  HTTP 200
+======================================================================
+Request body: { apiopid: 'BBNL_OP49', apptype: 'crmapp', apiuserid: 'iptvuser' }
+
+Full Response JSON:
+{
+  "error": 0,
+  "atomconfig": {
+    "mode": "live",
+    "login": "1398",
+    "pass": "BBNL@123",
+    "prodid": "Multi",
+    "currency": "INR",
+    "hashkey": "2727885556618727aa",
+    "responsehaskey": "7132902fa18f57d76b"
+  },
+  "atomlocalconfig": "1",
+  "result": {
+    "message": [],
+    "iptv_pkgname": "",
+    "iptv_pkgid": "",
+    "ispending": "no",
+    "planrate": 1,
+    "prevbalance": 0,
+    "srvid": "573",
+    "oldtotamt": 0,
+    "oldpaidamt": 0,
+    "penalty": {
+      "month": 0,
+      "amt": 0,
+      "total": 0
+    },
+    "plantype": "unlimited",
+    "current_expiry": "2026-08-30 23:59:59",
+    "gstno": "",
+    "planname": "3days_plan_bbnl",
+    "mobile": "8971912737",
+    "onlinepay": "enable",
+    "othcharge": {
+      "amt": 0,
+      "reason": ""
+    },
+    "wallet": {
+      "flag": 1,
+      "avlbal": "13713.51"
+    },
+    "planrates": {
+      "1": {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": "1.00",
+        "planamt": 1,
+        "subtotal": 1,
+        "noofdays": 30,
+        "total": 1,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "29-Sep-2026",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0.18,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 1,
+          "prate": "1.00",
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 1,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 1,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 1,
+        "title": "1 Month"
+      },
+      "3": {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 90,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "28-Nov-2026",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 3,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 3,
+        "title": "3 Months"
+      },
+      "6": {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 180,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "26-Feb-2027",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 6,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 6,
+        "title": "6 Months"
+      },
+      "12": {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 360,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "25-Aug-2027",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 12,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 12,
+        "title": "12 Months"
+      }
+    },
+    "planrates_android": [
+      {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": "1.00",
+        "planamt": 1,
+        "subtotal": 1,
+        "noofdays": 30,
+        "total": 1,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "29-Sep-2026",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0.18,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 1,
+          "prate": "1.00",
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 1,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 1,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 1,
+        "title": "1 Month"
+      },
+      {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 90,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "28-Nov-2026",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 3,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 3,
+        "title": "3 Months"
+      },
+      {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 180,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "26-Feb-2027",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 6,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 6,
+        "title": "6 Months"
+      },
+      {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 360,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "25-Aug-2027",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 12,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 12,
+        "title": "12 Months"
+      }
+    ],
+    "merchanttxnid": "0605202669fadf57aaae4",
+    "easebuzzpay_cred": {
+      "fofieasebuzz": {
+        "key": "J1Y6UTE561",
+        "salt": "Z147KD2MLW",
+        "env": "prod"
+      },
+      "easebuzz": {
+        "key": "P0O87KRJ4R",
+        "salt": "PM1XH32XM4",
+        "env": "prod"
+      },
+      "easebuzztest": {
+        "key": "2PBP7IABZ2",
+        "salt": "DAH88E3UWQ",
+        "env": "test"
+      }
+    }
+  }
+}
+
+--- KEY FIELDS ---
+planname: 3days_plan_bbnl
+planrate: 1
+total: undefined
+balamt: undefined
+cgst: undefined
+sgst: undefined
+
+planrates_android (4 entries):
+
+  [0]:
+    planname: undefined
+    planrate: 1.00
+    total: 1
+    balamt: undefined
+    month: 1
+    cgst: undefined
+    sgst: undefined
+    shareinfo: {
+      "bbnlshare": 0,
+      "optrshare": 0,
+      "tds": 0,
+      "gst": 0.18,
+      "softcharge": 10,
+      "totbbnlshare": 10,
+      "agrCost": 0,
+      "custdisc": 0,
+      "othamt": 0,
+      "balamt": 0,
+      "checkuserpayable": 0,
+      "penaltyamt": 0,
+      "month": 1,
+      "prate": "1.00",
+      "custpaidamt": 0,
+      "bbnlpercent": "0",
+      "voicecallshare": 0,
+      "fofishare": 0,
+      "ftashare": 0,
+      "bokehshare": 0,
+      "internetprice": 1,
+      "voicecallprice": 0,
+      "fofiprice": 0,
+      "ftaprice": 0,
+      "bokehprice": 0,
+      "tdspercent": "2.0",
+      "gstpercent": "18.00",
+      "freeinternet": "paidnet",
+      "balancemonth": 0,
+      "cable_bbnlshare": 0,
+      "cable_oprtrshare": 0,
+      "cable_bbnlgst": 0,
+      "cable_oprtrgst": 0,
+      "internet_bbnlgst": 0,
+      "internet_oprtrgst": 0,
+      "cabletv_pkgid": "",
+      "cable_custrate": 0,
+      "prated": 1,
+      "cable_pkgname": "",
+      "is_my_plan_is_cabletv": false,
+      "isNewSchemeOperator": "no",
+      "getNewSchemeOperatorPrice": null,
+      "license_fee": 0,
+      "box_cost_applied": 0,
+      "box_cost_original": 0,
+      "customer_zone": "",
+      "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+      },
+      "waive_license_fee": false
+}
+    ALL KEYS: discount, othcharge, planrate, planamt, subtotal, noofdays, total, taxdetails, validity, plandiscount, shareinfo, mprod, split, month, title
+
+  [1]:
+    planname: undefined
+    planrate: undefined
+    total: undefined
+    balamt: undefined
+    month: 3
+    cgst: undefined
+    sgst: undefined
+    shareinfo: {
+      "bbnlshare": 0,
+      "optrshare": 0,
+      "tds": 0,
+      "gst": 0,
+      "softcharge": 10,
+      "totbbnlshare": 10,
+      "agrCost": 0,
+      "custdisc": 0,
+      "othamt": 0,
+      "balamt": 0,
+      "checkuserpayable": 0,
+      "penaltyamt": 0,
+      "month": 3,
+      "prate": 0,
+      "custpaidamt": 0,
+      "bbnlpercent": "0",
+      "voicecallshare": 0,
+      "fofishare": 0,
+      "ftashare": 0,
+      "bokehshare": 0,
+      "internetprice": 0,
+      "voicecallprice": 0,
+      "fofiprice": 0,
+      "ftaprice": 0,
+      "bokehprice": 0,
+      "tdspercent": "2.0",
+      "gstpercent": "18.00",
+      "freeinternet": "paidnet",
+      "balancemonth": 0,
+      "cable_bbnlshare": 0,
+      "cable_oprtrshare": 0,
+      "cable_bbnlgst": 0,
+      "cable_oprtrgst": 0,
+      "internet_bbnlgst": 0,
+      "internet_oprtrgst": 0,
+      "cabletv_pkgid": "",
+      "cable_custrate": 0,
+      "prated": 0,
+      "cable_pkgname": "",
+      "is_my_plan_is_cabletv": false,
+      "isNewSchemeOperator": "no",
+      "getNewSchemeOperatorPrice": null,
+      "license_fee": 0,
+      "box_cost_applied": 0,
+      "box_cost_original": 0,
+      "customer_zone": "",
+      "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+      },
+      "waive_license_fee": false
+}
+    ALL KEYS: discount, othcharge, planrate, planamt, subtotal, noofdays, total, taxdetails, validity, plandiscount, shareinfo, mprod, split, month, title
+
+  [2]:
+    planname: undefined
+    planrate: undefined
+    total: undefined
+    balamt: undefined
+    month: 6
+    cgst: undefined
+    sgst: undefined
+    shareinfo: {
+      "bbnlshare": 0,
+      "optrshare": 0,
+      "tds": 0,
+      "gst": 0,
+      "softcharge": 10,
+      "totbbnlshare": 10,
+      "agrCost": 0,
+      "custdisc": 0,
+      "othamt": 0,
+      "balamt": 0,
+      "checkuserpayable": 0,
+      "penaltyamt": 0,
+      "month": 6,
+      "prate": 0,
+      "custpaidamt": 0,
+      "bbnlpercent": "0",
+      "voicecallshare": 0,
+      "fofishare": 0,
+      "ftashare": 0,
+      "bokehshare": 0,
+      "internetprice": 0,
+      "voicecallprice": 0,
+      "fofiprice": 0,
+      "ftaprice": 0,
+      "bokehprice": 0,
+      "tdspercent": "2.0",
+      "gstpercent": "18.00",
+      "freeinternet": "paidnet",
+      "balancemonth": 0,
+      "cable_bbnlshare": 0,
+      "cable_oprtrshare": 0,
+      "cable_bbnlgst": 0,
+      "cable_oprtrgst": 0,
+      "internet_bbnlgst": 0,
+      "internet_oprtrgst": 0,
+      "cabletv_pkgid": "",
+      "cable_custrate": 0,
+      "prated": 0,
+      "cable_pkgname": "",
+      "is_my_plan_is_cabletv": false,
+      "isNewSchemeOperator": "no",
+      "getNewSchemeOperatorPrice": null,
+      "license_fee": 0,
+      "box_cost_applied": 0,
+      "box_cost_original": 0,
+      "customer_zone": "",
+      "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+      },
+      "waive_license_fee": false
+}
+    ALL KEYS: discount, othcharge, planrate, planamt, subtotal, noofdays, total, taxdetails, validity, plandiscount, shareinfo, mprod, split, month, title
+
+  [3]:
+    planname: undefined
+    planrate: undefined
+    total: undefined
+    balamt: undefined
+    month: 12
+    cgst: undefined
+    sgst: undefined
+    shareinfo: {
+      "bbnlshare": 0,
+      "optrshare": 0,
+      "tds": 0,
+      "gst": 0,
+      "softcharge": 10,
+      "totbbnlshare": 10,
+      "agrCost": 0,
+      "custdisc": 0,
+      "othamt": 0,
+      "balamt": 0,
+      "checkuserpayable": 0,
+      "penaltyamt": 0,
+      "month": 12,
+      "prate": 0,
+      "custpaidamt": 0,
+      "bbnlpercent": "0",
+      "voicecallshare": 0,
+      "fofishare": 0,
+      "ftashare": 0,
+      "bokehshare": 0,
+      "internetprice": 0,
+      "voicecallprice": 0,
+      "fofiprice": 0,
+      "ftaprice": 0,
+      "bokehprice": 0,
+      "tdspercent": "2.0",
+      "gstpercent": "18.00",
+      "freeinternet": "paidnet",
+      "balancemonth": 0,
+      "cable_bbnlshare": 0,
+      "cable_oprtrshare": 0,
+      "cable_bbnlgst": 0,
+      "cable_oprtrgst": 0,
+      "internet_bbnlgst": 0,
+      "internet_oprtrgst": 0,
+      "cabletv_pkgid": "",
+      "cable_custrate": 0,
+      "prated": 0,
+      "cable_pkgname": "",
+      "is_my_plan_is_cabletv": false,
+      "isNewSchemeOperator": "no",
+      "getNewSchemeOperatorPrice": null,
+      "license_fee": 0,
+      "box_cost_applied": 0,
+      "box_cost_original": 0,
+      "customer_zone": "",
+      "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+      },
+      "waive_license_fee": false
+}
+    ALL KEYS: discount, othcharge, planrate, planamt, subtotal, noofdays, total, taxdetails, validity, plandiscount, shareinfo, mprod, split, month, title
+
+======================================================================
+  D) Payment Headers + loginuname
+  HTTP 200
+======================================================================
+Request body: {
+  apiopid: 'BBNL_OP49',
+  apptype: 'crmapp',
+  apiuserid: 'iptvuser',
+  loginuname: 'superadmin'
+}
+
+Full Response JSON:
+{
+  "error": 0,
+  "atomconfig": {
+    "mode": "live",
+    "login": "1398",
+    "pass": "BBNL@123",
+    "prodid": "Multi",
+    "currency": "INR",
+    "hashkey": "2727885556618727aa",
+    "responsehaskey": "7132902fa18f57d76b"
+  },
+  "atomlocalconfig": "1",
+  "result": {
+    "message": [],
+    "iptv_pkgname": "",
+    "iptv_pkgid": "",
+    "ispending": "no",
+    "planrate": 1,
+    "prevbalance": 0,
+    "srvid": "573",
+    "oldtotamt": 0,
+    "oldpaidamt": 0,
+    "penalty": {
+      "month": 0,
+      "amt": 0,
+      "total": 0
+    },
+    "plantype": "unlimited",
+    "current_expiry": "2026-08-30 23:59:59",
+    "gstno": "",
+    "planname": "3days_plan_bbnl",
+    "mobile": "8971912737",
+    "onlinepay": "enable",
+    "othcharge": {
+      "amt": 0,
+      "reason": ""
+    },
+    "wallet": {
+      "flag": 1,
+      "avlbal": "13713.51"
+    },
+    "planrates": {
+      "1": {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": "1.00",
+        "planamt": 1,
+        "subtotal": 1,
+        "noofdays": 30,
+        "total": 1,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "29-Sep-2026",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0.18,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 1,
+          "prate": "1.00",
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 1,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 1,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 1,
+        "title": "1 Month"
+      },
+      "3": {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 90,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "28-Nov-2026",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 3,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 3,
+        "title": "3 Months"
+      },
+      "6": {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 180,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "26-Feb-2027",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 6,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 6,
+        "title": "6 Months"
+      },
+      "12": {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 360,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "25-Aug-2027",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 12,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 12,
+        "title": "12 Months"
+      }
+    },
+    "planrates_android": [
+      {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": "1.00",
+        "planamt": 1,
+        "subtotal": 1,
+        "noofdays": 30,
+        "total": 1,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "29-Sep-2026",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0.18,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 1,
+          "prate": "1.00",
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 1,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 1,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 1,
+        "title": "1 Month"
+      },
+      {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 90,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "28-Nov-2026",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 3,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 3,
+        "title": "3 Months"
+      },
+      {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 180,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "26-Feb-2027",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 6,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 6,
+        "title": "6 Months"
+      },
+      {
+        "discount": {
+          "type": null,
+          "perc": 0,
+          "reason": null,
+          "amt": 0
+        },
+        "othcharge": {
+          "amt": 0,
+          "reason": ""
+        },
+        "planrate": 0,
+        "planamt": 0,
+        "subtotal": 0,
+        "noofdays": 360,
+        "total": 0,
+        "taxdetails": {
+          "title": "GST Tax",
+          "perc": 18,
+          "value": 0,
+          "subtaxes": {
+            "CGST": {
+              "perc": "9",
+              "value": 0
+            },
+            "SGST": {
+              "perc": "9",
+              "value": 0
+            }
+          }
+        },
+        "validity": "25-Aug-2027",
+        "plandiscount": 0,
+        "shareinfo": {
+          "bbnlshare": 0,
+          "optrshare": 0,
+          "tds": 0,
+          "gst": 0,
+          "softcharge": 10,
+          "totbbnlshare": 10,
+          "agrCost": 0,
+          "custdisc": 0,
+          "othamt": 0,
+          "balamt": 0,
+          "checkuserpayable": 0,
+          "penaltyamt": 0,
+          "month": 12,
+          "prate": 0,
+          "custpaidamt": 0,
+          "bbnlpercent": "0",
+          "voicecallshare": 0,
+          "fofishare": 0,
+          "ftashare": 0,
+          "bokehshare": 0,
+          "internetprice": 0,
+          "voicecallprice": 0,
+          "fofiprice": 0,
+          "ftaprice": 0,
+          "bokehprice": 0,
+          "tdspercent": "2.0",
+          "gstpercent": "18.00",
+          "freeinternet": "paidnet",
+          "balancemonth": 0,
+          "cable_bbnlshare": 0,
+          "cable_oprtrshare": 0,
+          "cable_bbnlgst": 0,
+          "cable_oprtrgst": 0,
+          "internet_bbnlgst": 0,
+          "internet_oprtrgst": 0,
+          "cabletv_pkgid": "",
+          "cable_custrate": 0,
+          "prated": 0,
+          "cable_pkgname": "",
+          "is_my_plan_is_cabletv": false,
+          "isNewSchemeOperator": "no",
+          "getNewSchemeOperatorPrice": null,
+          "license_fee": 0,
+          "box_cost_applied": 0,
+          "box_cost_original": 0,
+          "customer_zone": "",
+          "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+          },
+          "waive_license_fee": false
+        },
+        "mprod": "<products><product><id>1</id><name>BANGALORE</name><amount>10</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 40 perc</param1></product><product><id>BBNL_OP49</id><name>BBNL_OP49</name><amount>0</amount><param1>Internet Renewal from payurbills to the BBNL_OP49, 60 perc</param1></product></products>",
+        "split": "{\"DEFAULT\":10,\"BBNL_OP49\":0}",
+        "month": 12,
+        "title": "12 Months"
+      }
+    ],
+    "merchanttxnid": "0605202669fadf588ad0e",
+    "easebuzzpay_cred": {
+      "fofieasebuzz": {
+        "key": "J1Y6UTE561",
+        "salt": "Z147KD2MLW",
+        "env": "prod"
+      },
+      "easebuzz": {
+        "key": "P0O87KRJ4R",
+        "salt": "PM1XH32XM4",
+        "env": "prod"
+      },
+      "easebuzztest": {
+        "key": "2PBP7IABZ2",
+        "salt": "DAH88E3UWQ",
+        "env": "test"
+      }
+    }
+  }
+}
+
+--- KEY FIELDS ---
+planname: 3days_plan_bbnl
+planrate: 1
+total: undefined
+balamt: undefined
+cgst: undefined
+sgst: undefined
+
+planrates_android (4 entries):
+
+  [0]:
+    planname: undefined
+    planrate: 1.00
+    total: 1
+    balamt: undefined
+    month: 1
+    cgst: undefined
+    sgst: undefined
+    shareinfo: {
+      "bbnlshare": 0,
+      "optrshare": 0,
+      "tds": 0,
+      "gst": 0.18,
+      "softcharge": 10,
+      "totbbnlshare": 10,
+      "agrCost": 0,
+      "custdisc": 0,
+      "othamt": 0,
+      "balamt": 0,
+      "checkuserpayable": 0,
+      "penaltyamt": 0,
+      "month": 1,
+      "prate": "1.00",
+      "custpaidamt": 0,
+      "bbnlpercent": "0",
+      "voicecallshare": 0,
+      "fofishare": 0,
+      "ftashare": 0,
+      "bokehshare": 0,
+      "internetprice": 1,
+      "voicecallprice": 0,
+      "fofiprice": 0,
+      "ftaprice": 0,
+      "bokehprice": 0,
+      "tdspercent": "2.0",
+      "gstpercent": "18.00",
+      "freeinternet": "paidnet",
+      "balancemonth": 0,
+      "cable_bbnlshare": 0,
+      "cable_oprtrshare": 0,
+      "cable_bbnlgst": 0,
+      "cable_oprtrgst": 0,
+      "internet_bbnlgst": 0,
+      "internet_oprtrgst": 0,
+      "cabletv_pkgid": "",
+      "cable_custrate": 0,
+      "prated": 1,
+      "cable_pkgname": "",
+      "is_my_plan_is_cabletv": false,
+      "isNewSchemeOperator": "no",
+      "getNewSchemeOperatorPrice": null,
+      "license_fee": 0,
+      "box_cost_applied": 0,
+      "box_cost_original": 0,
+      "customer_zone": "",
+      "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+      },
+      "waive_license_fee": false
+}
+    ALL KEYS: discount, othcharge, planrate, planamt, subtotal, noofdays, total, taxdetails, validity, plandiscount, shareinfo, mprod, split, month, title
+
+  [1]:
+    planname: undefined
+    planrate: undefined
+    total: undefined
+    balamt: undefined
+    month: 3
+    cgst: undefined
+    sgst: undefined
+    shareinfo: {
+      "bbnlshare": 0,
+      "optrshare": 0,
+      "tds": 0,
+      "gst": 0,
+      "softcharge": 10,
+      "totbbnlshare": 10,
+      "agrCost": 0,
+      "custdisc": 0,
+      "othamt": 0,
+      "balamt": 0,
+      "checkuserpayable": 0,
+      "penaltyamt": 0,
+      "month": 3,
+      "prate": 0,
+      "custpaidamt": 0,
+      "bbnlpercent": "0",
+      "voicecallshare": 0,
+      "fofishare": 0,
+      "ftashare": 0,
+      "bokehshare": 0,
+      "internetprice": 0,
+      "voicecallprice": 0,
+      "fofiprice": 0,
+      "ftaprice": 0,
+      "bokehprice": 0,
+      "tdspercent": "2.0",
+      "gstpercent": "18.00",
+      "freeinternet": "paidnet",
+      "balancemonth": 0,
+      "cable_bbnlshare": 0,
+      "cable_oprtrshare": 0,
+      "cable_bbnlgst": 0,
+      "cable_oprtrgst": 0,
+      "internet_bbnlgst": 0,
+      "internet_oprtrgst": 0,
+      "cabletv_pkgid": "",
+      "cable_custrate": 0,
+      "prated": 0,
+      "cable_pkgname": "",
+      "is_my_plan_is_cabletv": false,
+      "isNewSchemeOperator": "no",
+      "getNewSchemeOperatorPrice": null,
+      "license_fee": 0,
+      "box_cost_applied": 0,
+      "box_cost_original": 0,
+      "customer_zone": "",
+      "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+      },
+      "waive_license_fee": false
+}
+    ALL KEYS: discount, othcharge, planrate, planamt, subtotal, noofdays, total, taxdetails, validity, plandiscount, shareinfo, mprod, split, month, title
+
+  [2]:
+    planname: undefined
+    planrate: undefined
+    total: undefined
+    balamt: undefined
+    month: 6
+    cgst: undefined
+    sgst: undefined
+    shareinfo: {
+      "bbnlshare": 0,
+      "optrshare": 0,
+      "tds": 0,
+      "gst": 0,
+      "softcharge": 10,
+      "totbbnlshare": 10,
+      "agrCost": 0,
+      "custdisc": 0,
+      "othamt": 0,
+      "balamt": 0,
+      "checkuserpayable": 0,
+      "penaltyamt": 0,
+      "month": 6,
+      "prate": 0,
+      "custpaidamt": 0,
+      "bbnlpercent": "0",
+      "voicecallshare": 0,
+      "fofishare": 0,
+      "ftashare": 0,
+      "bokehshare": 0,
+      "internetprice": 0,
+      "voicecallprice": 0,
+      "fofiprice": 0,
+      "ftaprice": 0,
+      "bokehprice": 0,
+      "tdspercent": "2.0",
+      "gstpercent": "18.00",
+      "freeinternet": "paidnet",
+      "balancemonth": 0,
+      "cable_bbnlshare": 0,
+      "cable_oprtrshare": 0,
+      "cable_bbnlgst": 0,
+      "cable_oprtrgst": 0,
+      "internet_bbnlgst": 0,
+      "internet_oprtrgst": 0,
+      "cabletv_pkgid": "",
+      "cable_custrate": 0,
+      "prated": 0,
+      "cable_pkgname": "",
+      "is_my_plan_is_cabletv": false,
+      "isNewSchemeOperator": "no",
+      "getNewSchemeOperatorPrice": null,
+      "license_fee": 0,
+      "box_cost_applied": 0,
+      "box_cost_original": 0,
+      "customer_zone": "",
+      "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+      },
+      "waive_license_fee": false
+}
+    ALL KEYS: discount, othcharge, planrate, planamt, subtotal, noofdays, total, taxdetails, validity, plandiscount, shareinfo, mprod, split, month, title
+
+  [3]:
+    planname: undefined
+    planrate: undefined
+    total: undefined
+    balamt: undefined
+    month: 12
+    cgst: undefined
+    sgst: undefined
+    shareinfo: {
+      "bbnlshare": 0,
+      "optrshare": 0,
+      "tds": 0,
+      "gst": 0,
+      "softcharge": 10,
+      "totbbnlshare": 10,
+      "agrCost": 0,
+      "custdisc": 0,
+      "othamt": 0,
+      "balamt": 0,
+      "checkuserpayable": 0,
+      "penaltyamt": 0,
+      "month": 12,
+      "prate": 0,
+      "custpaidamt": 0,
+      "bbnlpercent": "0",
+      "voicecallshare": 0,
+      "fofishare": 0,
+      "ftashare": 0,
+      "bokehshare": 0,
+      "internetprice": 0,
+      "voicecallprice": 0,
+      "fofiprice": 0,
+      "ftaprice": 0,
+      "bokehprice": 0,
+      "tdspercent": "2.0",
+      "gstpercent": "18.00",
+      "freeinternet": "paidnet",
+      "balancemonth": 0,
+      "cable_bbnlshare": 0,
+      "cable_oprtrshare": 0,
+      "cable_bbnlgst": 0,
+      "cable_oprtrgst": 0,
+      "internet_bbnlgst": 0,
+      "internet_oprtrgst": 0,
+      "cabletv_pkgid": "",
+      "cable_custrate": 0,
+      "prated": 0,
+      "cable_pkgname": "",
+      "is_my_plan_is_cabletv": false,
+      "isNewSchemeOperator": "no",
+      "getNewSchemeOperatorPrice": null,
+      "license_fee": 0,
+      "box_cost_applied": 0,
+      "box_cost_original": 0,
+      "customer_zone": "",
+      "waiver_flags": {
+            "SOFTWARE": false,
+            "FOFI": true
+      },
+      "waive_license_fee": false
+}
+    ALL KEYS: discount, othcharge, planrate, planamt, subtotal, noofdays, total, taxdetails, validity, plandiscount, shareinfo, mprod, split, month, title
