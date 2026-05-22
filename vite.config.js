@@ -2,8 +2,57 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from "path";
+import { fileURLToPath } from "node:url";
 import { VitePWA } from 'vite-plugin-pwa'
 import streamProxyPlugin from "./stream-proxy-plugin.js"
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+/**
+ * Generates .htaccess in dist/ with the correct RewriteBase
+ * derived from VITE_API_APP_DIR_PATH. This replaces the static
+ * public/.htaccess so test (/pwa/crm/) and prod (/smartphone/crm/)
+ * builds both get the right SPA fallback.
+ */
+/**
+ * Swap the apple-touch-icon filename in index.html at build time
+ * so test builds get the dark icon and production gets the blue icon.
+ */
+function appleIconPlugin(appleIconFile) {
+  return {
+    name: 'swap-apple-icon',
+    apply: 'build',
+    transformIndexHtml(html) {
+      return html.replace(/apple-icon-180\.png/g, appleIconFile);
+    },
+  };
+}
+
+function htaccessPlugin(basePath) {
+  return {
+    name: 'generate-htaccess',
+    apply: 'build',
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: '.htaccess',
+        source: `<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase ${basePath}
+
+  # If the requested file or directory exists, serve it directly
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+
+  # Otherwise, redirect everything to index.html (SPA fallback)
+  RewriteRule . index.html [L]
+</IfModule>
+`,
+      });
+    },
+  };
+}
 
 export default ({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
@@ -22,6 +71,11 @@ export default ({ mode }) => {
   }
 
   const basePath = env.VITE_API_APP_DIR_PATH || '/';
+  const isTest = mode === 'test';
+  // Test build: dark/black icons — Production build: blue icons
+  const iconPrefix = isTest ? 'icon-192-test' : 'icon-192';
+  const iconPrefix512 = isTest ? 'icon-512-test' : 'icon-512';
+  const appleIcon = isTest ? 'apple-icon-180-test.png' : 'apple-icon-180.png';
 
   // Unique build stamp — used by client-side cache health check to detect
   // when the running app is stale after a new deployment.
@@ -34,6 +88,8 @@ export default ({ mode }) => {
     plugins: [
       react(),
       streamProxyPlugin(),
+      htaccessPlugin(basePath),
+      appleIconPlugin(appleIcon),
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['icons/logo.png'],
@@ -59,27 +115,16 @@ export default ({ mode }) => {
           // Runtime caching strategies for Android Chrome performance
           runtimeCaching: [
             // IPTV channel logos & ad images — CacheFirst
-            // Serves cached logos instantly; only hits the network on a
-            // cache miss.  Channel logos rarely change so CacheFirst avoids
-            // unnecessary background refetches for 275+ images.
-            // Matches: /showimage/..., /adimage/... (dev & legacy prod),
-            // and cdn1.bbnl.in/cable/... (nginx CDN for channel logos).
-            // Cache both normal (200) and opaque (0) responses.
-            // CDN (cdn1.bbnl.in) lacks CORS headers, so cross-origin <img> requests
-            // produce opaque responses (status 0). Without caching opaque responses,
-            // every page load re-fetches ALL 275+ logos from CDN — no offline, no speed.
-            // With status 0 allowed, the SW caches the <img> responses and serves them
-            // instantly on return visits and offline.
+            // Serves cached logos instantly; only hits the network on a cache miss.
+            // Matches: /showimage/ and /adimage/ paths (production server).
             {
-              urlPattern: /(?:\/(?:showimage|adimage)\/|cdn1\.bbnl\.in\/cable\/)/i,
+              urlPattern: /\/(?:showimage|adimage)\//i,
               handler: 'CacheFirst',
               options: {
-                cacheName: 'channel-assets-v3',
+                cacheName: 'channel-assets-v4',
                 // 500 entries = 275 channel logos + ~30 language logos + ~50 ad images + headroom
-                // 30-day TTL (reduced from 60) — shorter for opaque responses since we can't
-                // validate their content; this ensures stale entries cycle out faster.
                 expiration: { maxEntries: 500, maxAgeSeconds: 30 * 24 * 60 * 60 },
-                cacheableResponse: { statuses: [0, 200] },
+                cacheableResponse: { statuses: [200] },
               },
             },
             // JS/CSS app assets — Stale-While-Revalidate (instant load, background refresh)
@@ -147,8 +192,10 @@ export default ({ mode }) => {
           background_color: '#0f172a',
           theme_color: '#0f172a',
           icons: [
-            { src: basePath + 'icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
-            { src: basePath + 'icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+            { src: basePath + `icons/${iconPrefix}.png`, sizes: '192x192', type: 'image/png', purpose: 'any' },
+            { src: basePath + `icons/${iconPrefix512}.png`, sizes: '512x512', type: 'image/png', purpose: 'any' },
+            { src: basePath + `icons/${iconPrefix}.png`, sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+            { src: basePath + `icons/${iconPrefix512}.png`, sizes: '512x512', type: 'image/png', purpose: 'maskable' }
           ]
         }
       })
@@ -159,6 +206,14 @@ export default ({ mode }) => {
       pure: mode === 'production' ? ['console.log', 'console.debug', 'console.info'] : [],
     },
     build: {
+      // Explicit downlevel target so older mobile WebViews in the field
+      // (iOS 14 Safari, Android Chrome 87) can parse the shipped bundles.
+      // Without this, Vite's default `modules` target uses features (class
+      // fields, logical assignment, some private-method forms) that parse-
+      // error on those older browsers, which shows up as the app "loading
+      // fine on one phone and blank on another". esbuild downlevels to
+      // meet the most restrictive target in this list.
+      target: ['es2019', 'safari14', 'chrome87', 'firefox78', 'edge88'],
       // Suppress Vite's eager <link rel="modulepreload"> for heavy chunks.
       // Without this, Vite injects modulepreload hints for pdf (574KB),
       // maps (146KB), animations (120KB), hls (509KB), swiper (68KB) into
@@ -220,7 +275,7 @@ export default ({ mode }) => {
           configure: addIptvAuth,
         },
         "/api": {
-          target: "https://netmontest.bbnl.in/netmon/",
+          target: "http://124.40.244.211/netmon/",
           changeOrigin: true,
           secure: false,
           rewrite: (path) => path.replace(/^\/api/, ""),

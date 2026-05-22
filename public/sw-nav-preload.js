@@ -10,7 +10,7 @@
  */
 // Stale caches to delete on activation — bumped to v2 to purge corrupted
 // opaque (status 0) responses that CacheFirst served forever.
-var STALE_CACHES = ['channel-assets-v1', 'channel-assets-v2'];
+var STALE_CACHES = ['channel-assets-v1', 'channel-assets-v2', 'channel-assets-v3'];
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(

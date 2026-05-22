@@ -18,19 +18,12 @@ export default function Loader({
 
   const LoadingSpinner = () => (
     <div className="relative">
-      {/* Outer rotating ring */}
+      {/* Simple rotating ring — no inner circle to avoid resembling a logo */}
       <motion.div
-        className={`${sizeClasses[size]} rounded-full border-4 border-indigo-200`}
-        style={{ borderTopColor: '#4f46e5' }}
+        className={`${sizeClasses[size]} rounded-full border-4 border-gray-200`}
+        style={{ borderTopColor: '#6366f1' }}
         animate={{ rotate: 360 }}
         transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-      />
-
-      {/* Inner pulsing circle */}
-      <motion.div
-        className="absolute inset-0 m-auto h-3 w-3 rounded-full bg-indigo-600"
-        animate={{ scale: [1, 1.2, 1], opacity: [1, 0.7, 1] }}
-        transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
       />
     </div>
   );

@@ -1,8 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeftIcon, FunnelIcon } from "@heroicons/react/24/outline";
 import ServiceSelectionModal from "../../components/ui/ServiceSelectionModal";
-import { Loader } from "@/components/ui";
 import BottomNav from "../../components/BottomNav";
 import {
   getUserAssignedItems,
@@ -11,7 +10,10 @@ import {
   getMyPlanDetails,
   getCustKYCPreview
 } from "../../services/generalApis";
-import { lsGetStale } from "../../services/lsCache";
+import { canonicalServiceKey } from "../../constants/services";
+import { loadKycWithRetry } from "../../utils/kycRetry";
+import { lsGetStale, lsRemove } from "../../services/lsCache";
+import { refreshServiceController } from "../../services/navigationController";
 import { formatCustomerId } from "../../services/helpers";
 import { useToast } from "@/components/ui/Toast";
 
@@ -26,101 +28,210 @@ export default function InternetService() {
 
   // Use actual customer data from API (passed from customer list)
   const customerData = location.state?.customer;
+  const servicesFromState = location.state?.services || [];
   const userid = customerData?.customer_id || customerId;
+  // Refresh flags from a successful payment return — when true, we
+  // wipe the cached plan/assigned-items entries before hydrating so
+  // the operator sees the new plan name + expiry instead of the
+  // pre-payment values.
+  const refreshData = location.state?.refreshData;
+  const paymentSuccess = location.state?.paymentSuccess;
 
-  // Try to hydrate from cache synchronously for instant render
-  const _cachedAI = userid ? lsGetStale(`uai_internet_${userid}`, OVERVIEW_TTL) : null;
-  const _cachedCD = userid ? lsGetStale(`cblcust_${userid}`, OVERVIEW_TTL) : null;
-  const _cachedPD = userid ? lsGetStale(`pricust_${userid}`, OVERVIEW_TTL) : null;
-  const _cachedPlan = userid ? lsGetStale(`plandets_internet_${userid}_`, OVERVIEW_TTL) : null;
-  const _hasCached = !!(_cachedAI || _cachedCD || _cachedPD || _cachedPlan);
+  // Try to hydrate from cache synchronously for instant render — but
+  // skip the cache entirely when we just landed back from a successful
+  // payment, otherwise the operator briefly sees the OLD plan / OLD
+  // expiry until the background refetch lands.
+  const _useCacheForRender = !refreshData;
+  const _cachedAI = (_useCacheForRender && userid) ? lsGetStale(`uai_internet_${userid}`, OVERVIEW_TTL) : null;
+  const _cachedCD = (_useCacheForRender && userid) ? lsGetStale(`cblcust_${userid}`, OVERVIEW_TTL) : null;
+  const _cachedPlan = (_useCacheForRender && userid) ? lsGetStale(`plandets_internet_${userid}_`, OVERVIEW_TTL) : null;
+  const _hasCachedPlan = !!(_cachedAI || _cachedPlan);
 
   // API states — initialize from cache if available (instant render)
+  const _cachedPC = (_useCacheForRender && userid) ? lsGetStale(`pricust_${userid}`, OVERVIEW_TTL) : null;
   const [assignedItems, setAssignedItems] = useState(_cachedAI?.data || null);
   const [cableDetails, setCableDetails] = useState(_cachedCD?.data || null);
-  const [primaryDetails, setPrimaryDetails] = useState(_cachedPD?.data || null);
+  const [primaryCustomerDetails, setPrimaryCustomerDetails] = useState(_cachedPC?.data || null);
   const [planDetails, setPlanDetails] = useState(_cachedPlan?.data || null);
-  const [loading, setLoading] = useState(!_hasCached); // Skip spinner if cache hit
+  const [planLoading, setPlanLoading] = useState(!_hasCachedPlan); // Only for plan section
+  const [renewalStatusReady, setRenewalStatusReady] = useState(false);
   const [error, setError] = useState("");
   const [uploadLoading, setUploadLoading] = useState(false);
+  const lastRenewalCheckRef = useRef(0);
 
   useEffect(() => {
+    // Cancel any in-flight requests from a previous service page
+    refreshServiceController();
+
+    // Post-payment cache invalidation — wipe every cached entry that
+    // could surface stale plan name / expiry / assigned-items info,
+    // then force the fetch below to bypass cache. This is what makes
+    // the new plan + new expiry appear automatically on the
+    // Customer OverView immediately after a successful payment.
+    if (refreshData && userid) {
+      try {
+        lsRemove(`uai_internet_${userid}`);
+        lsRemove(`plandets_internet_${userid}_`);
+        lsRemove(`cblcust_${userid}`);
+        lsRemove(`pricust_${userid}`);
+      } catch (_) {}
+    }
+
     async function fetchOverview() {
-      // If no cache, show loading spinner; otherwise fetch silently in background
-      if (!_hasCached) {
-        setLoading(true);
+      // Only show loading for plan/internet sections, not the whole page
+      setRenewalStatusReady(false);
+      if (!_hasCachedPlan) {
+        setPlanLoading(true);
         setError("");
       }
-      let hasAnyData = _hasCached;
 
-      // Fetch all APIs in parallel
-      const calls = [
-        { fn: () => getUserAssignedItems("internet", userid), set: setAssignedItems, label: "assigned items" },
-        { fn: () => getCableCustomerDetails(userid), set: setCableDetails, label: "cable details" },
-        { fn: () => getPrimaryCustomerDetails(userid), set: setPrimaryDetails, label: "primary details" },
-        { fn: () => getMyPlanDetails({ servicekey: "internet", userid, fofiboxid: "", voipnumber: "" }), set: setPlanDetails, label: "plan details" },
-      ];
+      // Fetch critical APIs (needed for render) in parallel.
+      // Pass skipCache=true after a payment so we don't accidentally
+      // serve the pre-payment cache that getUserAssignedItems /
+      // getMyPlanDetails populated on the previous overview visit.
+      const skipCache = !!refreshData;
+      const skipPlanCache = true;
+      const [aiResult, planResult] = await Promise.allSettled([
+        getUserAssignedItems("internet", userid, skipCache),
+        getMyPlanDetails({ servicekey: "internet", userid, fofiboxid: "", voipnumber: "" }, skipPlanCache),
+      ]);
 
-      await Promise.all(
-        calls.map(async ({ fn, set, label }) => {
-          try {
-            const data = await fn();
-            set(data);
-            hasAnyData = true;
-          } catch (err) {
-            console.error(`Error fetching ${label}:`, err);
-          }
-        })
-      );
+      // Ignore results if requests were cancelled due to navigation
+      const navCancelled = (r) => r.status === "rejected" && r.reason?.message?.includes('navigated away');
+      if (navCancelled(aiResult) || navCancelled(planResult)) return;
 
-      if (!hasAnyData) {
+      if (aiResult.status === "fulfilled") setAssignedItems(aiResult.value);
+      else console.error("Error fetching assigned items:", aiResult.reason);
+
+      if (planResult.status === "fulfilled") {
+        setPlanDetails(planResult.value);
+        setRenewalStatusReady(true);
+      } else {
+        console.error("Error fetching plan details:", planResult.reason);
+        // Ensure ready is true so we don't stay in a permanent loading state 
+        // if the API fails, but the button will remain disabled due to missing data.
+        setRenewalStatusReady(true);
+      }
+
+      if (aiResult.status === "rejected" && planResult.status === "rejected" && !_hasCachedPlan) {
         setError("Failed to load customer overview data.");
       }
-      setLoading(false);
+      setPlanLoading(false);
+
+
+      // Fetch cable + primary customer details in parallel.
+      // These two endpoints round out the four-call set the backend
+      // team confirmed for the Internet Customer OverView screen:
+      //
+      //   1. ServiceApis/getUserAssignedItems  (above, in parallel)
+      //   2. ServiceApis/getMyPlanDetails      (above, in parallel)
+      //   3. GeneralApi/cblCustDet              (here)
+      //   4. cabletvapis/primaryCustdet         (here)
+      //
+      // Both 3 and 4 are fire-and-forget for the initial render —
+      // they're consumed by downstream button handlers (Pay Bill,
+      // Order History, Upload Document) so we don't block the
+      // overview paint waiting for them.
+      getCableCustomerDetails(userid, !!refreshData)
+        .then(setCableDetails)
+        .catch(err => {
+          if (err?.message?.includes('navigated away')) return;
+          console.error("Error fetching cable details:", err);
+        });
+      getPrimaryCustomerDetails(userid, !!refreshData)
+        .then(setPrimaryCustomerDetails)
+        .catch(err => {
+          if (err?.message?.includes('navigated away')) return;
+          console.error("Error fetching primary customer details:", err);
+        });
     }
     if (userid) fetchOverview();
-  }, [userid]);
 
-  // Handle service selection
+    // Strip the refreshData / paymentSuccess flags from the history
+    // entry after we've consumed them. Otherwise a page-refresh on
+    // this route would re-fire the cache wipe + fetch on every
+    // reload until the operator navigated away.
+    if (refreshData || paymentSuccess) {
+      try {
+        const cleaned = {
+          ...(window.history.state || {}),
+          usr: { ...((window.history.state && window.history.state.usr) || {}), refreshData: false, paymentSuccess: false },
+        };
+        window.history.replaceState(cleaned, document.title, window.location.pathname + window.location.search);
+      } catch (_) { /* defensive */ }
+    }
+  }, [userid, refreshData, paymentSuccess]);
+
+  // Handle service selection — peer service switch.
+  // replace: true so flipping between Internet/IPTV/Voice/FoFi via the
+  // picker doesn't stack entries in history. Back should return to the
+  // customer services list, not walk through every peer service visited.
   const handleServiceSelect = (service) => {
     setShowServiceModal(false);
+    if (!service) return;
 
-    const serviceId = service.id || service;
+    const serviceId = (service.id || '').toLowerCase();
+    const serviceName = (service.name || '').toLowerCase();
 
-    if (serviceId === 'iptv') {
+    if (serviceId === 'iptv' || serviceName.includes('cable') || serviceName.includes('iptv')) {
       navigate(`/customer/${customerId}/service/iptv`, {
-        state: { customer: customerData }
+        replace: true,
+        state: { customer: customerData, services: servicesFromState }
       });
-    } else if (serviceId === 'voice') {
+    } else if (serviceId === 'voice' || serviceName.includes('voice')) {
       navigate(`/customer/${customerId}/service/voice`, {
-        state: { customer: customerData }
+        replace: true,
+        state: { customer: customerData, services: servicesFromState }
       });
-    } else if (serviceId === 'fofi') {
+    } else if (serviceId === 'fofi' || serviceName.includes('fofi') || serviceName.includes('fo-fi') || serviceName.includes('smart box')) {
       navigate(`/customer/${customerId}/service/fofi-smart-box`, {
-        state: { customer: customerData }
+        replace: true,
+        state: { customer: customerData, services: servicesFromState }
       });
     }
   };
 
   // Extract data from API responses
   const internetId = assignedItems?.body?.internet?.[0]?.product_name || userid;
-  const internetService = planDetails?.body?.subscribed_services?.find(s => s.servicekey === 'internet');
+  const internetService = planDetails?.body?.subscribed_services?.find(s => canonicalServiceKey(s?.servicekey) === 'internet');
   const planName = internetService?.planname || 'N/A';
   const expiryDate = internetService?.expirydate || 'N/A';
   const serviceName = internetService?.title || 'internet';
+  const renewalStatus = String(planDetails?.body?.other_service_renewal?.btn_status || '').toLowerCase();
+  const isRenewalDisabled = !renewalStatusReady || renewalStatus !== 'enable';
 
   // Handle payment button click
-  const handlePayBill = () => {
-    const op_id = cableDetails?.body?.op_id || customerData?.op_id;
 
-    // Navigate to payment page with payment data
+  const handlePayBill = async () => {
+    const op_id = cableDetails?.body?.op_id || customerData?.op_id;
+    let latestPlan = planDetails;
+
+    try {
+      const fresh = await getMyPlanDetails({ servicekey: "internet", userid, fofiboxid: "", voipnumber: "" }, true);
+      if (fresh?.status?.err_code === 0) {
+        latestPlan = fresh;
+        setPlanDetails(fresh);
+      }
+    } catch (err) {
+      console.error("Error verifying renewal status:", err);
+      toast.add('Unable to verify payment status. Please try again.', { type: 'error' });
+      return;
+    }
+
+    const latestStatus = String(latestPlan?.body?.other_service_renewal?.btn_status || '').toLowerCase();
+    if (latestStatus === 'disable') {
+      const errMsg = latestPlan?.body?.other_service_renewal?.err_msg || 'Operator is disabled.';
+      toast.add(errMsg, { type: 'error' });
+      return;
+    }
+
     navigate('/payment', {
       state: {
         customer: customerData,
         servicekey: 'internet',
         userid: userid,
         op_id: op_id,
-        planDetails: planDetails,
+        planDetails: latestPlan,
         cableDetails: cableDetails
       }
     });
@@ -139,30 +250,36 @@ export default function InternetService() {
     });
   };
 
-  // Handle Order History button click
+  // Handle Order History button click — only Internet bills.
   const handleOrderHistory = () => {
     navigate('/payment-history', {
       state: {
         customer: customerData,
-        cableDetails: cableDetails
+        cableDetails: cableDetails,
+        serviceType: 'internet',
       }
     });
   };
 
-  // Handle Upload Document button click
+  // Guard so a second click while the first KYC fetch is still in
+  // flight (button state lag, double-tap, React StrictMode rerun) does
+  // not trigger two toasts / two retry loops.
+  const uploadRequestInFlightRef = useRef(false);
+
+  // Handle Upload Document button click. Retries the KYC preview on
+  // backend operator-sync errors so a freshly-created customer
+  // doesn't dead-end on the first click (see src/utils/kycRetry.js).
   const handleUploadDocument = async () => {
+    if (uploadRequestInFlightRef.current) return;
+    uploadRequestInFlightRef.current = true;
     setUploadLoading(true);
     try {
       const cid = customerData?.customer_id || userid;
-      const response = await getCustKYCPreview({ cid, reqtype: 'update' });
+      const response = await loadKycWithRetry({ cid, reqtype: 'update' });
 
       if (response?.status?.err_code === 0) {
-        // Navigate to upload documents page with the fetched data
         navigate('/upload-documents', {
-          state: {
-            customer: customerData,
-            kycData: response.body
-          }
+          state: { customer: customerData, kycData: response.body },
         });
       } else {
         toast.add('Failed to load documents: ' + (response?.status?.err_msg || 'Unknown error'), { type: 'error' });
@@ -172,6 +289,7 @@ export default function InternetService() {
       toast.add('Failed to load documents. Please try again.', { type: 'error' });
     } finally {
       setUploadLoading(false);
+      uploadRequestInFlightRef.current = false;
     }
   };
 
@@ -204,71 +322,75 @@ export default function InternetService() {
         <h1 className="text-lg font-medium text-white">Customer OverView</h1>
       </header>
       <div className="flex-1 max-w-2xl mx-auto w-full px-4 py-4 space-y-4 pb-24">
-        {loading ? (
-          <Loader fullScreen showHeader headerTitle="Customer OverView" text="Loading customer overview..." />
+        {/* User Details — renders instantly from customerData (no API needed) */}
+        <div className="space-y-3">
+          <h3 className="text-indigo-600 font-semibold text-lg flex items-center gap-2">
+            <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
+            User Details
+          </h3>
+          <div className="space-y-1 text-sm">
+            <div className="flex">
+              <span className="w-36 shrink-0 text-gray-600 dark:text-gray-400">Username</span>
+              <span className="text-gray-600 dark:text-gray-400 min-w-0 break-all">: {formatCustomerId(customerData.customer_id)}</span>
+            </div>
+            <div className="flex">
+              <span className="w-36 shrink-0 text-gray-600 dark:text-gray-400">Customer Name</span>
+              <span className="text-gray-600 dark:text-gray-400 min-w-0 break-all">: {customerData.name}</span>
+            </div>
+            <div className="flex">
+              <span className="w-36 shrink-0 text-gray-600 dark:text-gray-400">Ph Number</span>
+              <span className="text-gray-600 dark:text-gray-400 min-w-0 break-all">: {customerData.mobile}</span>
+            </div>
+            <div className="flex">
+              <span className="w-36 shrink-0 text-gray-600 dark:text-gray-400">Email Id</span>
+              <span className="text-gray-600 dark:text-gray-400 min-w-0 break-all">: {customerData.email}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Action Buttons — renders instantly */}
+        <div className="flex gap-3">
+          <button
+            onClick={handleUploadDocument}
+            disabled={uploadLoading}
+            className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-[background-color,box-shadow] duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {uploadLoading ? 'Loading...' : 'Upload Document'}
+          </button>
+          <button
+            className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-[background-color,box-shadow] duration-200 shadow-md hover:shadow-lg"
+            onClick={handleOrderHistory}
+          >
+            Order History
+          </button>
+        </div>
+
+        {/* Filter Badge — renders instantly */}
+        <div className="flex items-center justify-between bg-white dark:bg-gray-800 px-4 py-3 -mx-4">
+          <div className="flex items-center gap-2">
+            <span className="text-base text-indigo-600 font-semibold">Filtered by :</span>
+            <span className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white text-sm font-medium px-4 py-1.5 rounded-full shadow-md">
+              Internet
+            </span>
+          </div>
+          <button
+            onClick={() => setShowServiceModal(true)}
+            className="text-indigo-600 hover:text-indigo-700 transition-colors"
+          >
+            <FunnelIcon className="w-6 h-6" />
+          </button>
+        </div>
+
+        {/* Internet ID & Plan Details — inline loading only for this section */}
+        {planLoading ? (
+          <div className="flex items-center justify-center py-10">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+            <span className="ml-3 text-gray-500 dark:text-gray-400 text-sm">Loading plan details...</span>
+          </div>
         ) : error ? (
           <div className="text-center py-10 text-red-500">{error}</div>
         ) : (
           <>
-            {/* User Details */}
-            <div className="space-y-3">
-              <h3 className="text-indigo-600 font-semibold text-lg flex items-center gap-2">
-                <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
-                User Details
-              </h3>
-              <div className="space-y-1 text-sm">
-                <div className="flex">
-                  <span className="w-36 shrink-0 text-gray-600 dark:text-gray-400">Username</span>
-                  <span className="text-gray-600 dark:text-gray-400 min-w-0 break-all">: {formatCustomerId(customerData.customer_id)}</span>
-                </div>
-                <div className="flex">
-                  <span className="w-36 shrink-0 text-gray-600 dark:text-gray-400">Customer Name</span>
-                  <span className="text-gray-600 dark:text-gray-400 min-w-0 break-all">: {customerData.name}</span>
-                </div>
-                <div className="flex">
-                  <span className="w-36 shrink-0 text-gray-600 dark:text-gray-400">Ph Number</span>
-                  <span className="text-gray-600 dark:text-gray-400 min-w-0 break-all">: {customerData.mobile}</span>
-                </div>
-                <div className="flex">
-                  <span className="w-36 shrink-0 text-gray-600 dark:text-gray-400">Email Id</span>
-                  <span className="text-gray-600 dark:text-gray-400 min-w-0 break-all">: {customerData.email}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex gap-3">
-              <button
-                onClick={handleUploadDocument}
-                disabled={uploadLoading}
-                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-[background-color,box-shadow] duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {uploadLoading ? 'Loading...' : 'Upload Document'}
-              </button>
-              <button
-                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-[background-color,box-shadow] duration-200 shadow-md hover:shadow-lg"
-                onClick={handleOrderHistory}
-              >
-                Order History
-              </button>
-            </div>
-
-            {/* Filter Badge */}
-            <div className="flex items-center justify-between bg-white dark:bg-gray-800 px-4 py-3 -mx-4">
-              <div className="flex items-center gap-2">
-                <span className="text-base text-indigo-600 font-semibold">Filtered by :</span>
-                <span className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white text-sm font-medium px-4 py-1.5 rounded-full shadow-md">
-                  Internet
-                </span>
-              </div>
-              <button
-                onClick={() => setShowServiceModal(true)}
-                className="text-indigo-600 hover:text-indigo-700 transition-colors"
-              >
-                <FunnelIcon className="w-6 h-6" />
-              </button>
-            </div>
-
             {/* Internet ID */}
             <div className="space-y-3">
               <h3 className="text-indigo-600 font-semibold text-lg flex items-center gap-2">
@@ -287,15 +409,12 @@ export default function InternetService() {
                 Current Plan
               </h3>
               <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 border border-gray-100 dark:border-gray-700">
-                <div className="flex items-start gap-4">
-                  {/* Globe Icon - Clean outlined style */}
+                <div className="flex items-start gap-3">
+                  {/* Globe Icon */}
                   <div className="flex-shrink-0">
-                    <svg className="w-16 h-16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      {/* Outer circle */}
+                    <svg className="w-12 h-12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                       <circle cx="12" cy="12" r="10" className="text-gray-700" />
-                      {/* Vertical ellipse (meridian) */}
                       <ellipse cx="12" cy="12" rx="4" ry="10" className="text-gray-700" />
-                      {/* Horizontal lines (parallels) */}
                       <path d="M2 12h20" className="text-gray-700" />
                       <path d="M4 7h16" className="text-gray-700" />
                       <path d="M4 17h16" className="text-gray-700" />
@@ -303,21 +422,18 @@ export default function InternetService() {
                   </div>
 
                   {/* Plan Info */}
-                  <div className="flex-1 space-y-2 text-sm">
+                  <div className="flex-1 min-w-0 space-y-2 text-sm">
                     <div className="flex">
-                      <span className="w-28 text-gray-700 dark:text-gray-300">Service Name</span>
-                      <span className="text-gray-700 dark:text-gray-300">:   {serviceName}</span>
+                      <span className="w-24 shrink-0 text-gray-700 dark:text-gray-300">Service Name</span>
+                      <span className="min-w-0 break-words text-gray-700 dark:text-gray-300">: {serviceName}</span>
                     </div>
                     <div className="flex">
-                      <span className="w-28 text-gray-700 dark:text-gray-300">Plan Name</span>
-                      <span className="text-gray-700 dark:text-gray-300">:   {planName}</span>
+                      <span className="w-24 shrink-0 text-gray-700 dark:text-gray-300">Plan Name</span>
+                      <span className="min-w-0 break-words text-gray-700 dark:text-gray-300">: {planName}</span>
                     </div>
-                    <div className="flex items-start">
-                      <span className="w-28 text-gray-700 dark:text-gray-300">Expiry Date</span>
-                      <span className="text-gray-700 dark:text-gray-300">:</span>
-                      <span className="flex flex-col ml-2 text-gray-700 dark:text-gray-300">
-                        <span>{expiryDate}</span>
-                      </span>
+                    <div className="flex">
+                      <span className="w-24 shrink-0 text-gray-700 dark:text-gray-300">Expiry Date</span>
+                      <span className="min-w-0 break-words text-gray-700 dark:text-gray-300">: {expiryDate}</span>
                     </div>
                   </div>
                 </div>
@@ -326,7 +442,7 @@ export default function InternetService() {
                 <div className="space-y-3 mt-4">
                   <button
                     onClick={handlePayBill}
-                    disabled={!planDetails?.body?.other_service_renewal?.btn_status || planDetails?.body?.other_service_renewal?.btn_status === 'disable'}
+                    disabled={isRenewalDisabled}
                     className="w-full bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed text-white font-semibold py-3 px-4 rounded-lg transition-shadow duration-200 text-sm shadow-md hover:shadow-lg"
                   >
                     PAY BILL
@@ -340,8 +456,6 @@ export default function InternetService() {
                 </div>
               </div>
             </div>
-
-            {/* Removed Plan Upgrade and API banners as requested */}
           </>
         )}
       </div>
@@ -349,6 +463,10 @@ export default function InternetService() {
         isOpen={showServiceModal}
         onClose={() => setShowServiceModal(false)}
         onSelectService={handleServiceSelect}
+        customer={customerData}
+        services={servicesFromState}
+        currentServiceKey="internet"
+        cableDetails={cableDetails}
       />
       <BottomNav />
     </div>

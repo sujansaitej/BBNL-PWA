@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import Layout from "../layout/Layout";
 import { MagnifyingGlassIcon, ArrowRightIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
 import { getCustList, getServiceList } from "../services/generalApis";
+import { lsGet } from "../services/lsCache";
 import { prefetchCustomerData } from "../services/prefetch";
 import { formatCustomerId } from "../services/helpers";
 import { Loader, Badge } from "@/components/ui";
@@ -74,11 +75,11 @@ export default function Customerlist() {
     const lowerTerm = term.toLowerCase();
     const filtered = allCustomers.filter(
       (d) =>
-        d.customer_id.toLowerCase().includes(lowerTerm) ||
-        d.name.toLowerCase().includes(lowerTerm) ||
-        d.mobile.toLowerCase().includes(lowerTerm) ||
-        d.email.toLowerCase().includes(lowerTerm) ||
-        d.address.toLowerCase().includes(lowerTerm)
+        (d.customer_id || '').toLowerCase().includes(lowerTerm) ||
+        (d.name || '').toLowerCase().includes(lowerTerm) ||
+        (d.mobile || '').toLowerCase().includes(lowerTerm) ||
+        (d.email || '').toLowerCase().includes(lowerTerm) ||
+        (d.address || '').toLowerCase().includes(lowerTerm)
     );
 
     setCustomers(filtered);
@@ -88,67 +89,58 @@ export default function Customerlist() {
   const totalPages = Math.ceil(customers.length / PAGE_SIZE);
   const paginatedCustomers = customers.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  async function selectCustomer(customer) {
-    console.log('🟢 [selectCustomer] Customer selected:', customer.customer_id);
-    // Start prefetching customer service data in background (cache warming)
+  function selectCustomer(customer) {
+    // Start prefetching customer service data in background (cache warming).
+    // This fires-and-forgets — does NOT block the navigation.
     prefetchCustomerData(customer.customer_id, logUname);
-    setLoadingServices(true);
-    try {
-      // Call API to get service list
-      console.log('🟢 [selectCustomer] Calling getServiceList API...');
-      const servicesData = await getServiceList();
-      console.log('🟢 [selectCustomer] API response received:', servicesData);
-      console.log('🟢 [selectCustomer] err_code:', servicesData?.status?.err_code);
-      console.log('🟢 [selectCustomer] err_msg:', servicesData?.status?.err_msg);
-      console.log('🟢 [selectCustomer] body:', servicesData?.body);
 
-      if (servicesData?.status?.err_code === 0) {
-        console.log('🟢 [selectCustomer] Success! Services:', servicesData?.body);
-        // Navigate with customer data and services list
-        navigate(`/customer/${customer.customer_id}/service/iptv`, {
-          state: {
-            customer,
-            showServiceModal: true,
-            services: servicesData?.body || []
-          }
-        });
-      } else {
-        // API returned error, show toast and navigate with default behavior
-        toast.add(servicesData?.status?.err_msg || 'Failed to load services', { type: 'error' });
-        navigate(`/customer/${customer.customer_id}/service/iptv`, {
-          state: { customer, showServiceModal: true }
-        });
-      }
-    } catch (error) {
-      console.error("Error fetching services:", error);
-      // On error, show toast and navigate with default behavior
-      toast.add('Failed to load services. Using default options.', { type: 'error' });
-      navigate(`/customer/${customer.customer_id}/service/iptv`, {
-        state: { customer, showServiceModal: true }
-      });
-    } finally {
-      setLoadingServices(false);
+    // Try to get services from cache *synchronously* — getServiceList's
+    // lsGet path returns instantly when the 10-min cache is warm. Most
+    // taps hit this path. If the cache is cold we navigate WITHOUT
+    // waiting — Services.jsx hydrates from stale cache (24h window)
+    // and falls back to its hardcoded ALLOWED_SERVICES list, then
+    // refreshes display names in the background.
+    //
+    // Why this matters: the previous version awaited the API. On a
+    // cold cache + slow network the tap appeared frozen for several
+    // seconds and operators clicked the customer 2-3 times. Now the
+    // navigation paints in the same frame as the tap.
+    let services = [];
+    try {
+      // Read directly from the lsCache without awaiting the network.
+      const cached = lsGet('svclist_all', 10 * 60 * 1000);
+      if (cached?.body) services = cached.body;
+    } catch (_) {}
+
+    navigate(`/customer/${customer.customer_id}/services`, {
+      state: { customer, services }
+    });
+
+    // Kick a background refresh so the next tap has a warm cache.
+    // No await — this returns immediately.
+    if (services.length === 0) {
+      getServiceList().catch(() => {});
     }
   }
 
   return (
     <Layout>
-      {loadingServices && (
-        <Loader fullScreen showHeader headerTitle="Customer OverView" text="Loading services..." />
-      )}
+      {/* Removed fullscreen loader — navigation is now instant */}
       <div className="max-w-2xl mx-auto space-y-2 px-3 py-2">
         <h1 className="text-medium font-bold text-gray-900 dark:text-white">{title} <Badge color="grey">{customercount}</Badge></h1>
         {/* <p className="text-sm text-gray-500 dark:text-gray-400">Choose from our range of internet plans.</p> */}
-        <div className="relative w-full">
-          <input
-            type="text"
-            placeholder="Search customer..."
-            className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-[border-color,box-shadow] duration-200"
-            // onChange={(e) => setPlans(filterPlans(e.target.value))}
-            onChange={(e) => filterCustomers(e.target.value)}
-            disabled={loading}
-          />
-          <MagnifyingGlassIcon className="h-5 w-5 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+        <div className="sticky z-20 -mx-3 px-3 py-2 bg-gray-50 dark:bg-gray-900 shadow-[0_2px_4px_-1px_rgba(0,0,0,0.08)]" style={{ top: 'calc(4rem + env(safe-area-inset-top, 0px))' }}>
+          <div className="relative w-full">
+            <input
+              type="text"
+              placeholder="Search customer..."
+              className="w-full px-4 py-2 pr-10 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-[border-color,box-shadow] duration-200"
+              // onChange={(e) => setPlans(filterPlans(e.target.value))}
+              onChange={(e) => filterCustomers(e.target.value)}
+              disabled={loading}
+            />
+            <MagnifyingGlassIcon className="h-5 w-5 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          </div>
         </div>
 
         {loading ? (
@@ -175,9 +167,15 @@ export default function Customerlist() {
                     <span className={`w-28 flex-shrink-0 text-gray-700 dark:text-gray-400 font-semibold`}>Email ID</span>
                     <span className={`min-w-0 truncate text-gray-700 dark:text-gray-400`}>{d.email}</span>
                   </div>
+                  {d.address && (
+                    <div className={`flex min-w-0`}>
+                      <span className={`w-28 flex-shrink-0 text-gray-700 dark:text-gray-400 font-semibold`}>Address</span>
+                      <span className={`min-w-0 truncate text-gray-700 dark:text-gray-400`}>{d.address}</span>
+                    </div>
+                  )}
                 </div>
-                <div className="flex-shrink-0 ml-2">
-                  <ArrowRightIcon className="h-6 w-6 text-gray-500" />
+                <div className="flex-shrink-0 ml-2 self-center">
+                  <ChevronRightIcon className="h-6 w-6 text-indigo-500" />
                 </div>
               </div>
             ))}

@@ -243,10 +243,18 @@ export default function PlayerPage() {
   const touchStartRef = useRef(null);
   const stripScrollRef = useRef(null);
 
+  // ── Pinch-to-zoom ──
+  // Default: object-contain (fit with black bars).
+  // Pinch: scale 1x–4x, always centered. Double-tap: toggle fit/fill.
+  const [videoZoom, setVideoZoom] = useState({ scale: 1 });
+  const pinchRef = useRef({ active: false, startDist: 0, startScale: 1 });
+  const lastTapRef = useRef(0);
+
   const [videoKey, setVideoKey] = useState(0);
-  // Use streamlink from channel directly — browser negotiates HTTP/2+ automatically.
-  // The stream server requires HTTP/2+; browsers handle this via ALPN during TLS.
-  const [streamUrl, setStreamUrl] = useState(normalizeStreamUrl(channel?.streamlink) || null);
+  // Instant start: cached token > plain streamlink > null (API fetch).
+  // Plain streamlink works from user devices. If server rejects it,
+  // onTokenExpired in HLS.js handler fetches tokenized URL automatically.
+  const [streamUrl, setStreamUrl] = useState(() => loadStreamCache(channel?.chid) || normalizeStreamUrl(channel?.streamlink) || null);
   const [status, setStatus] = useState("loading");
   const [errorMsg, setErrorMsg] = useState("");
   const [muted, setMuted] = useState(false);
@@ -313,33 +321,33 @@ export default function PlayerPage() {
   useEffect(() => {
     if (!currentChannel) return;
 
-    // 1. If channel has streamlink, use it directly — browser uses HTTP/2+
-    //    (the stream server only accepts HTTP/2 and HTTP/3; browsers negotiate
-    //    this automatically via ALPN during TLS handshake)
-    if (currentChannel.streamlink) {
-      const normalized = normalizeStreamUrl(currentChannel.streamlink);
-      storeStreamCache(currentChannel.chid, normalized);
-      setStreamUrl(normalized);
-      return;
-    }
+    // ── Instant start: same as production ──
+    // 1. Cached tokenized URL → instant (best case)
+    // 2. Plain streamlink → instant (like current production)
+    // 3. No streamlink → fetch from API (rare)
+    // If server rejects plain URL, HLS.js onTokenExpired handles it.
 
-    // 2. Check session cache for a previously fetched URL
     const cachedUrl = loadStreamCache(currentChannel.chid);
     if (cachedUrl) {
       setStreamUrl(cachedUrl);
       return;
     }
 
-    // 3. No streamlink — fetch from /ftauserstream API
+    if (currentChannel.streamlink) {
+      setStreamUrl(normalizeStreamUrl(currentChannel.streamlink));
+      return;
+    }
+
+    // No streamlink — fetch from API
     const mobile = getIptvMobile();
     let cancelled = false;
-    const fetchStream = async () => {
+    (async () => {
       try {
         const data = await getChannelStream({ mobile, chid: currentChannel.chid || "", chno: currentChannel.chno || "" });
         const stream = data?.body?.[0]?.stream?.[0];
         if (!stream || !stream.streamlink) throw new Error("No stream available for this channel.");
-        const normalized = normalizeStreamUrl(stream.streamlink);
         if (!cancelled) {
+          const normalized = normalizeStreamUrl(stream.streamlink);
           storeStreamCache(currentChannel.chid, normalized);
           setStreamUrl(normalized);
         }
@@ -350,47 +358,132 @@ export default function PlayerPage() {
           setErrorMsg(msg.toLowerCase().includes("user not found") ? "Your account is not activated for Live TV. Please contact support." : msg);
         }
       }
-    };
-    fetchStream();
+    })();
     return () => { cancelled = true; };
   }, [currentChannel]);
 
-  // On mount: black body background to fill any gaps
+  // On mount: immersive black background + lock body scroll + hide status bar
   useEffect(() => {
     const origBodyBg = document.body.style.background;
     const origHtmlBg = document.documentElement.style.background;
+    const origBodyOverflow = document.body.style.overflow;
+    const origHtmlOverflow = document.documentElement.style.overflow;
     document.body.style.background = '#000';
     document.documentElement.style.background = '#000';
+    // Lock body scroll — prevents content behind the fixed player from scrolling
+    // on touch devices, which would cause visual jitter and break immersion.
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+
+    // ── Make status bar invisible ──
+    // Set theme-color to black — Android status bar becomes black with
+    // white icons, blending seamlessly with the black player background.
+    // We do NOT use the Fullscreen API here because it causes Android Chrome
+    // to display the domain name toast ("domain.com – to exit full screen…")
+    // even in standalone PWA mode on many devices. The CSS approach
+    // (fixed inset-0 + overflow:hidden + 100dvw/100dvh) provides edge-to-edge
+    // display identical to fullscreen without any browser notifications.
+    const themeMetaTags = document.querySelectorAll('meta[name="theme-color"]');
+    const origThemes = Array.from(themeMetaTags).map((m) => ({
+      el: m,
+      content: m.getAttribute("content"),
+    }));
+    themeMetaTags.forEach((m) => m.setAttribute("content", "#000000"));
 
     return () => {
       document.body.style.background = origBodyBg;
       document.documentElement.style.background = origHtmlBg;
+      document.body.style.overflow = origBodyOverflow;
+      document.documentElement.style.overflow = origHtmlOverflow;
+      origThemes.forEach(({ el, content }) => el.setAttribute("content", content));
     };
   }, []);
 
-  // Pre-fetch adjacent channel streamlinks for instant switching.
-  // Only caches the streamlink URL from the channel object — NO API calls.
-  // The stream server handles auth via HTTP/2, so these URLs work directly.
+  // ── Deferred token pre-fetch (safe, never affects playback) ──
+  // Only fetches tokenized URLs for the CURRENT channel + 1 next/prev.
+  // Guarded by multiple safety checks to guarantee zero playback impact:
+  //   - Waits 8 seconds after video is stable
+  //   - Checks video.readyState and buffered length before each fetch
+  //   - Aborts immediately if video stalls, pauses, or user switches channel
+  //   - Sequential with 1.5s gaps between requests
+  //   - Uses requestIdleCallback to yield to video decoder
+  //   - Only fetches for current channel first (most important)
   useEffect(() => {
     if (!currentChannel || channelList.length === 0 || status !== "playing") return;
 
-    const currentIdx = channelList.findIndex((ch) => ch.chid === currentChannel.chid);
-    if (currentIdx < 0) return;
-
-    const prefetchChannel = (channel) => {
-      if (!channel || loadStreamCache(channel.chid)) return;
-      // Only cache if channel already has a streamlink (no API call)
-      if (channel.streamlink) {
-        storeStreamCache(channel.chid, normalizeStreamUrl(channel.streamlink));
-      }
-    };
+    const mobile = getIptvMobile();
+    if (!mobile) return;
+    let aborted = false;
 
     const timer = setTimeout(() => {
-      if (currentIdx < channelList.length - 1) prefetchChannel(channelList[currentIdx + 1]);
-      if (currentIdx > 0) prefetchChannel(channelList[currentIdx - 1]);
-    }, 500);
+      if (aborted) return;
+      const video = videoRef.current;
 
-    return () => clearTimeout(timer);
+      const currentIdx = channelList.findIndex((ch) => ch.chid === currentChannel.chid);
+      // Only current + 1 next + 1 prev (minimal footprint)
+      const targets = [currentChannel];
+      if (currentIdx >= 0) {
+        if (currentIdx + 1 < channelList.length) targets.push(channelList[currentIdx + 1]);
+        if (currentIdx > 0) targets.push(channelList[currentIdx - 1]);
+      }
+
+      let i = 0;
+      const fetchNext = () => {
+        if (aborted || i >= targets.length) return;
+
+        // ── Safety gate: check video health before every fetch ──
+        // If the video is struggling in ANY way, stop prefetching entirely.
+        if (video) {
+          // Video not playing or lost ready state → abort
+          if (video.paused || video.ended || video.readyState < 3) return;
+          // Low buffer → abort (less than 3 seconds ahead)
+          const buffered = video.buffered;
+          if (buffered.length > 0) {
+            const ahead = buffered.end(buffered.length - 1) - video.currentTime;
+            if (ahead < 3) return; // buffer too thin, don't risk it
+          }
+        }
+
+        const ch = targets[i++];
+        // Skip if already cached
+        const cached = loadStreamCache(ch.chid);
+        if (cached && isTokenizedUrl(cached)) { setTimeout(fetchNext, 500); return; }
+
+        const run = () => {
+          if (aborted) return;
+          getChannelStream({ mobile, chid: ch.chid || "", chno: ch.chno || "" })
+            .then((data) => {
+              const stream = data?.body?.[0]?.stream?.[0];
+              if (stream?.streamlink) {
+                storeStreamCache(ch.chid, normalizeStreamUrl(stream.streamlink));
+              }
+            })
+            .catch(() => {})
+            .finally(() => { if (!aborted) setTimeout(fetchNext, 1500); }); // 1.5s gap
+        };
+
+        if (typeof requestIdleCallback === "function") requestIdleCallback(run, { timeout: 5000 });
+        else setTimeout(run, 100);
+      };
+      fetchNext();
+    }, 8000); // Wait 8s after video is stable
+
+    // Abort prefetch if video stalls or user navigates
+    const onAbort = () => { aborted = true; };
+    const video = videoRef.current;
+    if (video) {
+      video.addEventListener("waiting", onAbort);
+      video.addEventListener("stalled", onAbort);
+    }
+
+    return () => {
+      aborted = true;
+      clearTimeout(timer);
+      if (video) {
+        video.removeEventListener("waiting", onAbort);
+        video.removeEventListener("stalled", onAbort);
+      }
+    };
   }, [currentChannel, channelList, status]);
 
   const resetHideTimer = useCallback(() => {
@@ -480,27 +573,42 @@ export default function PlayerPage() {
     const onVideoPlaying = () => { if (!cancelled) setStatus("playing"); };
     video.addEventListener("playing", onVideoPlaying, { once: true });
 
-    // When HLS manifest fails (403 / expired token), fetch a fresh
-    // tokenized URL from /ftauserstream instead of retrying the dead URL.
+    // When HLS manifest fails (403 / expired token), get a fresh tokenized URL.
+    // Uses same resilient retry as initial load — silent retries, no raw errors.
     const onTokenExpired = () => {
       if (cancelled) return;
       const mobile = getIptvMobile();
       if (!currentChannel?.chid || !mobile) return;
-      // Clear stale cache entry
+
+      // Check if prefetch already cached a tokenized URL
+      const cached = loadStreamCache(currentChannel.chid);
+      if (cached && isTokenizedUrl(cached) && cached !== streamUrl) {
+        setStreamUrl(cached);
+        return;
+      }
+
+      // Clear stale cache, fetch fresh with retry
       try { sessionStorage.removeItem(`s_${currentChannel.chid}`); } catch {}
-      (async () => {
-        try {
-          const data = await getChannelStream({ mobile, chid: currentChannel.chid, chno: currentChannel.chno || "" });
-          const stream = data?.body?.[0]?.stream?.[0];
-          if (!cancelled && stream?.streamlink) {
-            const normalized = normalizeStreamUrl(stream.streamlink);
-            storeStreamCache(currentChannel.chid, normalized);
-            setStreamUrl(normalized); // triggers this useEffect again with fresh URL
-          }
-        } catch (err) {
-          if (!cancelled) { setStatus("error"); setErrorMsg(err.message || "Failed to load stream."); }
-        }
-      })();
+      const BACKOFF = [0, 2000, 4000];
+      const attempt = (n) => {
+        if (cancelled || n >= BACKOFF.length) return;
+        setTimeout(() => {
+          if (cancelled) return;
+          getChannelStream({ mobile, chid: currentChannel.chid, chno: currentChannel.chno || "" })
+            .then((data) => {
+              const stream = data?.body?.[0]?.stream?.[0];
+              if (!cancelled && stream?.streamlink) {
+                const normalized = normalizeStreamUrl(stream.streamlink);
+                storeStreamCache(currentChannel.chid, normalized);
+                setStreamUrl(normalized);
+              } else {
+                attempt(n + 1);
+              }
+            })
+            .catch(() => { attempt(n + 1); });
+        }, BACKOFF[n]);
+      };
+      attempt(0);
     };
 
     // HLS.js is required — it sends X-App-Package header on the first request
@@ -516,17 +624,109 @@ export default function PlayerPage() {
     return () => { cancelled = true; video.removeEventListener("playing", onVideoPlaying); if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } video.pause(); video.removeAttribute("src"); video.load(); };
   }, [streamUrl]);
 
-  const handleTouchStart = useCallback((e) => { const touch = e.touches[0]; touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() }; }, []);
+  // ── Touch handlers: pinch-to-zoom, double-tap, swipe-up ──
+  // Gesture detection happens in touchmove (early), not just touchend.
+  // A gesture flag suppresses the click event that fires after touchend,
+  // preventing it from toggling controls or closing the channel sheet.
+  const gestureRef = useRef(false);
+
+  const getPinchDist = (touches) => {
+    if (!touches || touches.length < 2) return 0;
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  const handleTouchStart = useCallback((e) => {
+    const touch = e.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now(), gesture: null };
+
+    if (e.touches.length === 2) {
+      pinchRef.current = { active: true, startDist: getPinchDist(e.touches), startScale: videoZoom.scale };
+    }
+  }, [videoZoom.scale]);
+
+  const handleTouchMove = useCallback((e) => {
+    // Pinch zoom (2 fingers) — scale only, always centered
+    if (e.touches.length === 2 && pinchRef.current.active) {
+      e.preventDefault();
+      const dist = getPinchDist(e.touches);
+      const p = pinchRef.current;
+      const newScale = Math.min(4, Math.max(1, p.startScale * (dist / p.startDist)));
+      setVideoZoom({ scale: newScale });
+      return;
+    }
+
+    // Early gesture detection — classify swipe vs tap during the move
+    if (e.touches.length === 1 && touchStartRef.current && !touchStartRef.current.gesture) {
+      const touch = e.touches[0];
+      const dx = touch.clientX - touchStartRef.current.x;
+      const dy = touch.clientY - touchStartRef.current.y;
+      if (Math.abs(dy) > 15 || Math.abs(dx) > 15) {
+        touchStartRef.current.gesture = Math.abs(dy) >= Math.abs(dx) ? 'vertical' : 'horizontal';
+      }
+    }
+  }, []);
+
   const handleTouchEnd = useCallback((e) => {
+    // End pinch — snap to 1x if nearly there
+    if (pinchRef.current.active && e.touches.length < 2) {
+      pinchRef.current.active = false;
+      gestureRef.current = true;
+      setTimeout(() => { gestureRef.current = false; }, 350);
+      if (videoZoom.scale < 1.1) setVideoZoom({ scale: 1 });
+      return;
+    }
+
     if (!touchStartRef.current) return;
     const touch = e.changedTouches[0];
     const dx = touch.clientX - touchStartRef.current.x;
     const dy = touch.clientY - touchStartRef.current.y;
     const dt = Date.now() - touchStartRef.current.time;
+    const gesture = touchStartRef.current.gesture;
     touchStartRef.current = null;
-    if (dt > 500 || Math.abs(dx) > 80) return;
-    if (dy < -50 && !showSheet && channelList.length > 0) setShowSheet(true);
-  }, [channelList.length, showSheet]);
+
+    // ── Swipe detected (finger moved significantly) ──
+    if (gesture) {
+      gestureRef.current = true;
+      setTimeout(() => { gestureRef.current = false; }, 350);
+
+      // Swipe-up → open channel sheet (only at normal zoom)
+      if (videoZoom.scale <= 1 && channelList.length > 0 && !showSheet) {
+        const isRotatedNow = forceLandscape && !isNaturalLandscape;
+        const swipeUp = isRotatedNow ? (dx < -30 && Math.abs(dy) < 150) : (dy < -30 && Math.abs(dx) < 150);
+        if (swipeUp) { setShowSheet(true); }
+      }
+      return; // swipe — don't fall through to tap/double-tap
+    }
+
+    // ── Tap / Double-tap (finger stayed still) ──
+    if (dt > 300 || Math.abs(dx) > 15 || Math.abs(dy) > 15) return;
+
+    const now = Date.now();
+    if (now - lastTapRef.current < 350) {
+      // Double-tap: toggle between fit (1x) and fill (no black bars)
+      lastTapRef.current = 0;
+      gestureRef.current = true;
+      setTimeout(() => { gestureRef.current = false; }, 350);
+      if (videoZoom.scale > 1) {
+        setVideoZoom({ scale: 1 });
+      } else {
+        const video = videoRef.current;
+        const container = containerRef.current;
+        if (video && container) {
+          const vw = video.videoWidth || 16, vh = video.videoHeight || 9;
+          const cw = container.clientWidth, ch = container.clientHeight;
+          const fillScale = Math.max(cw / (ch * (vw / vh)), ch / (cw * (vh / vw)));
+          setVideoZoom({ scale: Math.min(fillScale, 2.5) });
+        } else {
+          setVideoZoom({ scale: 1.8 });
+        }
+      }
+    } else {
+      lastTapRef.current = now;
+    }
+  }, [channelList.length, showSheet, forceLandscape, isNaturalLandscape, videoZoom]);
 
   const closeSheet = useCallback(() => setShowSheet(false), []);
 
@@ -553,36 +753,43 @@ export default function PlayerPage() {
     setCurrentChannel(newChannel);
     setLogoError(false);
     setPaused(false);
+    setVideoZoom({ scale: 1 }); // reset zoom
     closeSheet();
 
     // Reset stream state - the useEffect will handle loading
     setStatus("loading");
     setErrorMsg("");
 
-    // Check streamlink or cache for instant switch
-    if (newChannel.streamlink) {
-      setStreamUrl(normalizeStreamUrl(newChannel.streamlink));
-    } else {
-      const cachedUrl = loadStreamCache(newChannel.chid);
-      if (cachedUrl) { setStreamUrl(cachedUrl); return; }
-      setStreamUrl(null); // Let useEffect handle the fetch
-    }
+    // Instant start: cached token > plain streamlink > null
+    const cachedUrl = loadStreamCache(newChannel.chid);
+    if (cachedUrl) { setStreamUrl(cachedUrl); return; }
+    if (newChannel.streamlink) { setStreamUrl(normalizeStreamUrl(newChannel.streamlink)); return; }
+    setStreamUrl(null);
   }, [currentChannel, closeSheet]);
 
   const togglePlayPause = () => { const video = videoRef.current; if (!video) return; if (video.paused) video.play().catch(() => {}); else video.pause(); resetHideTimer(); };
   const toggleMute = (e) => { e.stopPropagation(); if (videoRef.current) { videoRef.current.muted = !videoRef.current.muted; setMuted(videoRef.current.muted); } resetHideTimer(); };
   const toggleFullscreen = (e) => { e.stopPropagation(); setForceLandscape((prev) => !prev); resetHideTimer(); };
   const handleGoBack = (e) => { if (e) e.stopPropagation(); if (forceLandscape) { setForceLandscape(false); return; } navigate(-1); };
-  const handleScreenTap = () => { if (showSheet) { setShowSheet(false); return; } if (status === "playing") { setShowControls((prev) => !prev); if (!showControls) resetHideTimer(); } };
-  const retry = () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } setVideoKey((k) => k + 1); setStatus("loading"); setErrorMsg(""); setStreamUrl(null); setCurrentChannel({ ...currentChannel }); };
+  const handleScreenTap = () => { if (gestureRef.current) return; if (showSheet) { setShowSheet(false); return; } if (status === "playing") { setShowControls((prev) => !prev); if (!showControls) resetHideTimer(); } };
+  const retry = () => {
+    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+    // Clear stale cache so useEffect fetches a fresh token
+    try { sessionStorage.removeItem(`s_${currentChannel?.chid}`); } catch {}
+    setVideoKey((k) => k + 1);
+    setStatus("loading");
+    setErrorMsg("");
+    setStreamUrl(null);
+    setCurrentChannel({ ...currentChannel });
+  };
 
   if (!channel) return null;
   const controlsVisible = showControls || status !== "playing";
   const isRotated = forceLandscape && !isNaturalLandscape;
 
   return (
-    <div ref={containerRef} className={`fixed bg-black z-50 select-none overflow-hidden ${isRotated ? 'top-0 left-0' : 'inset-0'}`} style={isRotated ? { width: '100vh', height: '100vw', transformOrigin: 'top left', transform: 'rotate(90deg) translateY(-100%)' } : undefined} onMouseMove={() => status === "playing" && resetHideTimer()} onClick={() => status === "playing" && handleScreenTap()} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
-      <video key={videoKey} ref={videoRef} className="absolute inset-0 w-full h-full object-contain" playsInline autoPlay preload="auto" poster={cachedPosterUrl || undefined} onContextMenu={(e) => e.preventDefault()} />
+    <div ref={containerRef} className={`fixed bg-black z-50 select-none overflow-hidden ${isRotated ? 'top-0 left-0 player-rotated-landscape' : 'inset-0'}`} style={{ ...(isRotated ? { transformOrigin: 'top left', transform: 'rotate(90deg) translateY(-100%)' } : undefined), ...(videoZoom.scale > 1 ? { touchAction: 'none' } : undefined) }} onMouseMove={() => status === "playing" && resetHideTimer()} onClick={() => status === "playing" && handleScreenTap()} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
+      <video key={videoKey} ref={videoRef} className="absolute inset-0 w-full h-full object-contain" style={videoZoom.scale > 1 ? { transform: `scale(${videoZoom.scale})`, willChange: 'transform' } : undefined} playsInline autoPlay preload="auto" poster={cachedPosterUrl || undefined} onContextMenu={(e) => e.preventDefault()} />
 
       <AnimatePresence>
         {controlsVisible && !showSheet && (<>
@@ -619,7 +826,7 @@ export default function PlayerPage() {
 
       <AnimatePresence>
         {controlsVisible && status === "playing" && !showSheet && (
-          <motion.div key="bottom-bar" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 30 }} transition={{ duration: 0.3, ease: "easeOut" }} className="absolute bottom-0 left-0 right-0 z-30 px-4 pb-4 pt-2" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 1rem))', paddingLeft: 'max(1rem, env(safe-area-inset-left, 1rem))', paddingRight: 'max(1rem, env(safe-area-inset-right, 1rem))' }} onClick={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
+          <motion.div key="bottom-bar" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 30 }} transition={{ duration: 0.3, ease: "easeOut" }} className="absolute bottom-0 left-0 right-0 z-30 px-4 pb-4 pt-2" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 1rem))', paddingLeft: 'max(1rem, env(safe-area-inset-left, 1rem))', paddingRight: 'max(1rem, env(safe-area-inset-right, 1rem))' }} onClick={(e) => e.stopPropagation()}>
             <div className="w-full h-[3px] bg-white/15 rounded-full mb-4 overflow-hidden"><div className="h-full bg-red-500 rounded-full w-full relative"><div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-red-500 rounded-full shadow-lg shadow-red-500/50" /></div></div>
             <div className="flex items-center justify-between">
               {channelList.length > 0 && (<button onClick={(e) => { e.stopPropagation(); setShowSheet(true); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 active:bg-white/20 transition-colors"><ChevronUp className="w-3.5 h-3.5 text-white/60" /><span className="text-[11px] text-white/60 font-medium">Channels</span></button>)}
@@ -636,6 +843,10 @@ export default function PlayerPage() {
         {showSheet && channelList.length > 0 && (
           <motion.div key="channel-strip" initial={{ opacity: 0, y: 80 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 80 }} transition={{ type: "spring", damping: 28, stiffness: 300 }} className="absolute bottom-0 left-0 right-0 z-[35]" onClick={(e) => e.stopPropagation()}>
             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent pointer-events-none" />
+            {/* Drag handle — tap or swipe down to close */}
+            <div className="relative flex justify-center pt-2 pb-1" onClick={closeSheet}>
+              <div className="w-8 h-1 rounded-full bg-white/30" />
+            </div>
             <div ref={stripScrollRef} className="relative flex gap-2 overflow-x-auto px-3 pb-4 hide-scrollbar" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 1rem))' }} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
               {channelList.map((ch) => (<ChannelCard key={ch.chid} channel={ch} isActive={ch.chid === currentChannel?.chid} onSelect={handleChannelSwitch} />))}
             </div>

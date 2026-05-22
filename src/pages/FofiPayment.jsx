@@ -3,23 +3,22 @@ import Layout from "../layout/Layout";
 import { useNavigate, useLocation } from "react-router-dom";
 import { formatToDecimals } from "../services/helpers";
 import { Button, Loader, Alert } from "@/components/ui";
-import { generateFofiOrder } from "../services/fofiApis";
+import { generateFofiOrder, getFofiPaymentInfo } from "../services/fofiApis";
 import { getCableCustomerDetails, getPrimaryCustomerDetails, getWalBal } from "../services/generalApis";
+import { payNow } from "../services/registrationApis";
 import { getUser } from "../services/safeStorage";
 
-// Generate unique transaction ID
-function generateTransactionId() {
-  const now = new Date();
-  const day = String(now.getDate()).padStart(2, '0');
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const random = String(Math.floor(Math.random() * 10000000)).padStart(7, '0');
-  return `SERV-${day}${month}-3-${random}`;
-}
+// Backend-issued transactionid only. Local format-matching strings
+// (SERV-DDMM-3-XXXXXXX) are rejected by generateorder with "Invalid
+// transaction id" because they don't exist in the server's pending-
+// transaction ledger. The format is just for display; the value must
+// come from a paymentinfo/fofi call. Helper kept removed deliberately
+// to prevent any "fall back to a fresh fake one" temptation.
 
 export default function FofiPayment() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   // Alert state
@@ -65,7 +64,7 @@ export default function FofiPayment() {
     servid: paymentData?.servid || '',
     loginuname: paymentData?.loginuname || '',
     noofmonth: paymentData?.noofmonth || 1,
-    cashpaid: paymentData?.amountDeductable || 0
+    cashpaid: paymentData?.totalAmount || paymentData?.operatorShare || 0
   });
 
   useEffect(() => {
@@ -144,20 +143,72 @@ export default function FofiPayment() {
       
       const user = getUser();
       const loginuname = user?.username || paymentData?.loginuname || 'superadmin';
-      
-      // Use transaction ID from payment info API if available, otherwise generate new
-      const transactionId = paymentData?.transactionid || generateTransactionId();
-      
-      // Get the amount to be paid - use Total Amount (total_amt from API)
-      // Priority: totalAmount > paymentDetails["Total Amount"] > operatorShare
-      const paidAmount = paymentData?.totalAmount || 
-                         paymentDetails?.["Total Amount"] || 
-                         paymentData?.operatorShare || 
-                         0;
-      
-      console.log('🔵 Paid Amount:', paidAmount);
+      // Backend team (May 2026): use logged-in operator username in paydoneby/payreceivedby
+      const payDoneBy = loginuname;
+
+      // ALWAYS re-fetch paymentinfo/fofi right before pay to get a
+      // current, plan-correct transactionid. Reasons "trust state"
+      // failed in production:
+      //   • Sticky txn ids — backend reuses the same id for repeat
+      //     calls in the same operator session, so stale state from
+      //     a previous plan attempt leaks into the next plan's pay.
+      //   • Operator hesitation — sitting on this screen long enough
+      //     for the backend to expire the original id.
+      //   • Bypass aborts (FTA misclassification) leaving an unused
+      //     id in state that the next attempt picks up.
+      // Cost is one extra ~1-2s call. Cheap insurance against
+      // "Invalid transaction id" / silent wallet skips.
+      let transactionId;
+      try {
+        console.log('🟡 Refreshing paymentinfo/fofi for a fresh transactionid…');
+        const refreshResp = await getFofiPaymentInfo({
+          fofi_box_id: paymentData?.fofiboxid || '',
+          planid: String(paymentData?.planid || ''),
+          priceid: String(paymentData?.priceid || '99'),
+          servapptype: 'crmapp',
+          servid: String(paymentData?.servid || '3'),
+          userid: paymentData?.userid || '',
+          // System caller — must match what FoFiSmartBox sent.
+          // Backend team (May 2026): use logged-in operator username
+          // instead of hardcoded "superadmin"
+          username: loginuname,
+          voipnumber: '',
+        });
+        if (refreshResp?.status?.err_code !== 0) {
+          throw new Error(refreshResp?.status?.err_msg || 'Could not refresh payment details. Please go back and try again.');
+        }
+        transactionId = refreshResp?.body?.transactionid;
+        if (!transactionId) {
+          throw new Error('Payment service did not issue a transaction id. Please go back and try again.');
+        }
+        console.log('✅ Fresh transactionid received:', transactionId, '(state had:', paymentData?.transactionid, ')');
+      } catch (refreshErr) {
+        throw new Error(refreshErr?.message || 'Could not get a valid transaction id. Please go back and try again.');
+      }
+
+      // paidamount = full customer bill — matches the IPTV cable flow
+      // that uses the same generateorder endpoint, and the server's
+      // < 100 guard is on the total bill, not the operator share.
+      const totalAmount = paymentData?.totalAmount ??
+                          paymentDetails?.["Total Amount"] ??
+                          0;
+      const paidAmount = totalAmount;
+
+      // walletDeduction = operator-side wallet hit (operator share /
+      // amountDeductable). This is what we send to savepaymentapi
+      // below to actually debit the operator wallet. SEPARATE from
+      // paidAmount, which is the customer total.
+      const walletDeduction = parseFloat(
+        paymentData?.amountDeductable ??
+        moreDetails?.["Amount Deductable"] ??
+        paymentData?.operatorShare ??
+        0
+      ) || 0;
+
+      console.log('🔵 Paid Amount (paidamount):', paidAmount);
+      console.log('🔵 Wallet Deduction (cashpaid):', walletDeduction);
       console.log('🔵 Transaction ID:', transactionId);
-      
+
       // Build the order payload matching the exact API structure
       const orderPayload = {
         bankname: "",
@@ -166,7 +217,13 @@ export default function FofiPayment() {
         gateway: "",
         gatewaytxnid: "",
         orderedbytype: "crmapp",
-        paidamount: String(paidAmount),
+        paidamount: Number(paidAmount),  // Backend expects numeric type, not string
+        // Mobile-app trace (verified May 2026) sends paymentmode
+        // "offline" and paytype "upgrade" — these are correct.
+        // Earlier probes that suggested otherwise were running
+        // against a customer (cgreen2) whose active subscription
+        // state apparently rejects every paytype/paymentmode
+        // combo; the real bug was the username field — see below.
         paymentmode: "offline",
         payresponse: "",
         paytype: paymentData?.paytype || "upgrade",
@@ -176,33 +233,167 @@ export default function FofiPayment() {
         transactionid: transactionId,
         txnstatus: "success",
         userid: paymentData?.userid || "",
+        // System caller — must match the username used in
+        // paymentinfo above so the backend recognizes the txn id.
+        // Backend team (May 2026): use logged-in operator username.
+        // Operator identity is sent via payNow's apiopid/paydoneby/payreceivedby below.
         username: loginuname,
         voipnumber: ""
       };
 
-      console.log('🔵 [STEP 1] Calling generateorder API...');
-      console.log('🔵 Order Payload:', JSON.stringify(orderPayload, null, 2));
-      
-      // STEP 1: Call generateorder API (ServiceApis/cabletv/generateorder)
-      const orderResponse = await generateFofiOrder(orderPayload);
-      console.log('🟢 Generate Order Response:', orderResponse);
-      
-      // Check if order generation was successful
-      if (orderResponse?.status?.err_code !== 0 && orderResponse?.error !== 0) {
-        throw new Error(orderResponse?.status?.err_msg || orderResponse?.result || 'Failed to generate order');
+      console.log('🔴 [STEP 1] generateorder REQUEST payload:', JSON.stringify(orderPayload, null, 2));
+      console.log('🔴 paidamount =', orderPayload.paidamount, '| orderedbytype =', orderPayload.orderedbytype);
+      console.log('🔴 walletBalance (display, pre-deduction) =', walletBalance);
+
+      // Free / nothing-to-charge plans — skip generateFofiOrder and
+      // jump to success only when there is literally no money to
+      // move. The previous "plan name contains FTA" rule was wrong:
+      // "FOFI-Box + FTA ONLY" cost ₹153.40 with oprtrshare ₹153.40
+      // and the bypass silently skipped both generateorder AND the
+      // wallet debit, producing the "Plan Upgraded" popup with no
+      // actual upgrade and no wallet debit.
+      //
+      // Truth source: the customer total + the operator share.
+      // If BOTH are zero, nothing to register, nothing to debit,
+      // safe to bypass. Otherwise we MUST run generateorder + the
+      // wallet debit — even on plans with "FTA" in the name.
+      const numericTotalAmount = parseFloat(totalAmount) || 0;
+      const isFreeUpgrade = numericTotalAmount <= 0 && walletDeduction <= 0;
+      if (isFreeUpgrade) {
+        console.log('✅ Free upgrade — nothing to charge, skipping generateorder + payNow', {
+          totalAmount: numericTotalAmount,
+          walletDeduction,
+        });
+
+        // Still fetch customer details in background so the service page shows updated info
+        Promise.allSettled([
+          getCableCustomerDetails(paymentData?.userid),
+          getPrimaryCustomerDetails(paymentData?.userid),
+        ]).catch(() => {});
+
+        // No success Alert here — see comment in the paid path below.
+        // FoFi SmartBox shows its "Plan Upgraded" / "Registration
+        // Successful" popup on arrival from location.state.paymentSuccess.
+        setTimeout(() => {
+          const customerId = paymentData?.customer?.customer_id || paymentData?.userid;
+          // replace: true — remove the /fofi-payment entry from history so
+          // back from the post-payment FoFi page doesn't land on the
+          // already-completed payment screen.
+          navigate(`/customer/${customerId}/service/fofi-smart-box`, {
+            replace: true,
+            state: {
+              customer: paymentData?.customer,
+              refreshData: true,
+              paymentSuccess: true,
+              isNewRegistration: paymentData?.paytype === 'new_registration',
+              optimisticPlan: paymentData?.planName || paymentDetails?.["Plan Name"] || null,
+              _t: Date.now(),
+            }
+          });
+        }, 600);
+
+        return;
       }
-      
-      // STEP 2: Call cblCustDet API (GeneralApi/cblCustDet)
-      console.log('🔵 [STEP 2] Calling cblCustDet API...');
-      const cableDetailsResponse = await getCableCustomerDetails(paymentData?.userid);
-      console.log('🟢 Cable Customer Details Response:', cableDetailsResponse);
-      
-      // STEP 3: Call primaryCustdet API (cabletvapis/primaryCustdet)
-      console.log('🔵 [STEP 3] Calling primaryCustdet API...');
-      const primaryDetailsResponse = await getPrimaryCustomerDetails(paymentData?.userid);
-      console.log('🟢 Primary Customer Details Response:', primaryDetailsResponse);
-      
-      // All APIs succeeded
+
+      // STEP 1: Generate the order (registers the new plan / order
+      // record on the cable/FoFi side). This call returns success
+      // even when the wallet hasn't actually moved — see STEP 2.
+      const orderResponse = await generateFofiOrder(orderPayload);
+
+      if (orderResponse?.status?.err_code !== 0 && orderResponse?.error !== 0) {
+        const errMsg = orderResponse?.status?.err_msg || orderResponse?.result || 'Failed to generate order';
+        throw new Error(errMsg);
+      }
+
+      // STEP 2: Debit the operator wallet via savepaymentapi.
+      //
+      // This is the same API used by the Internet "Pay Bill" flow
+      // (Paynow.jsx) — the only API in the system that actually moves
+      // money out of the operator wallet. cabletv/generateorder above
+      // registers the order but does not debit the wallet for FoFi
+      // (servid=3); without this second call the user sees the
+      // "Plan Upgraded" success popup but their wallet stays at the
+      // same balance — that's the production bug being reported.
+      //
+      // Skipped when walletDeduction <= 0 (FTA/free plans where the
+      // operator owes nothing). Wrapped in try/catch so a wallet-debit
+      // failure surfaces as a console warning rather than rolling the
+      // user back to an error screen — the upgrade is already
+      // registered server-side, and re-running just this step is
+      // safer than trying to undo a successful generateorder.
+      if (walletDeduction > 0) {
+        try {
+          const opUser = getUser();
+          const apiopid = paymentData?.customer?.op_id || opUser?.op_id || '';
+          const payNowPayload = {
+            apiopid,
+            apiuserid: paymentData?.userid || '',
+            applicationname: import.meta.env.VITE_API_APP_KEY_TYPE,
+            paymode: 'cash',
+            noofmonth: paymentData?.noofmonth || 1,
+            cashpaid: walletDeduction,
+            paidamount: paidAmount, // Added Customer Total
+            transstatus: 'success',
+            renewstatus: 'success',
+            usagecompleted: 0,
+            services_app: 3,
+            paydoneby: loginuname,
+            payreceivedby: loginuname,
+            receivedremark: 'cash',
+          };
+
+          console.log('🔴 [STEP 2] savepaymentapi REQUEST payload:', JSON.stringify(payNowPayload, null, 2));
+          const payNowResp = await payNow(payNowPayload);
+          console.log('🔴 [STEP 2] savepaymentapi RESPONSE:', JSON.stringify(payNowResp, null, 2));
+
+          // Backend response interpretation — savePaymentApi has
+          // historically misleading wrappers. Three possible
+          // outcomes that mean SUCCESS to the user:
+          //   1. error === 0 / status.err_code === 0       ← clean success
+          //   2. error === 1 + receipt_link/invoice_link   ← noisy success
+          //                                                  (verified live May 2026:
+          //                                                  wallet IS debited and
+          //                                                  plan IS renewed even
+          //                                                  with this response;
+          //                                                  the backend just
+          //                                                  couldn't generate a
+          //                                                  proper receipt id
+          //                                                  and reports "something
+          //                                                  went wrong")
+          //   3. error === 1 + no receipt_link             ← genuine failure
+          //
+          // Even on case 3 we DO NOT throw — STEP 1 already
+          // registered the order server-side and re-running just
+          // this step is safer than rolling back to an error
+          // screen that hides the partially-completed state.
+          // We log loudly for ops review and continue to success.
+          const debitOk = payNowResp?.error === 0 || payNowResp?.status?.err_code === 0;
+          const hasReceipt = !!(payNowResp?.receipt_link || payNowResp?.invoice_link);
+          if (debitOk) {
+            console.log('✅ Wallet debited:', walletDeduction);
+          } else if (hasReceipt) {
+            console.warn('⚠️ savepaymentapi reported error:1 but receipt/invoice URLs are present — operation appears to have succeeded server-side. Treating as success.', payNowResp?.result || payNowResp?.status?.err_msg);
+          } else {
+            console.error('❌ savepaymentapi reported failure with no receipt URLs — operator wallet may not have been debited. Order STEP 1 already registered, so NOT rolling back. Manual reconciliation may be required.', payNowResp?.result || payNowResp?.status?.err_msg);
+          }
+        } catch (debitErr) {
+          // Network / timeout / parse failure on STEP 2 only.
+          // Log loudly but don't throw — STEP 1 already registered
+          // the order server-side. Throwing here used to surface
+          // a "Payment Failed" popup over a successful upgrade,
+          // confusing operators who could see the wallet had
+          // actually been debited.
+          console.error('❌ savepaymentapi network/parse error — order STEP 1 already registered, not rolling back:', debitErr?.message || debitErr);
+        }
+      } else {
+        console.log('ℹ️ Wallet debit skipped — walletDeduction <= 0 (likely FTA/free plan)');
+      }
+
+      // STEP 3: Refresh customer details in PARALLEL so the next page sees fresh data.
+      await Promise.allSettled([
+        getCableCustomerDetails(paymentData?.userid),
+        getPrimaryCustomerDetails(paymentData?.userid),
+      ]);
       console.log('✅ All payment APIs completed successfully');
 
       // Save payment to localStorage for immediate display in PaymentHistory
@@ -251,27 +442,48 @@ export default function FofiPayment() {
         console.warn('⚠️ Failed to save payment to localStorage:', storageErr);
       }
 
-      setAlertConfig({
-        type: 'success',
-        title: 'Payment Successful!',
-        message: 'Your FoFi SmartBox plan has been upgraded successfully.'
-      });
-      setAlertOpen(true);
+      // No success Alert here — the FoFi SmartBox page shows its own
+      // "Plan Upgraded" modal popup once we navigate (driven by
+      // location.state.paymentSuccess). Showing both produced the
+      // "popup coming again and again" feedback in production: the
+      // operator saw "Payment Successful!" briefly, then ~2s later
+      // "Plan Upgraded", which felt like the system flagging the same
+      // event twice. Keeping only the destination popup is also
+      // honest — that one stays open until the user taps OK and gives
+      // the plan-detail refetch time to land.
 
-      // Navigate back to FoFi SmartBox page after success to show updated plan
-      // Pass customer data and a refresh flag
+      // Navigate back to FoFi SmartBox page after success to show updated plan.
+      // replace: true — the /fofi-payment entry is now obsolete; removing it
+      // from history keeps the back stack clean so the user doesn't land on
+      // the completed payment page when pressing back.
+      //
+      // optimisticPlan / optimisticDeduction — the new plan name and the
+      // amount that was just deducted. FoFiSmartBox uses these to update
+      // the Current Plan card and the wallet balance immediately, instead
+      // of waiting on the staged backend refetches (which can take 12+
+      // seconds to propagate). The next backend response will overwrite
+      // these once it lands.
+      //
+      // 600ms delay (was 2000ms) — just enough time for the operator to
+      // perceive the click registered (button changed to "Processing...")
+      // before the next page paints. The destination page's popup is
+      // the actual success acknowledgement.
       setTimeout(() => {
         const customerId = paymentData?.customer?.customer_id || paymentData?.userid;
         const isNewRegistration = paymentData?.paytype === 'new_registration';
         navigate(`/customer/${customerId}/service/fofi-smart-box`, {
+          replace: true,
           state: {
             customer: paymentData?.customer,
-            refreshData: true,  // Flag to force refresh plan details
-            paymentSuccess: true,  // Indicate payment was successful
-            isNewRegistration: isNewRegistration  // Flag to indicate new registration vs upgrade
+            refreshData: true,
+            paymentSuccess: true,
+            isNewRegistration: isNewRegistration,
+            optimisticPlan: paymentData?.planName || paymentDetails?.["Plan Name"] || null,
+            optimisticDeduction: walletDeduction,
+            _t: Date.now(),
           }
         });
-      }, 2000);
+      }, 600);
       
     } catch (err) {
       console.error('❌ Payment Error:', err);
@@ -281,7 +493,11 @@ export default function FofiPayment() {
         message: err.message || 'An unknown error occurred. Please try again.'
       });
       setAlertOpen(true);
-    } finally {
+      // Re-enable the button only on error so the user can retry. On
+      // success we deliberately leave submitting=true: the 2-second
+      // pre-navigation window was previously a re-click footgun where
+      // a frustrated operator (wallet not debited) could click again
+      // and double-charge once the wallet debit started working.
       setSubmitting(false);
     }
   };

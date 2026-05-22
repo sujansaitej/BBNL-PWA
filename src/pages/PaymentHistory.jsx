@@ -10,8 +10,10 @@ import {
   DevicePhoneMobileIcon,
   DocumentTextIcon
 } from "@heroicons/react/24/outline";
-import { getOrderHistory } from "../services/orderApis";
+import { getOrderHistoryFor } from "../services/orderApis";
+import { filterOrdersByService } from "../constants/services";
 import { formatCustomerId } from "../services/helpers";
+import { getUser } from "../services/safeStorage";
 import BottomNav from "../components/BottomNav";
 import { Loader } from "@/components/ui";
 import { jsPDF } from "jspdf";
@@ -34,9 +36,17 @@ export default function PaymentHistory() {
   const navigate = useNavigate();
   const customerData = location.state?.customer;
   const cableDetails = location.state?.cableDetails;
-  const serviceType = location.state?.serviceType; // 'fofi' or 'internet' or undefined
+  const serviceType = location.state?.serviceType; // 'fofi' | 'internet' | 'cabletv' | undefined
+  const fofiboxid = location.state?.fofiboxid; // present only when navigated from FoFi page
+
+  // Discovery toggle: ?debugOrders=1 OR dev build. Renders a JSON
+  // dump of the raw response at the bottom so we can confirm what
+  // fields the backend actually returns (servicekey, planid, ...).
+  const debugOrders = import.meta.env.DEV ||
+    new URLSearchParams(location.search).get('debugOrders') === '1';
 
   const [orderHistory, setOrderHistory] = useState(null);
+  const [rawResponse, setRawResponse] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -45,7 +55,7 @@ export default function PaymentHistory() {
       setLoading(true);
       setError("");
       try {
-        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const user = getUser();
         const apiopid = cableDetails?.body?.op_id || customerData?.op_id || user?.op_id;
         const cid = customerData?.customer_id;
         // Perf-tracked via orderApis
@@ -73,35 +83,46 @@ export default function PaymentHistory() {
           }
         }
 
-        // Fetch payment history from custpayhistory API
-        // Pass servicekey: 'fofi' for FoFi Box orders to get proper order history
+        // Fetch payment history through the service-aware selector.
+        //
+        // - For FoFi (with fofiboxid): hits the dedicated
+        //   /ServiceApis/cabletv/orderhistory endpoint that the
+        //   backend already filters by servid=3. Falls back to the
+        //   generic endpoint on error/empty so operators are never
+        //   left with a blank screen.
+        // - For Internet/Cable: hits the generic /apis/custpayhistory
+        //   which returns ALL payments; we filter client-side below
+        //   using the central service registry (constants/services.js).
         try {
-          const apiParams = { apiopid, cid };
-          if (serviceType === 'fofi') {
-            apiParams.servicekey = 'fofi';
-          }
-          console.log("🔵 [PaymentHistory] API params:", apiParams);
-          const custPayData = await getOrderHistory(apiParams);
-          console.log("🟢 [PaymentHistory] custpayhistory response:", custPayData);
+          const userid = customerData?.username || customerData?.customer_id || cid;
+          const apiCtx = { apiopid, cid, userid, fofiboxid };
+          console.log("🔵 [PaymentHistory] Fetching for serviceType:", serviceType, "ctx:", apiCtx);
+          const custPayData = await getOrderHistoryFor(serviceType, apiCtx);
+          setRawResponse(custPayData);
+          console.log("🟢 [PaymentHistory] response (source: " + (custPayData?._source || 'unknown') + "):", custPayData);
 
-          if (custPayData?.status?.err_code === 0 && custPayData?.body && Array.isArray(custPayData.body)) {
+          if (custPayData?.body && Array.isArray(custPayData.body)) {
             allOrders = [...allOrders, ...custPayData.body];
-            console.log("🟢 [PaymentHistory] Orders from custpayhistory:", custPayData.body.length);
-          } else if (custPayData?.body && Array.isArray(custPayData.body)) {
-            // API returned data even without explicit success code
-            allOrders = [...allOrders, ...custPayData.body];
-            console.log("🟢 [PaymentHistory] Orders from custpayhistory (no status):", custPayData.body.length);
+            console.log(`🟢 [PaymentHistory] Orders from API (${custPayData?._source}):`, custPayData.body.length);
           } else {
-            console.warn("⚠️ [PaymentHistory] custpayhistory API returned no data or error:", custPayData?.status?.err_msg);
+            console.warn("⚠️ [PaymentHistory] API returned no data or error:", custPayData?.status?.err_msg);
           }
         } catch (apiErr) {
-          console.error("❌ [PaymentHistory] custpayhistory API error:", apiErr.message);
+          console.error("❌ [PaymentHistory] order history API error:", apiErr.message);
         }
 
-        console.log("🔵 [PaymentHistory] Total orders:", allOrders.length);
+        console.log("🔵 [PaymentHistory] Total orders before filter:", allOrders.length);
 
-        // Note: custpayhistory API returns ALL payments for a customer
-        // We show all payments regardless of service type since the API doesn't filter by service
+        // Service filter — uses central registry. Resolver checks
+        // every plausible identifier field (servicekey, serv_key,
+        // service_key, srvtype, servid, services_app, ...) then
+        // falls back to plan-name regex. Orders that cannot be
+        // classified are KEPT (we never silently hide a payment).
+        if (serviceType) {
+          const before = allOrders.length;
+          allOrders = filterOrdersByService(allOrders, serviceType);
+          console.log(`🔵 [PaymentHistory] Service filter "${serviceType}": ${before} → ${allOrders.length}`);
+        }
 
         // Remove duplicates based on payment_date and total_amt
         const uniqueOrders = [];
@@ -140,7 +161,7 @@ export default function PaymentHistory() {
     if (customerData) {
       fetchOrderHistory();
     }
-  }, [customerData, cableDetails, serviceType]);
+  }, [customerData, cableDetails, serviceType, fofiboxid]);
 
   const orders = orderHistory?.body || [];
 
@@ -618,6 +639,43 @@ export default function PaymentHistory() {
               <span className="text-lg font-bold text-indigo-600">{orders.length}</span>
             </div>
           </div>
+        )}
+
+        {/* Discovery panel — DEV or ?debugOrders=1 only.
+            Shows the raw response so we can confirm which fields
+            (servicekey, planid, srvtype, ...) the backend actually
+            returns per order. Once we know, we can tighten the
+            registry resolver and remove this panel. */}
+        {debugOrders && rawResponse && (
+          <details className="mt-4 bg-yellow-50 border border-yellow-300 rounded-2xl p-4">
+            <summary className="cursor-pointer text-sm font-semibold text-yellow-800">
+              🔍 Discovery: raw API response (source: {rawResponse._source || 'unknown'}, items: {Array.isArray(rawResponse.body) ? rawResponse.body.length : 0})
+            </summary>
+            <div className="mt-3 space-y-3 text-xs">
+              <div>
+                <p className="font-semibold text-gray-700">Filter context</p>
+                <pre className="bg-white rounded p-2 overflow-auto max-h-32">
+{JSON.stringify({ serviceType, fofiboxid, customerId: customerData?.customer_id }, null, 2)}
+                </pre>
+              </div>
+              <div>
+                <p className="font-semibold text-gray-700">Keys present on first 3 orders</p>
+                <pre className="bg-white rounded p-2 overflow-auto max-h-40">
+{JSON.stringify(
+  (Array.isArray(rawResponse.body) ? rawResponse.body : []).slice(0, 3).map(o => Object.keys(o || {})),
+  null,
+  2
+)}
+                </pre>
+              </div>
+              <div>
+                <p className="font-semibold text-gray-700">First order (full)</p>
+                <pre className="bg-white rounded p-2 overflow-auto max-h-72">
+{JSON.stringify((Array.isArray(rawResponse.body) ? rawResponse.body[0] : null) || {}, null, 2)}
+                </pre>
+              </div>
+            </div>
+          </details>
         )}
       </div>
 

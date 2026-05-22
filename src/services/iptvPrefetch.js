@@ -51,7 +51,11 @@ export async function runIptvPrefetch() {
     const langFresh = isFresh(langEntry);
 
     const eff = _getEffective();
-    const isSlow = eff === 'slow-2g' || eff === '2g';
+    // On slow-2g / 2g / 3g we skip the channel-list prefetch below so the
+    // first ~5 seconds after app open aren't spent hammering the network
+    // on low-tier franchisee phones — the user's immediate goal is Login,
+    // not Live TV. Channels fetch on-demand when they tap Live TV.
+    const isSlow = eff === 'slow-2g' || eff === '2g' || eff === '3g';
 
     // Already fresh — preload language logos from cached data
     if (chFresh && langFresh) {

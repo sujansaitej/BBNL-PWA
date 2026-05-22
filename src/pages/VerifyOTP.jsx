@@ -16,7 +16,7 @@ export default function VerifyOtpPage() {
   const [canResend, setCanResend] = useState(false);
   const containerRef = useRef(null);
 
-  const userdet = getUser();
+  const userdet = getUser() || {};
   const username = userdet.username || "";
   const otprefid = localStorage.getItem("otprefid") || "";
 
@@ -102,11 +102,11 @@ export default function VerifyOtpPage() {
     setError("");
     try {
       const result = await OTPauth(username, otprefid, otpcode);
-      if(result?.status?.err_code == '1') {
-          triggerError((result?.status && result?.status?.err_msg ) || "Invalid OTP");
+      if(result?.status?.err_code === 1) {
+          triggerError(result?.status?.err_msg || "Invalid OTP");
       }else{
           localStorage.removeItem("otprefid");
-          localStorage.getItem('loginType') == "franchisee" ? navigate("/", { replace: true }) : navigate("/cust/dashboard", { replace: true });
+          localStorage.getItem('loginType') === "franchisee" ? navigate("/", { replace: true }) : navigate("/cust/dashboard", { replace: true });
           // navigate("/");
       }
     } catch (err) {

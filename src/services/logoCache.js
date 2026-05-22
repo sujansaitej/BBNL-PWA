@@ -48,16 +48,7 @@ const NOT_FOUND = Symbol('NOT_FOUND');
 // Sentinel: queue item was cancelled by clearQueue() — don't count as failure.
 const CANCELLED = Symbol('CANCELLED');
 
-// CDN URLs lack CORS headers — fetch() always throws TypeError.
-// Don't even attempt fetch(); <img src={cdnUrl}> handles display natively,
-// and the SW caches opaque responses from <img> requests (statuses: [0, 200]).
-const CDN_RE = /cdn1\.bbnl\.in\/cable\//i;
-
 async function fetchAndCache(url) {
-  // Skip CDN entirely — no CORS headers, fetch() always fails.
-  // Saves 275+ wasted fetch calls per page load.
-  if (CDN_RE.test(url)) return NOT_FOUND;
-
   try {
     const res = await fetchImage(url);
     if (!res.ok) {

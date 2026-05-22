@@ -45,29 +45,36 @@ export default function Login() {
 
     checkPWAInstalled();
 
-    // Detect if installed mode changes
-    window
-      .matchMedia("(display-mode: standalone)")
-      .addEventListener("change", checkPWAInstalled);
-
-    // Listen for beforeinstallprompt
-    window.addEventListener("beforeinstallprompt", (e) => {
+    // Detect if installed mode changes. Keep a handle to the MediaQueryList
+    // and to each listener so cleanup on unmount actually removes them —
+    // otherwise every login → logout → login cycle leaks another listener
+    // and on low-RAM phones V8 pauses to GC, producing the "app freezes
+    // for a few seconds" complaint.
+    const mq = window.matchMedia("(display-mode: standalone)");
+    const onMediaChange = () => checkPWAInstalled();
+    const onBeforeInstall = (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      // console.log("✅ Install prompt saved");
-    });
-
-    // Listen for app installation
-    window.addEventListener("appinstalled", () => {
-      // console.log("✅ PWA installed");
+    };
+    const onAppInstalled = () => {
       localStorage.setItem("pwaInstalledOnce", "true");
       setIsInstalled(true);
       setDeferredPrompt(null);
-    });
+    };
+    mq.addEventListener("change", onMediaChange);
+    window.addEventListener("beforeinstallprompt", onBeforeInstall);
+    window.addEventListener("appinstalled", onAppInstalled);
+
     if (isLocal==='true') {
       setIsInstalled(true);
       setIsStandalone(true);
     }
+
+    return () => {
+      mq.removeEventListener("change", onMediaChange);
+      window.removeEventListener("beforeinstallprompt", onBeforeInstall);
+      window.removeEventListener("appinstalled", onAppInstalled);
+    };
   }, []);
 
   const handleLogin = async (e) => {
@@ -88,6 +95,11 @@ export default function Login() {
       const result = await UserLogin(username, password);
       if(result?.status?.err_code === 1) {
           setError(result?.status?.err_msg || "Login failed");
+          setLoading(false);
+          return;
+      }
+      if (!result?.body) {
+          setError("Invalid response from server");
           setLoading(false);
           return;
       }

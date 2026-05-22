@@ -1,12 +1,14 @@
 
-import { XMarkIcon, GlobeAltIcon, Cog6ToothIcon, UsersIcon, BellAlertIcon, ArchiveBoxIcon, ChatBubbleOvalLeftEllipsisIcon, ArrowRightOnRectangleIcon, WifiIcon, FilmIcon, TicketIcon, UserIcon, CurrencyRupeeIcon, ClipboardDocumentListIcon } from '@heroicons/react/24/outline';
-import { useEffect, useState } from "react";
+import { XMarkIcon, GlobeAltIcon, Cog6ToothIcon, UsersIcon, BellAlertIcon, ArchiveBoxIcon, ChatBubbleOvalLeftEllipsisIcon, ArrowRightOnRectangleIcon, WifiIcon, FilmIcon, TicketIcon, UserIcon, CurrencyRupeeIcon, ClipboardDocumentListIcon, SunIcon, MoonIcon } from '@heroicons/react/24/outline';
+import { useContext, useEffect, useState } from "react";
 import { Modal } from "@/components/ui";
 import { useNavigate } from "react-router-dom";
 import { getWalBal } from "../services/generalApis";
 import { lsClearAll } from "../services/lsCache";
+import { ThemeContext } from '../ThemeContext.jsx'
 export default function Sidebar({ open, onClose }) {
   const navigate = useNavigate();
+  const { theme, toggleTheme } = useContext(ThemeContext);
   const [modalOpen, setModalOpen] = useState(false);
   const user   = JSON.parse(localStorage.getItem('user') || 'null');
   const fname  = user?.firstname ? user.firstname.charAt(0).toUpperCase() + user.firstname.slice(1) : '';
@@ -18,16 +20,17 @@ export default function Sidebar({ open, onClose }) {
   const logUname = user?.username || '';
   const [intWB, setIntWB] = useState(0);
   const isCustomer = localStorage.getItem('loginType') === 'customer'? true : false;
+  // Fetch wallet balance every time the sidebar opens (skip cache for fresh data)
   useEffect(() => {
-    if (logUname) {
-      getWalBal({ loginuname: logUname, servicekey: 'internet' })
+    if (open && logUname) {
+      getWalBal({ loginuname: logUname, servicekey: 'internet' }, true)
         .then(data => {
           if (data?.status?.err_code === 0)
             setIntWB((data?.body?.wallet_balance || 0).toFixed(2));
         })
         .catch(() => {});
     }
-  }, []);
+  }, [open]);
 
   function logout() {
     lsClearAll();
@@ -111,6 +114,7 @@ export default function Sidebar({ open, onClose }) {
             <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><ArchiveBoxIcon className="h-5 w-5" /> Order History</button>
             {/* <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><Cog6ToothIcon className="h-5 w-5" /> Settings</button> */}
             <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); navigate('/support'); }}><ChatBubbleOvalLeftEllipsisIcon className="h-5 w-5" /> Support</button>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={toggleTheme}>{theme === 'dark' ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}{theme === 'dark' ? 'Light Theme' : 'Dark Theme'}</button>
             <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); logout(); }}><ArrowRightOnRectangleIcon className="h-5 w-5" /> Log out</button>
             </>
             ) : (
@@ -121,6 +125,7 @@ export default function Sidebar({ open, onClose }) {
             <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><TicketIcon className="h-5 w-5" /> Tickets</button>
             {/* <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><Cog6ToothIcon className="h-5 w-5" /> Settings</button> */}
             <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><ChatBubbleOvalLeftEllipsisIcon className="h-5 w-5" /> Support</button>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={toggleTheme}>{theme === 'dark' ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}{theme === 'dark' ? 'Light Theme' : 'Dark Theme'}</button>
             <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); logout(); }}><ArrowRightOnRectangleIcon className="h-5 w-5" /> Log out</button>
             </>
             )}

@@ -23,11 +23,12 @@ export default function VoiceService() {
         toast.add('Voice service details coming soon', { type: 'info' });
     };
 
-    // Handle Order History button click
+    // Handle Order History button click — only Voice bills.
     const handleOrderHistory = () => {
         navigate('/payment-history', {
             state: {
-                customer: customerData
+                customer: customerData,
+                serviceType: 'voice',
             }
         });
     };

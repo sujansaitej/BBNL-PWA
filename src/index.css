@@ -207,3 +207,17 @@ white-icon { color: #ffffff !important; }
     height: 100dvh !important;
   }
 }
+
+/* Forced-landscape rotation for the video player.
+ * On iOS Safari, 100vh includes the address bar height and changes as the
+ * bar collapses/expands, which snaps the rotated player between two sizes
+ * (the classic "iOS 100vh trap"). Prefer dvh/dvw where supported so the
+ * rotated canvas stays pinned to the real visible viewport; fall through
+ * to vh/vw on iOS < 15.4 and other older browsers.
+ */
+.player-rotated-landscape {
+  width: 100vh;
+  height: 100vw;
+  width: 100dvh;
+  height: 100dvw;
+}

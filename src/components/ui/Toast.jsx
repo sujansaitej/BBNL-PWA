@@ -10,7 +10,13 @@ export function useToast() {
 
 let idCounter = 0;
 
-export function ToastProvider({ children, position = "top-right", autoDismiss = 4000 }) {
+// Default position changed to bottom-center (May 2026) — top toasts
+// were getting clipped under the gradient header on mobile and
+// operators reported missing them entirely. Bottom-center sits in
+// the natural eye-line above the bottom nav and is bigger / more
+// legible. Individual ToastProvider instances can still override
+// via the `position` prop.
+export function ToastProvider({ children, position = "bottom-center", autoDismiss = 4000 }) {
   const [toasts, setToasts] = useState([]);
 
   const add = (message, opts = {}) => {
@@ -21,13 +27,26 @@ export function ToastProvider({ children, position = "top-right", autoDismiss = 
       type: opts.type || "info", // 'success' | 'error' | 'info'
       duration: typeof opts.duration === "number" ? opts.duration : autoDismiss,
     };
-    setToasts((s) => [toast, ...s]);
+    // Bottom toasts stack with newest at the BOTTOM (closest to the
+    // user's tap target / where the action just happened). Top
+    // toasts stack with newest at the TOP. Order accordingly.
+    const isTop = position?.startsWith("top");
+    setToasts((s) => isTop ? [toast, ...s] : [...s, toast]);
     return id;
   };
 
   const remove = (id) => setToasts((s) => s.filter((t) => t.id !== id));
 
   const value = useMemo(() => ({ add, remove }), []);
+
+  // Sit above the BottomNav (which is ~64px tall) so toasts don't
+  // overlap the navigation tabs.
+  const positionClasses =
+    position === "top-right" || position === "top-left" || position === "top-center"
+      ? "top-4 left-1/2 -translate-x-1/2 items-center"
+      : position === "bottom-right"
+      ? "bottom-20 right-4 items-end"
+      : /* bottom-center / bottom-left / default */ "bottom-20 left-1/2 -translate-x-1/2 items-center";
 
   return (
     <ToastContext.Provider value={value}>
@@ -36,15 +55,7 @@ export function ToastProvider({ children, position = "top-right", autoDismiss = 
       {/* Toast container */}
       <div
         aria-live="polite"
-        className={`fixed z-50 pointer-events-none flex flex-col gap-2 p-2 ${
-          position === "top-right"
-            ? "top-4 left-1/2 -translate-x-1/2 items-center"
-            : position === "top-left"
-            ? "top-4 left-1/2 -translate-x-1/2 items-center"
-            : position === "bottom-right"
-            ? "bottom-4 left-1/2 -translate-x-1/2 items-center"
-            : "bottom-4 left-1/2 -translate-x-1/2 items-center"
-        }`}
+        className={`fixed z-50 pointer-events-none flex flex-col gap-3 p-3 w-full max-w-md ${positionClasses}`}
       >
         {toasts.map((t) => (
           <ToastItem key={t.id} toast={t} onClose={() => remove(t.id)} />
@@ -75,57 +86,56 @@ function ToastItem({ toast, onClose }) {
   return (
     <div
       role="status"
-      className={`pointer-events-auto max-w-sm w-full transform transition-[opacity,transform] duration-180
-        ${show ? "opacity-100 translate-y-0 scale-100" : "opacity-0 -translate-y-2 scale-95"}
-        ${bg} ring-1 ring-opacity-80 rounded-xl shadow-lg p-2 flex items-start gap-1`}
+      className={`pointer-events-auto w-full transform transition-[opacity,transform] duration-200
+        ${show ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-3 scale-95"}
+        ${bg} ring-2 ring-white/40 rounded-2xl shadow-2xl px-5 py-4 flex items-center gap-3`}
     >
-      {/* Icon */}
-      <div className={`flex-shrink-0 mt-0.5 ${accent}`}>
+      {/* Icon — larger, in a frosted circle for emphasis */}
+      <div className={`flex-shrink-0 w-10 h-10 rounded-full bg-white/20 flex items-center justify-center ${accent}`}>
         {type === "success" ? (
-          <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+          <svg className="w-6 h-6" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
             <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414L8.414 15l-4.121-4.121a1 1 0 011.414-1.414L8.414 12.172l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
           </svg>
         ) : type === "error" ? (
-          <svg className="w-5 h-5" viewBox="0 0 28 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="10" />
             <line x1="15" y1="9" x2="9" y2="15" />
             <line x1="9" y1="9" x2="15" y2="15" />
           </svg>
         ) : type === "warning" ? (
-          <svg className="w-5 h-5" viewBox="0 0 28 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
             <line x1="12" y1="9" x2="12" y2="13" />
             <line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
         ) : type === "info" ? (
-          <svg className="w-5 h-5" viewBox="0 0 28 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="10" />
             <line x1="12" y1="16" x2="12" y2="12" />
             <line x1="12" y1="8" x2="12" y2="8" />
           </svg>
         ) : (
-          <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+          <svg className="w-6 h-6" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
             <path d="M9 2a7 7 0 100 14A7 7 0 009 2zM8 8h2v5H8V8zM8 14h2v2H8v-2z" />
           </svg>
         )}
       </div>
 
-      {/* Message */}
-      <div className="flex-1 min-w-0 mt-0.5">
-        {/* <p className={`text-sm font-medium ${accent}`}>{type.charAt(0).toUpperCase() + type.slice(1)}</p> */}
-        <p className="text-sm text-white truncate break-words">{message}</p>
+      {/* Message — larger text, allows wrapping for multi-line messages */}
+      <div className="flex-1 min-w-0">
+        <p className="text-base font-semibold text-white leading-snug break-words">{message}</p>
       </div>
 
-      {/* Close */}
+      {/* Close — larger tap target */}
       <button
         onClick={() => {
           setShow(false);
           setTimeout(onClose, 140);
         }}
         aria-label="Close toast"
-        className="ml-2 p-1 rounded-md hover:bg-slate-100"
+        className="ml-1 flex-shrink-0 w-8 h-8 rounded-full text-white/90 hover:bg-white/20 flex items-center justify-center transition-colors"
       >
-        <svg className="w-4 h-4 text-slate-600" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+        <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
           <path fillRule="evenodd" d="M6.293 6.293a1 1 0 011.414 0L10 8.586l2.293-2.293a1 1 0 111.414 1.414L11.414 10l2.293 2.293a1 1 0 01-1.414 1.414L10 11.414l-2.293 2.293a1 1 0 01-1.414-1.414L8.586 10 6.293 7.707a1 1 0 010-1.414z" clipRule="evenodd" />
         </svg>
       </button>

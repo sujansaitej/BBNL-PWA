@@ -5,6 +5,7 @@ import { getOnuHwDets, registerCustomer } from "../services/registrationApis";
 import { Button, Badge, Input, FloatingInput } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { getUser, safeGetJSON } from "../services/safeStorage";
+import { lsRemove } from "../services/lsCache";
 
 export default function Subscribe() {
   const navigate = useNavigate();
@@ -98,6 +99,12 @@ export default function Subscribe() {
                 setSubmitting(false);
                 const keysToRemove = ['photoFileId', 'idcardIds', 'addrproofIds'];
                 keysToRemove.forEach(key => localStorage.removeItem(key));
+                // Invalidate customer list caches so the new user appears immediately
+                lsRemove('custlist_all');
+                lsRemove('custlist_live');
+                lsRemove('custlist_expiring');
+                lsRemove('custlist_expired');
+                lsRemove('custlist_inactive');
                 toast.add("Registered successfully!", { type: 'success' });
                 navigate('/paynow');
                 // window.location.href = '/paynow';
