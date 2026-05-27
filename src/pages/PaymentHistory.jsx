@@ -11,7 +11,7 @@ import {
   DocumentTextIcon
 } from "@heroicons/react/24/outline";
 import { getOrderHistoryFor } from "../services/orderApis";
-import { filterOrdersByService } from "../constants/services";
+import { canonicalServiceKey, filterOrdersByService } from "../constants/services";
 import { formatCustomerId } from "../services/helpers";
 import { getUser } from "../services/safeStorage";
 import BottomNav from "../components/BottomNav";
@@ -31,12 +31,105 @@ const parsePaymentDate = (dateStr) => {
   return new Date(dateStr);
 };
 
+const toAmount = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  const cleaned = String(value).replace(/[^\d.-]/g, "");
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const firstAmount = (...values) => {
+  for (const value of values) {
+    const parsed = toAmount(value);
+    if (parsed !== null) return parsed;
+  }
+  return null;
+};
+
+const normalizeSubtaxes = (order) => {
+  const source = order?.subtaxes || order?.taxdetails?.subtaxes || order?.tax_details;
+  if (Array.isArray(source)) {
+    return source.map((tax) => ({
+      key: tax?.key || tax?.name || tax?.taxname || "Tax",
+      perc: tax?.perc ?? tax?.percentage ?? tax?.tax_perc ?? "",
+      value: firstAmount(tax?.value, tax?.amount, tax?.tax_amount) || 0,
+    })).filter((tax) => tax.value > 0);
+  }
+
+  if (source && typeof source === "object") {
+    return Object.entries(source).map(([key, tax]) => ({
+      key,
+      perc: tax?.perc ?? tax?.percentage ?? tax?.tax_perc ?? "",
+      value: firstAmount(tax?.value, tax?.amount, tax?.tax_amount, tax) || 0,
+    })).filter((tax) => tax.value > 0);
+  }
+
+  const cgst = firstAmount(order?.cgst, order?.CGST);
+  const sgst = firstAmount(order?.sgst, order?.SGST);
+  return [
+    cgst !== null ? { key: "CGST", perc: 9, value: cgst } : null,
+    sgst !== null ? { key: "SGST", perc: 9, value: sgst } : null,
+  ].filter(Boolean);
+};
+
+const getPaymentBreakdown = (order) => {
+  const planRate = firstAmount(order?.plan_rate, order?.planrate, order?.base_amt, order?.baseamount) || 0;
+  const subtaxes = normalizeSubtaxes(order);
+  const taxTotal = subtaxes.reduce((sum, tax) => sum + tax.value, 0);
+  const discount = firstAmount(order?.discount, order?.discount_amt, order?.discountamount) || 0;
+  const otherCharges = firstAmount(order?.other_charges, order?.othercharges, order?.other_charges_amt) || 0;
+
+  const paidRaw = firstAmount(
+    order?.paid_amt,
+    order?.paidamount,
+    order?.paid_amount,
+    order?.cashpaid,
+    order?.receivedamount,
+    order?.totalpaid,
+    order?.total_amt,
+    order?.totalamount,
+    order?.total_amount
+  );
+
+  const balanceAmount = firstAmount(
+    order?.balance_amt,
+    order?.balanceamount,
+    order?.balance_amount,
+    order?.balamt,
+    order?.dueamount
+  ) || 0;
+
+  const calculatedSubtotal = planRate + taxTotal + otherCharges - discount;
+  const billedTotal = firstAmount(
+    order?.grandtotal,
+    order?.payable_amt,
+    order?.payableamount,
+    order?.rounded_total,
+    order?.round_total
+  );
+  const fallbackSubtotal = firstAmount(order?.subtotal, order?.sub_total);
+  const paidMinusBalance = paidRaw !== null && balanceAmount > 0 ? paidRaw - balanceAmount : null;
+  const subtotal = paidMinusBalance ?? billedTotal ?? (calculatedSubtotal > 0 ? Math.round(calculatedSubtotal) : (fallbackSubtotal || 0));
+  const paidAmount = paidRaw ?? subtotal;
+
+  return {
+    planRate,
+    subtaxes,
+    discount,
+    otherCharges,
+    subtotal,
+    paidAmount,
+    balanceAmount,
+  };
+};
+
 export default function PaymentHistory() {
   const location = useLocation();
   const navigate = useNavigate();
   const customerData = location.state?.customer;
   const cableDetails = location.state?.cableDetails;
-  const serviceType = location.state?.serviceType; // 'fofi' | 'internet' | 'cabletv' | undefined
+  const serviceType = canonicalServiceKey(location.state?.serviceType); // 'fofi' | 'internet' | 'cabletv' | undefined
   const fofiboxid = location.state?.fofiboxid; // present only when navigated from FoFi page
 
   // Discovery toggle: ?debugOrders=1 OR dev build. Renders a JSON
@@ -75,7 +168,7 @@ export default function PaymentHistory() {
               );
               if (validPayments.length > 0) {
                 // Found recent local payments
-                allOrders = [...allOrders, ...validPayments.map(p => ({ ...p, _source: 'localStorage' }))];
+                allOrders = [...allOrders, ...validPayments.map(p => ({ ...p, servicekey: 'fofi', _source: 'localStorage' }))];
               }
             }
           } catch (localErr) {
@@ -116,11 +209,13 @@ export default function PaymentHistory() {
         // Service filter — uses central registry. Resolver checks
         // every plausible identifier field (servicekey, serv_key,
         // service_key, srvtype, servid, services_app, ...) then
-        // falls back to plan-name regex. Orders that cannot be
-        // classified are KEPT (we never silently hide a payment).
+        // falls back to plan-name regex. Legacy unclassified generic
+        // rows are kept only under Internet to avoid cross-service leaks.
         if (serviceType) {
           const before = allOrders.length;
-          allOrders = filterOrdersByService(allOrders, serviceType);
+          allOrders = filterOrdersByService(allOrders, serviceType, null, {
+            unclassifiedServiceKey: 'internet',
+          });
           console.log(`🔵 [PaymentHistory] Service filter "${serviceType}": ${before} → ${allOrders.length}`);
         }
 
@@ -166,6 +261,7 @@ export default function PaymentHistory() {
   const orders = orderHistory?.body || [];
 
   const handleDownload = (order) => {
+    const breakdown = getPaymentBreakdown(order);
     const customerName = order.name || customerData?.name || "N/A";
     const customerId = formatCustomerId(order.cid || customerData?.customer_id);
     const mobile = order.mobile || customerData?.mobile || "N/A";
@@ -263,7 +359,7 @@ export default function PaymentHistory() {
     doc.setFont("helvetica", "bold");
     doc.text(order.plan_name || "N/A", 20, y + 9);
     doc.setTextColor(...primaryColor);
-    doc.text(`Rs. ${formatAmount(order.plan_rate)} /month`, pageWidth - 20, y + 9, { align: "right" });
+    doc.text(`Rs. ${formatAmount(breakdown.planRate)} /month`, pageWidth - 20, y + 9, { align: "right" });
     y += 22;
 
     // Payment Breakdown Section
@@ -275,39 +371,39 @@ export default function PaymentHistory() {
 
     // Calculate box height based on content
     let lineCount = 2; // Plan Rate + Subtotal
-    if (order.subtaxes && order.subtaxes.length > 0) lineCount += order.subtaxes.length;
-    if (order.discount > 0) lineCount++;
-    if (order.other_charges > 0) lineCount++;
+    if (breakdown.subtaxes.length > 0) lineCount += breakdown.subtaxes.length;
+    if (breakdown.discount > 0) lineCount++;
+    if (breakdown.otherCharges > 0) lineCount++;
     const boxHeight = lineCount * 8 + 15;
 
     doc.roundedRect(15, y, pageWidth - 30, boxHeight, 3, 3, 'F');
     y += 8;
 
     // Plan Rate
-    y = drawLabelValue("Plan Rate", `Rs. ${formatAmount(order.plan_rate)}`, y);
+    y = drawLabelValue("Plan Rate", `Rs. ${formatAmount(breakdown.planRate)}`, y);
 
     // Taxes
-    if (order.subtaxes && order.subtaxes.length > 0) {
-      order.subtaxes.forEach(tax => {
+    if (breakdown.subtaxes.length > 0) {
+      breakdown.subtaxes.forEach(tax => {
         y = drawLabelValue(`${tax.key} (${tax.perc}%)`, `Rs. ${formatAmount(tax.value)}`, y);
       });
     }
 
     // Discount
-    if (order.discount > 0) {
-      y = drawLabelValue("Discount", `-Rs. ${formatAmount(order.discount)}`, y, grayColor, [22, 163, 74]); // green
+    if (breakdown.discount > 0) {
+      y = drawLabelValue("Discount", `-Rs. ${formatAmount(breakdown.discount)}`, y, grayColor, [22, 163, 74]); // green
     }
 
     // Other Charges
-    if (order.other_charges > 0) {
-      y = drawLabelValue("Other Charges", `Rs. ${formatAmount(order.other_charges)}`, y);
+    if (breakdown.otherCharges > 0) {
+      y = drawLabelValue("Other Charges", `Rs. ${formatAmount(breakdown.otherCharges)}`, y);
     }
 
     // Subtotal line
     doc.setDrawColor(229, 231, 235);
     doc.line(20, y, pageWidth - 20, y);
     y += 6;
-    y = drawLabelValue("Subtotal", `Rs. ${formatAmount(order.subtotal)}`, y);
+    y = drawLabelValue("Subtotal", `Rs. ${formatAmount(breakdown.subtotal)}`, y);
     y += 8;
 
     // Total Paid - Purple highlight box
@@ -318,19 +414,19 @@ export default function PaymentHistory() {
     doc.setFont("helvetica", "bold");
     doc.text("Total Paid", 20, y + 12);
     doc.setFontSize(16);
-    doc.text(`Rs. ${formatAmount(order.paid_amt || order.total_amt)}`, pageWidth - 20, y + 12, { align: "right" });
+    doc.text(`Rs. ${formatAmount(breakdown.paidAmount)}`, pageWidth - 20, y + 12, { align: "right" });
     y += 25;
 
-    // Balance Due (if any)
-    if (order.balance_amt > 0) {
+    // Balance Amount (if any)
+    if (breakdown.balanceAmount > 0) {
       doc.setFillColor(255, 247, 237); // orange-50
       doc.roundedRect(15, y, pageWidth - 30, 16, 3, 3, 'F');
       doc.setTextColor(234, 88, 12); // orange-600
       doc.setFontSize(11);
       doc.setFont("helvetica", "bold");
-      doc.text("Balance Due", 20, y + 11);
+      doc.text("Balance Amount", 20, y + 11);
       doc.setFontSize(14);
-      doc.text(`Rs. ${formatAmount(order.balance_amt)}`, pageWidth - 20, y + 11, { align: "right" });
+      doc.text(`Rs. ${formatAmount(breakdown.balanceAmount)}`, pageWidth - 20, y + 11, { align: "right" });
       y += 22;
     }
 
@@ -364,8 +460,12 @@ export default function PaymentHistory() {
   };
 
   const formatAmount = (amount) => {
-    if (!amount) return "0";
-    return Number(amount).toLocaleString('en-IN');
+    const parsed = toAmount(amount);
+    if (parsed === null) return "0";
+    return parsed.toLocaleString('en-IN', {
+      minimumFractionDigits: Number.isInteger(parsed) ? 0 : 2,
+      maximumFractionDigits: 2,
+    });
   };
 
   if (!customerData) {
@@ -455,7 +555,10 @@ export default function PaymentHistory() {
           <Loader size="lg" color="indigo" text="Loading payment history..." className="py-10" />
         ) : orders.length > 0 ? (
           <div className="space-y-4">
-            {orders.map((order, idx) => (
+            {orders.map((order, idx) => {
+              const breakdown = getPaymentBreakdown(order);
+
+              return (
               <div
                 key={order.orderid || idx}
                 className="bg-white rounded-2xl shadow-lg overflow-hidden"
@@ -492,7 +595,7 @@ export default function PaymentHistory() {
                         </span>
                       </div>
                       <span className="text-sm font-medium text-indigo-600">
-                        ₹{formatAmount(order.plan_rate)} /month
+                        ₹{formatAmount(breakdown.planRate)} /month
                       </span>
                     </div>
                   </div>
@@ -551,11 +654,11 @@ export default function PaymentHistory() {
                     {/* Plan Rate */}
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">Plan Rate</span>
-                      <span className="text-gray-800 font-medium">₹{formatAmount(order.plan_rate)}</span>
+                      <span className="text-gray-800 font-medium">₹{formatAmount(breakdown.planRate)}</span>
                     </div>
 
                     {/* Taxes */}
-                    {order.subtaxes && order.subtaxes.length > 0 && order.subtaxes.map((tax, taxIdx) => (
+                    {breakdown.subtaxes.length > 0 && breakdown.subtaxes.map((tax, taxIdx) => (
                       <div key={taxIdx} className="flex justify-between text-sm">
                         <span className="text-gray-600">{tax.key} ({tax.perc}%)</span>
                         <span className="text-gray-800 font-medium">₹{formatAmount(tax.value)}</span>
@@ -563,25 +666,25 @@ export default function PaymentHistory() {
                     ))}
 
                     {/* Discount */}
-                    {order.discount > 0 && (
+                    {breakdown.discount > 0 && (
                       <div className="flex justify-between text-sm">
                         <span className="text-green-600">Discount</span>
-                        <span className="text-green-600 font-medium">-₹{formatAmount(order.discount)}</span>
+                        <span className="text-green-600 font-medium">-₹{formatAmount(breakdown.discount)}</span>
                       </div>
                     )}
 
                     {/* Other Charges */}
-                    {order.other_charges > 0 && (
+                    {breakdown.otherCharges > 0 && (
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-600">Other Charges</span>
-                        <span className="text-gray-800 font-medium">₹{formatAmount(order.other_charges)}</span>
+                        <span className="text-gray-800 font-medium">₹{formatAmount(breakdown.otherCharges)}</span>
                       </div>
                     )}
 
                     {/* Subtotal */}
                     <div className="flex justify-between text-sm pt-2 border-t border-gray-200">
                       <span className="text-gray-600">Subtotal</span>
-                      <span className="text-gray-800 font-medium">₹{formatAmount(order.subtotal)}</span>
+                      <span className="text-gray-800 font-medium">₹{formatAmount(breakdown.subtotal)}</span>
                     </div>
                   </div>
 
@@ -592,16 +695,16 @@ export default function PaymentHistory() {
                       <span className="text-gray-600 text-sm font-medium">Total Paid</span>
                     </div>
                     <span className="text-xl font-bold text-purple-600">
-                      ₹{formatAmount(order.paid_amt || order.total_amt)}
+                      ₹{formatAmount(breakdown.paidAmount)}
                     </span>
                   </div>
 
                   {/* Balance Amount (if any) */}
-                  {order.balance_amt > 0 && (
+                  {breakdown.balanceAmount > 0 && (
                     <div className="flex items-center justify-between bg-orange-50 rounded-xl p-3">
-                      <span className="text-orange-600 text-sm font-medium">Balance Due</span>
+                      <span className="text-orange-600 text-sm font-medium">Balance Amount</span>
                       <span className="text-lg font-bold text-orange-600">
-                        ₹{formatAmount(order.balance_amt)}
+                        ₹{formatAmount(breakdown.balanceAmount)}
                       </span>
                     </div>
                   )}
@@ -619,7 +722,8 @@ export default function PaymentHistory() {
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="bg-white rounded-2xl shadow-lg p-6 text-center">

@@ -34,6 +34,26 @@ import { getUser } from "../../services/safeStorage";
 const getPackageId = (pkg, fallback = "") => String(pkg?.pkgid ?? pkg?.packageid ?? pkg?.id ?? fallback);
 const getPackageCode = (pkg) => String(pkg?.pkgcode ?? pkg?.pkgid ?? pkg?.packageid ?? "");
 const getChannelId = (channel, fallback = "") => String(channel?.chid ?? channel?.lcochid ?? channel?.channelid ?? channel?.id ?? fallback);
+const toStringArray = (value) => {
+    if (Array.isArray(value)) {
+        return value.flatMap((item) => {
+            if (item && typeof item === "object") {
+                return [
+                    item.pkgid,
+                    item.packageid,
+                    item.id,
+                    item.pkgcode,
+                    item.packagecode,
+                    item.pkg_code,
+                    item.package_code,
+                ];
+            }
+            return [item];
+        }).filter((item) => item !== undefined && item !== null && item !== "").map(String);
+    }
+    if (value === undefined || value === null || value === "") return [];
+    return [String(value)];
+};
 
 // Live API response shape (verified 2026-05-02):
 //   body.periods    = [{label:"30 Days", period:30}, …]
@@ -70,6 +90,55 @@ function makeCheckoutKey({ userid, fofiBoxId, period, pkgIds, pkgCodes, chIds })
     });
 }
 
+function extractWalletBalanceValue(walletResponse) {
+    const candidates = [
+        walletResponse?.body?.wallet_balance,
+        walletResponse?.body?.balance,
+        walletResponse?.body?.avlbal,
+        walletResponse?.body?.wallet?.wallet_balance,
+        walletResponse?.body?.wallet?.balance,
+        walletResponse?.body?.wallet?.avlbal,
+        walletResponse?.result?.wallet_balance,
+        walletResponse?.result?.balance,
+        walletResponse?.result?.avlbal,
+        walletResponse?.result?.wallet?.wallet_balance,
+        walletResponse?.result?.wallet?.balance,
+        walletResponse?.result?.wallet?.avlbal,
+        walletResponse?.wallet_balance,
+        walletResponse?.balance,
+        walletResponse?.avlbal,
+    ];
+    return candidates.find((value) => value !== undefined && value !== null && value !== "");
+}
+
+function parseWalletBalanceAmount(walletResponse) {
+    const value = extractWalletBalanceValue(walletResponse);
+    if (value === undefined) return null;
+    const amount = Number(String(value).replace(/,/g, ""));
+    return Number.isFinite(amount) ? amount : null;
+}
+
+function formatWalletBalance(walletResponse) {
+    const amount = parseWalletBalanceAmount(walletResponse);
+    if (amount !== null) return amount.toFixed(2);
+    const value = extractWalletBalanceValue(walletResponse);
+    return value !== undefined ? String(value) : "0.00";
+}
+
+function withWalletBalanceAmount(walletResponse, amount) {
+    const nextAmount = Math.max(0, Number(amount) || 0).toFixed(2);
+    return {
+        ...(walletResponse || {}),
+        body: {
+            ...(walletResponse?.body || {}),
+            wallet_balance: nextAmount,
+            balance: nextAmount,
+        },
+    };
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export default function IPTVService() {
     const location = useLocation();
     const navigate = useNavigate();
@@ -77,6 +146,15 @@ export default function IPTVService() {
     const toast = useToast();
     const user = getUser();
     const logUname = user?.username || 'superadmin';
+
+    const readSessionJSON = (key, fallback = null) => {
+        try {
+            const raw = sessionStorage.getItem(key);
+            return raw ? (JSON.parse(raw) ?? fallback) : fallback;
+        } catch (_) {
+            return fallback;
+        }
+    };
 
     // customerData is normally passed via location.state when the
     // operator navigates from the customer list. But location.state
@@ -95,16 +173,19 @@ export default function IPTVService() {
     // useMemo so it's available synchronously on the first render
     // (no flash of the empty state).
     const SESSION_KEY = `iptv_cust_${urlCustomerId || ''}`;
+    const CHECKOUT_SESSION_KEY = `iptv_checkout_${urlCustomerId || ''}`;
+    const restoredCheckout = useMemo(() => {
+        const saved = readSessionJSON(CHECKOUT_SESSION_KEY, null);
+        if (!saved || saved.customerId !== urlCustomerId || saved.view !== 'checkout') return null;
+        const pkgIds = Array.isArray(saved.selectedPackages) ? saved.selectedPackages : [];
+        const chIds = Array.isArray(saved.selectedChannels) ? saved.selectedChannels : [];
+        return (pkgIds.length > 0 || chIds.length > 0) ? saved : null;
+    }, [CHECKOUT_SESSION_KEY, urlCustomerId]);
     const customerData = useMemo(() => {
         const fromState = location.state?.customer;
         if (fromState) return fromState;
-        try {
-            const raw = sessionStorage.getItem(SESSION_KEY);
-            const parsed = raw ? JSON.parse(raw) : null;
-            return (parsed && (parsed.customer_id || parsed.username)) ? parsed : null;
-        } catch (_) {
-            return null;
-        }
+        const parsed = readSessionJSON(SESSION_KEY, null);
+        return (parsed && (parsed.customer_id || parsed.username)) ? parsed : null;
     }, [location.state, SESSION_KEY]);
     const userid = customerData?.customer_id;
 
@@ -120,11 +201,17 @@ export default function IPTVService() {
 
     const shouldShowModal = location.state?.showServiceModal || false;
     const servicesFromState = location.state?.services || [];
+    const historyIptvView = typeof window !== "undefined" ? window.history.state?.iptvView : "";
+    const historyIptvDepth = Number(typeof window !== "undefined" ? window.history.state?.iptvDepth : 0) || 0;
+    const initialIptvView = historyIptvView || restoredCheckout?.view || 'overview';
+    const initialIptvDepth = initialIptvView === 'overview' ? 0 : (historyIptvDepth || 1);
 
     // State management
     const [showServiceModal, setShowServiceModal] = useState(shouldShowModal);
-    const [view, setView] = useState('overview'); // 'overview', 'packages', 'channels', 'checkout'
-    const [selectedPackages, setSelectedPackages] = useState([]);
+    const [view, setView] = useState(initialIptvView); // 'overview', 'packages', 'channels', 'checkout'
+    const [selectedPackages, setSelectedPackages] = useState(
+        Array.isArray(restoredCheckout?.selectedPackages) ? restoredCheckout.selectedPackages.map(String) : []
+    );
     const [uploadLoading, setUploadLoading] = useState(false);
 
     // ── Hardware-back navigation across sub-views ───────────────────
@@ -154,7 +241,7 @@ export default function IPTVService() {
     // call window.history.back() instead of setView() directly,
     // so they route through the same popstate handler and history
     // stays in sync with the displayed view.
-    const subviewDepthRef = useRef(0);
+    const subviewDepthRef = useRef(initialIptvDepth);
     const enterSubView = (newView) => {
         if (view === newView) return;
         try {
@@ -189,6 +276,17 @@ export default function IPTVService() {
         };
         window.addEventListener('popstate', onPopState);
         return () => window.removeEventListener('popstate', onPopState);
+    }, []);
+    useEffect(() => {
+        if (initialIptvView === 'overview' || historyIptvView) return;
+        try {
+            window.history.replaceState(
+                { ...(window.history.state || {}), iptvView: initialIptvView, iptvDepth: initialIptvDepth },
+                ''
+            );
+        } catch (_) {}
+        // Only normalize the initial restored entry once.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
     // Pop all sub-view history entries down to overview. Used by
     // programmatic returns (error recovery, post-order success) so
@@ -235,8 +333,11 @@ export default function IPTVService() {
     const _cachedCblCust = userid ? lsGetStale(`cblcust_${userid}`, _STALE_TTL) : null;
     const _cachedPlan = (_cachedBoxId && userid)
         ? lsGetStale(`plandets_cabletv_${userid}_${_cachedBoxId}`, _STALE_TTL) : null;
+    const _cachedFofiPlan = (_cachedBoxId && userid)
+        ? lsGetStale(`plandets_fofi_${userid}_${_cachedBoxId}`, _STALE_TTL) : null;
     const _cachedLastSub = (_cachedBoxId && userid)
         ? lsGetStale(`iptvLastSub_${userid}_${_cachedBoxId}`, _STALE_TTL) : null;
+    const _cachedWallet = logUname ? lsGetStale(`walbal_${logUname}_cabletv`, _STALE_TTL) : null;
     // Plan-section is renderable from cache when we have either:
     //   1. Cached plan details with a real subscribed_services entry
     //      (we can render the plan card instantly), OR
@@ -254,6 +355,7 @@ export default function IPTVService() {
 
     // API states — overview
     const [planDetails, setPlanDetails] = useState(_cachedPlan?.data || null);
+    const [fofiPlanDetails, setFofiPlanDetails] = useState(_cachedFofiPlan?.data || null);
     const [assignedItems, setAssignedItems] = useState(null);
     const [lastSubscribedInfo, setLastSubscribedInfo] = useState(_cachedLastSub?.data || null);
     const [fofiBoxId, setFofiBoxId] = useState(_cachedBoxId || "");
@@ -287,8 +389,12 @@ export default function IPTVService() {
     // API states — packages view
     const [packageCategories, setPackageCategories] = useState([]);
     const [packagesByCategory, setPackagesByCategory] = useState({});
+    const [restoredCheckoutPackages, setRestoredCheckoutPackages] = useState(
+        Array.isArray(restoredCheckout?.selectedPackageItems) ? restoredCheckout.selectedPackageItems : []
+    );
     const [activeTab, setActiveTab] = useState("");
     const [packagesLoading, setPackagesLoading] = useState(false);
+    const packagesLoadInFlightRef = useRef(false);
     // Channels-view search (single flat list — no categories).
     const [packagesSearchTerm, setPackagesSearchTerm] = useState("");
     // Packages-view search — keyed by category tab name. Each tab
@@ -305,12 +411,17 @@ export default function IPTVService() {
 
     // API states — alacarte channels view
     const [alacarteChannels, setAlacarteChannels] = useState([]);
-    const [selectedChannels, setSelectedChannels] = useState([]);
+    const [selectedChannels, setSelectedChannels] = useState(
+        Array.isArray(restoredCheckout?.selectedChannels) ? restoredCheckout.selectedChannels.map(String) : []
+    );
     const [channelsLoading, setChannelsLoading] = useState(false);
 
     // Checkout states
     const [checkoutLoading, setCheckoutLoading] = useState(false);
-    const [walletBalance, setWalletBalance] = useState(null);
+    const [walletBalance, setWalletBalance] = useState(_cachedWallet?.data || null);
+    const [walletLoading, setWalletLoading] = useState(false);
+    const [walletError, setWalletError] = useState("");
+    const [walletUsingCachedFallback, setWalletUsingCachedFallback] = useState(!!_cachedWallet?.data && !_cachedWallet?.fresh);
     const [paymentInfo, setPaymentInfo] = useState(null);
     const [extensionPeriods, setExtensionPeriods] = useState([]);
     // Default to "30" so handleProceedToPay never sends an empty
@@ -318,12 +429,13 @@ export default function IPTVService() {
     // some days" — a confusing error since the user CAN'T choose
     // anything until extensionPeriods loads. 30 days is the standard
     // monthly billing cycle and matches what every cable plan offers.
-    const [selectedPeriod, setSelectedPeriod] = useState("30");
+    const [selectedPeriod, setSelectedPeriod] = useState(String(restoredCheckout?.selectedPeriod || "30"));
     const [daysRange, setDaysRange] = useState({ min: 1, max: 365 });
     const [customDaysInput, setCustomDaysInput] = useState("");
-    const [finalPaymentInfo, setFinalPaymentInfo] = useState(null);
+    const [finalPaymentInfo, setFinalPaymentInfo] = useState(restoredCheckout?.finalPaymentInfo || null);
     const [payLoading, setPayLoading] = useState(false);
-    const [checkoutPreview, setCheckoutPreview] = useState(null);
+    const payInFlightRef = useRef(false);
+    const [checkoutPreview, setCheckoutPreview] = useState(restoredCheckout?.checkoutPreview || null);
     const checkoutPreviewSeqRef = useRef(0);
     const [successOrder, setSuccessOrder] = useState(null);
 
@@ -383,18 +495,22 @@ export default function IPTVService() {
             const [
                 assignedFofiResult,
                 assignedMultiResult,
+                assignedVoipResult,
+                assignedInternetResult,
                 cblCustResult,
                 priCustResult,
                 planResultMaybe,
                 lastSubResultMaybe,
+                fofiPlanResultMaybe,
             ] = await Promise.allSettled([
                 getUserAssignedItems("fofi", userid),
-                // multi servkey is the secondary source for the box ID:
+                // multi/voip/internet are fallback sources for the box ID:
                 // some user accounts on certain backends have their FoFi
-                // box exposed only under servkey="multi" (verified live
-                // for adarsh01test / lgiptvuser-class users). Both calls
-                // fire in parallel so total wait is one RTT either way.
+                // box exposed outside servkey="fofi". Fire them in the
+                // first batch so fallback discovery does not cost a second RTT.
                 getUserAssignedItems("multi", userid).catch(() => null),
+                getUserAssignedItems("voip", userid).catch(() => null),
+                getUserAssignedItems("internet", userid).catch(() => null),
                 getCableCustomerDetails(userid),
                 Promise.resolve(null),
                 cachedBoxId
@@ -402,6 +518,9 @@ export default function IPTVService() {
                     : Promise.resolve(null),
                 cachedBoxId
                     ? getIptvLastSubscribedInfo({ userid, itemid: cachedBoxId })
+                    : Promise.resolve(null),
+                cachedBoxId
+                    ? getMyPlanDetails({ servicekey: "fofi", userid, fofiboxid: cachedBoxId, voipnumber: "" }, true)
                     : Promise.resolve(null),
             ]);
 
@@ -447,19 +566,10 @@ export default function IPTVService() {
                 return "";
             };
 
-            let boxId = extractBoxId(assignedFofiResult) || extractBoxId(assignedMultiResult);
-
-            // Also try to extract from voip/internet if still no box ID
-            if (!boxId) {
-                // Fetch voip and internet as fallback if primary buckets didn't have it
-                try {
-                    const [voipResult, internetResult] = await Promise.allSettled([
-                        getUserAssignedItems('voip', userid),
-                        getUserAssignedItems('internet', userid)
-                    ]);
-                    boxId = extractBoxId(voipResult) || extractBoxId(internetResult);
-                } catch (_) { /* ignore fallback fetch errors */ }
-            }
+            let boxId = extractBoxId(assignedFofiResult) ||
+                extractBoxId(assignedMultiResult) ||
+                extractBoxId(assignedVoipResult) ||
+                extractBoxId(assignedInternetResult);
 
             // Persist cblCustDet response so the renderer can fall
             // back to body.multplatforms.cabletv when getMyPlanDetails
@@ -482,6 +592,8 @@ export default function IPTVService() {
             console.log('🟣 [IPTV] box-id resolution:', {
                 fofi: extractBoxId(assignedFofiResult) || '(empty)',
                 multi: extractBoxId(assignedMultiResult) || '(empty)',
+                voip: extractBoxId(assignedVoipResult) || '(empty)',
+                internet: extractBoxId(assignedInternetResult) || '(empty)',
                 resolved: boxId || '(none)',
                 cabletvPerCblCustDet: _hasCabletvPerRecord,
             });
@@ -547,6 +659,15 @@ export default function IPTVService() {
                 // vs "temporarily unavailable" decision).
                 setPlanSectionLoading(false);
             }
+            if (cachedMatches && fofiPlanResultMaybe.status === "fulfilled" && fofiPlanResultMaybe.value) {
+                setFofiPlanDetails(fofiPlanResultMaybe.value);
+            } else if (boxId) {
+                getMyPlanDetails({ servicekey: "fofi", userid, fofiboxid: boxId, voipnumber: "" }, true)
+                    .then(d => { if (!cancelled && d) setFofiPlanDetails(d); })
+                    .catch(() => {});
+            } else {
+                setFofiPlanDetails(null);
+            }
             if (cachedMatches && lastSubResultMaybe.status === "fulfilled" && lastSubResultMaybe.value) {
                 setLastSubscribedInfo(lastSubResultMaybe.value);
             } else if (boxId) {
@@ -557,7 +678,9 @@ export default function IPTVService() {
 
             // Check if all API calls failed - set error state for UI display
             const allServkeyFailed = assignedFofiResult.status === 'rejected' &&
-                                    assignedMultiResult.status === 'rejected';
+                                    assignedMultiResult.status === 'rejected' &&
+                                    assignedVoipResult.status === 'rejected' &&
+                                    assignedInternetResult.status === 'rejected';
             const allFailed = allServkeyFailed &&
                              cblCustResult.status === 'rejected' &&
                              priCustResult.status === 'rejected';
@@ -624,6 +747,13 @@ export default function IPTVService() {
     const subscribedService = planDetails?.body?.subscribed_services?.find(
         s => canonicalServiceKey(s?.servicekey) === 'cabletv'
     );
+    const looksLikeFofiSmartService = (s) =>
+        canonicalServiceKey(s?.servicekey) === 'fofi'
+        || /\bfofi\b|smart\s*box|smartbox|fofibox|\bfta\b|\bcabletv\b|\biptv\b/i.test(
+            `${s?.serv_name || ''} ${s?.title || ''} ${s?.planname || ''} ${s?.plan_name || ''}`
+        );
+    const fofiSubscribedService = fofiPlanDetails?.body?.subscribed_services?.find(looksLikeFofiSmartService);
+    const isFofiSmartServicePaid = !!fofiSubscribedService;
     const planName = subscribedService?.planname || 'N/A';
     const expiryDate = subscribedService?.expirydate || 'N/A';
     const serviceName = subscribedService?.title || 'Cable TV';
@@ -636,10 +766,15 @@ export default function IPTVService() {
 
     const buildCheckoutParts = (periodOverride = "") => {
         const selectedPackageIds = new Set(selectedPackages.map(String));
-        const selectedPkgs = Object.values(packagesByCategory).flat()
+        const packageSource = Object.values(packagesByCategory).flat();
+        const restoredSource = restoredCheckoutPackages.filter((pkg) =>
+            selectedPackageIds.has(getPackageId(pkg))
+        );
+        const selectedPkgsSource = packageSource.length > 0 ? packageSource : restoredSource;
+        const selectedPkgs = selectedPkgsSource
             .filter(pkg => {
                 if (!pkg || typeof pkg !== "object") return false;
-                return selectedPackageIds.has(getPackageId(pkg)) && pkg.issubscribed !== "yes";
+                return selectedPackageIds.has(getPackageId(pkg)) && !isPackageSubscribed(pkg);
             });
         const pkgIds = selectedPkgs.map(pkg => getPackageId(pkg)).filter(Boolean);
         const pkgCodes = selectedPkgs.map(getPackageCode).filter(Boolean);
@@ -655,6 +790,121 @@ export default function IPTVService() {
             key: makeCheckoutKey({ userid, fofiBoxId, period, pkgIds, pkgCodes, chIds }),
         };
     };
+
+    const getSubscribedPackageSets = (subscriptionInfo = lastSubscribedInfo) => {
+        const body = subscriptionInfo?.body || {};
+        const packageIds = new Set([
+            ...toStringArray(body.packageid),
+            ...toStringArray(body.packageids),
+            ...toStringArray(body.package_id),
+            ...toStringArray(body.package_ids),
+            ...toStringArray(body.pkgid),
+            ...toStringArray(body.pkgids),
+            ...toStringArray(body.pkg_id),
+            ...toStringArray(body.pkg_ids),
+            ...toStringArray(body.packages),
+            ...toStringArray(body.subscribed_packages),
+            ...toStringArray(body.package_list),
+        ]);
+        const packageCodes = new Set([
+            ...toStringArray(body.pkgcode),
+            ...toStringArray(body.pkgcodes),
+            ...toStringArray(body.pkg_code),
+            ...toStringArray(body.pkg_codes),
+            ...toStringArray(body.packagecode),
+            ...toStringArray(body.packagecodes),
+            ...toStringArray(body.package_code),
+            ...toStringArray(body.package_codes),
+            ...toStringArray(body.packages),
+            ...toStringArray(body.subscribed_packages),
+            ...toStringArray(body.package_list),
+        ]);
+        return { packageIds, packageCodes };
+    };
+
+    const isPackageSubscribed = (pkg, subscriptionInfo = lastSubscribedInfo) => {
+        if (pkg?.issubscribed === "yes" || pkg?.issubscribed === true) return true;
+        const pkgId = getPackageId(pkg);
+        const pkgCode = getPackageCode(pkg);
+        const { packageIds, packageCodes } = getSubscribedPackageSets(subscriptionInfo);
+        return (
+            (pkgId && packageIds.has(String(pkgId))) ||
+            (pkgCode && (packageIds.has(String(pkgCode)) || packageCodes.has(String(pkgCode))))
+        );
+    };
+
+    const isNavigationCancel = (err) => /cancelled|navigated away/i.test(err?.message || "");
+
+    const retryPackageRequest = async (fn) => {
+        try {
+            return await fn();
+        } catch (err) {
+            if (isNavigationCancel(err)) throw err;
+            await sleep(650);
+            return fn();
+        }
+    };
+
+    useEffect(() => {
+        if (!lastSubscribedInfo?.body) return;
+        setPackagesByCategory((prev) => {
+            let changed = false;
+            const next = {};
+            Object.entries(prev).forEach(([catName, pkgs]) => {
+                next[catName] = Array.isArray(pkgs)
+                    ? pkgs.map((pkg) => {
+                        if (!pkg || typeof pkg !== "object" || pkg.issubscribed === "yes" || pkg.issubscribed === true) {
+                            return pkg;
+                        }
+                        if (!isPackageSubscribed(pkg, lastSubscribedInfo)) return pkg;
+                        changed = true;
+                        return { ...pkg, issubscribed: "yes" };
+                    })
+                    : pkgs;
+            });
+            return changed ? next : prev;
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [lastSubscribedInfo]);
+
+    useEffect(() => {
+        if (!urlCustomerId) return;
+        if (view !== 'checkout') {
+            try { sessionStorage.removeItem(CHECKOUT_SESSION_KEY); } catch (_) {}
+            return;
+        }
+
+        const parts = buildCheckoutParts(selectedPeriod || "30");
+        if (parts.pkgIds.length === 0 && parts.chIds.length === 0) return;
+
+        const selectedPackageItems = parts.selectedPkgs.length > 0
+            ? parts.selectedPkgs
+            : restoredCheckoutPackages;
+        try {
+            sessionStorage.setItem(CHECKOUT_SESSION_KEY, JSON.stringify({
+                customerId: urlCustomerId,
+                view: 'checkout',
+                selectedPackages: selectedPackages.map(String),
+                selectedChannels: selectedChannels.map(String),
+                selectedPeriod: parts.period,
+                selectedPackageItems,
+                checkoutPreview,
+                finalPaymentInfo,
+                updatedAt: Date.now(),
+            }));
+        } catch (_) {}
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+        view,
+        selectedPackages,
+        selectedChannels,
+        selectedPeriod,
+        packagesByCategory,
+        checkoutPreview,
+        finalPaymentInfo,
+        CHECKOUT_SESSION_KEY,
+        urlCustomerId,
+    ]);
 
     // Single transient-failure retry. paymentinfo/cabletv has been
     // observed to fail intermittently on patchy mobile networks
@@ -700,7 +950,14 @@ export default function IPTVService() {
     //    passed in as input (the API marks them issubscribed:"yes" only
     //    when we tell it which ones are subscribed)
     async function loadPackages() {
-        if (packageCategories.length > 0) return; // already loaded
+        const categoryNames = (cats = packageCategories) => (Array.isArray(cats) ? cats : [])
+            .map(cat => (cat && typeof cat === 'object') ? (cat.name || cat.title || cat.category || '') : String(cat || ''))
+            .filter(Boolean);
+        const hasLoadedEveryCategory = packageCategories.length > 0 &&
+            categoryNames().every((name) => Array.isArray(packagesByCategory[name]));
+        if (hasLoadedEveryCategory) return; // already loaded, including real empty categories
+        if (packagesLoadInFlightRef.current) return;
+        packagesLoadInFlightRef.current = true;
         setPackagesLoading(true);
         try {
             // Fetch pkgCategories + iptvLastSubscribedinfo together.
@@ -713,15 +970,18 @@ export default function IPTVService() {
             // promise resolves (fast click, popstate, deep link), or
             // with a stale value, so we re-fire here unless we already
             // have a populated lastSubscribedInfo response.
-            const needLastSub = !lastSubscribedInfo?.body && !!fofiBoxId;
             const [catResult, lastSubResult] = await Promise.allSettled([
-                getPkgCategories({ username: logUname, userid }),
-                needLastSub
-                    ? getIptvLastSubscribedInfo({ userid, itemid: fofiBoxId })
+                retryPackageRequest(() => getPkgCategories({ username: logUname, userid })),
+                fofiBoxId
+                    ? getIptvLastSubscribedInfo({ userid, itemid: fofiBoxId }, true)
                     : Promise.resolve(lastSubscribedInfo),
             ]);
 
-            const catResponse = catResult.status === "fulfilled" ? catResult.value : null;
+            let catResponse = catResult.status === "fulfilled" ? catResult.value : null;
+            if (!catResponse) {
+                const staleCats = lsGetStale(`pkgcats_${logUname}_${userid}`, 24 * 60 * 60 * 1000);
+                catResponse = staleCats?.data || null;
+            }
 
             // Parse categories from response body
             let categories = [];
@@ -731,6 +991,9 @@ export default function IPTVService() {
                 categories = catBody.filter(c => c && typeof c === 'object');
             } else if (catBody?.categories && Array.isArray(catBody.categories)) {
                 categories = catBody.categories;
+            }
+            if (categories.length === 0 && packageCategories.length > 0) {
+                categories = packageCategories;
             }
             setPackageCategories(categories);
 
@@ -747,11 +1010,9 @@ export default function IPTVService() {
                 setLastSubscribedInfo(lastSubFresh);
             }
             const lastSubBody = lastSubEffective?.body;
-            let subscribedPkgIds = lastSubBody?.packageid || lastSubBody?.package_ids
-                || lastSubBody?.packageids || lastSubBody?.pkg_ids || [];
-            if (!Array.isArray(subscribedPkgIds)) subscribedPkgIds = [];
-            subscribedPkgIds = subscribedPkgIds.map(String);
-            console.log("📦 [loadPackages] subscribed package IDs:", subscribedPkgIds);
+            const { packageIds: subscribedPkgIdSet, packageCodes: subscribedPkgCodeSet } = getSubscribedPackageSets(lastSubEffective);
+            const subscribedPkgIds = Array.from(subscribedPkgIdSet);
+            console.log("📦 [loadPackages] subscribed package IDs/codes:", subscribedPkgIds, Array.from(subscribedPkgCodeSet));
 
             // Step 2: packagesList per category — STREAMED.
             //
@@ -772,6 +1033,7 @@ export default function IPTVService() {
             //     stays empty, matching the "no packages available"
             //     state); we don't fail the whole view.
             const subForCall = Array.isArray(subscribedPkgIds) ? subscribedPkgIds : [];
+            const subHash = subForCall.length > 0 ? subForCall.map(String).sort().join(",") : "";
             const parsePackagesBody = (resp) => {
                 const bodyData = resp?.body;
                 if (Array.isArray(bodyData)) return bodyData;
@@ -793,13 +1055,22 @@ export default function IPTVService() {
                 categories.forEach((cat) => {
                     const catId = cat.id || cat.categoryid || cat.category_id;
                     const catName = cat.name || cat.title || cat.category || `Category`;
-                    getPackagesList({
-                        category: catId,
-                        packageid: subForCall,
-                        userid,
-                        username: logUname,
+                    retryPackageRequest(() => getPackagesList({
+                            category: catId,
+                            packageid: subForCall,
+                            userid,
+                            username: logUname,
+                        }))
+                    .catch((err) => {
+                        if (isNavigationCancel(err)) throw err;
+                        const stalePackages = lsGetStale(`pkglist_${userid}_${String(catId)}_${subHash}`, 24 * 60 * 60 * 1000);
+                        if (stalePackages?.data) return stalePackages.data;
+                        throw err;
                     }).then(resp => {
-                        const pkgArray = parsePackagesBody(resp);
+                        const pkgArray = parsePackagesBody(resp).map((pkg) => {
+                            const subscribed = isPackageSubscribed(pkg, lastSubEffective);
+                            return subscribed ? { ...pkg, issubscribed: "yes" } : pkg;
+                        });
                         // Append/overwrite this category's slot in
                         // the map without disturbing the others.
                         setPackagesByCategory(prev => ({ ...prev, [catName]: pkgArray }));
@@ -812,6 +1083,10 @@ export default function IPTVService() {
                         }
                     }).catch(() => {
                         setPackagesByCategory(prev => ({ ...prev, [catName]: [] }));
+                        if (!firstResolved) {
+                            firstResolved = true;
+                            setPackagesLoading(false);
+                        }
                     }).finally(() => {
                         pending -= 1;
                         if (pending === 0) doneAll();
@@ -822,12 +1097,10 @@ export default function IPTVService() {
             console.error("Error loading packages:", err);
             toast.add("Failed to load packages. Please try again.", { type: "error" });
             popToOverview(); // recover from error — pop history + view
+        } finally {
+            packagesLoadInFlightRef.current = false;
+            setPackagesLoading(false);
         }
-        // Safety: if we took the empty-categories path above, the
-        // spinner was already dropped. If the streaming path was
-        // taken, firstResolved already dropped it. This ensures the
-        // spinner is always cleared before the function returns.
-        setPackagesLoading(false);
     }
 
     // Peer service switch — replace: true so toggling between peer
@@ -983,6 +1256,189 @@ export default function IPTVService() {
     }
 
     // Handle Checkout — collect selected packages/channels and fetch payment info
+    async function refreshCableWalletBalance({ optimisticDebit = 0, showLoading = true } = {}) {
+        const debitAmount = Number(optimisticDebit) || 0;
+        const beforeRefreshAmount = parseWalletBalanceAmount(walletBalance);
+        let expectedAmount = null;
+
+        if (showLoading) {
+            setWalletLoading(true);
+            setWalletError("");
+        }
+
+        if (debitAmount > 0 && beforeRefreshAmount !== null) {
+            expectedAmount = Math.max(0, beforeRefreshAmount - debitAmount);
+            setWalletBalance((previous) => {
+                const previousAmount = parseWalletBalanceAmount(previous);
+                const baseAmount = previousAmount !== null ? previousAmount : beforeRefreshAmount;
+                return withWalletBalanceAmount(previous, baseAmount - debitAmount);
+            });
+        }
+
+        const applyFreshWallet = (data) => {
+            if (data) {
+                setWalletBalance(data);
+                setWalletUsingCachedFallback(false);
+                setWalletError("");
+            }
+            return parseWalletBalanceAmount(data);
+        };
+
+        try {
+            const fresh = await getWalBal({ loginuname: logUname, servicekey: "cabletv" }, true);
+            const freshAmount = applyFreshWallet(fresh);
+
+            if (expectedAmount === null || freshAmount === null || freshAmount <= expectedAmount + 0.01) {
+                return fresh;
+            }
+
+            for (const delay of [1200, 2500]) {
+                await sleep(delay);
+                const retry = await getWalBal({ loginuname: logUname, servicekey: "cabletv" }, true);
+                const retryAmount = applyFreshWallet(retry);
+                if (retryAmount === null || retryAmount <= expectedAmount + 0.01) {
+                    return retry;
+                }
+            }
+
+            return fresh;
+        } catch (err) {
+            const cached = lsGetStale(`walbal_${logUname}_cabletv`, 24 * 60 * 60 * 1000);
+            if (cached?.data) {
+                setWalletBalance(cached.data);
+                setWalletUsingCachedFallback(true);
+                setWalletError("Could not refresh wallet. Showing cached balance.");
+                return cached.data;
+            }
+            setWalletError("Wallet balance unavailable. Pull down or reopen checkout to retry.");
+            throw err;
+        } finally {
+            if (showLoading) setWalletLoading(false);
+        }
+    }
+
+    function getOperatorShareFromPaymentBody(paymentBody = {}) {
+        return parseFloat(
+            paymentBody.oprtrshare ??
+            paymentBody.optrshare ??
+            paymentBody.amount_deductable ??
+            paymentBody.amountdeductable ??
+            paymentBody.final_split_data?.OPERATOR?.amount ??
+            0
+        ) || 0;
+    }
+
+    function subscriptionContainsSelection(subscriptionInfo, pkgIds = [], chIds = []) {
+        const body = subscriptionInfo?.body || {};
+        const toSet = (value) => new Set((Array.isArray(value) ? value : []).map(String));
+        const packageSet = new Set([
+            ...toSet(body.packageid),
+            ...toSet(body.packageids),
+            ...toSet(body.package_id),
+            ...toSet(body.package_ids),
+        ]);
+        const channelSet = new Set([
+            ...toSet(body.channelid),
+            ...toSet(body.channelids),
+            ...toSet(body.channel_id),
+            ...toSet(body.channel_ids),
+        ]);
+
+        return (
+            pkgIds.some((id) => packageSet.has(String(id))) ||
+            chIds.some((id) => channelSet.has(String(id)))
+        );
+    }
+
+    async function reconcileCablePaymentOutcome({ pkgIds, chIds, operatorShare, walletBeforePay }) {
+        const [subscriptionResult, walletResult] = await Promise.allSettled([
+            fofiBoxId
+                ? getIptvLastSubscribedInfo({ userid, itemid: fofiBoxId }, true)
+                : Promise.resolve(null),
+            getWalBal({ loginuname: logUname, servicekey: "cabletv" }, true),
+        ]);
+
+        const freshSubscription = subscriptionResult.status === "fulfilled" ? subscriptionResult.value : null;
+        const freshWallet = walletResult.status === "fulfilled" ? walletResult.value : null;
+        if (freshSubscription) setLastSubscribedInfo(freshSubscription);
+        if (freshWallet) setWalletBalance(freshWallet);
+
+        const subscriptionConfirmed = subscriptionContainsSelection(freshSubscription, pkgIds, chIds);
+        const walletAfterPay = parseWalletBalanceAmount(freshWallet);
+        const expectedDebit = Number(operatorShare) || 0;
+        const walletDeducted =
+            walletBeforePay !== null &&
+            walletAfterPay !== null &&
+            walletAfterPay < walletBeforePay - 0.01 &&
+            (expectedDebit <= 0 || walletBeforePay - walletAfterPay >= Math.min(expectedDebit, 1) - 0.01);
+
+        return {
+            accepted: subscriptionConfirmed || walletDeducted,
+            subscriptionConfirmed,
+            walletDeducted,
+            freshSubscription,
+        };
+    }
+
+    function completeCableOrderSuccess({
+        result,
+        freshTxnId,
+        effectivePaidAmount,
+        numericPaid,
+        operatorShare,
+        walletDebitConfirmed,
+        skipOptimisticDebit = false,
+        periodForPay,
+        pkgIds,
+        chIds,
+        freshSubscription,
+    }) {
+        setSuccessOrder({
+            orderId: result?.body?.orderid || result?.body?.order_id || result?.body?.id || "",
+            txnId: freshTxnId || result?.body?.transactionid || result?.body?.txnid || "",
+            paidAmount: parseFloat(effectivePaidAmount) || numericPaid,
+            walletDebited: walletDebitConfirmed ? operatorShare : 0,
+            period: periodForPay,
+            packagesCount: pkgIds.length,
+            channelsCount: chIds.length,
+            customerName: customerData?.customer_name || customerData?.cust_name || customerData?.username || "",
+            placedAt: new Date(),
+        });
+
+        try {
+            lsRemove(`plandets_cabletv_${userid}_${fofiBoxId}`);
+            lsRemove(`plandets_cabletv_${userid}_`);
+            lsRemove(`plandets_fofi_${userid}_${fofiBoxId}`);
+            lsRemove(`plandets_fofi_${userid}_`);
+            lsRemove(`uai_fofi_${userid}`);
+            lsRemove(`uai_cabletv_${userid}`);
+            lsRemove(`cblcust_${userid}`);
+            lsRemove(`pricust_${userid}`);
+            lsRemove(`walbal_${logUname}_cabletv`);
+        } catch (_) { /* cache clear is best-effort */ }
+
+        refreshCableWalletBalance({
+            optimisticDebit: walletDebitConfirmed && !skipOptimisticDebit ? operatorShare : 0,
+        }).catch(() => {});
+
+        if (freshSubscription) {
+            setLastSubscribedInfo(freshSubscription);
+        } else if (fofiBoxId) {
+            getIptvLastSubscribedInfo({ userid, itemid: fofiBoxId }, true)
+                .then(d => { if (d) setLastSubscribedInfo(d); })
+                .catch(() => {});
+        }
+
+        setSelectedPackages([]);
+        setSelectedChannels([]);
+        setRestoredCheckoutPackages([]);
+        setAlacarteChannels([]);
+        setPackageCategories([]);
+        setPackagesByCategory({});
+        setCheckoutPreview(null);
+        try { sessionStorage.removeItem(CHECKOUT_SESSION_KEY); } catch (_) {}
+    }
+
     async function handleCheckout() {
         const initialParts = buildCheckoutParts();
 
@@ -992,6 +1448,7 @@ export default function IPTVService() {
         }
 
         const cachedPreview = checkoutPreview?.key === initialParts.key ? checkoutPreview : null;
+        setRestoredCheckoutPackages(initialParts.selectedPkgs);
         enterSubView('checkout');
         setCheckoutLoading(!cachedPreview?.paymentInfo);
         if (cachedPreview?.paymentInfo) {
@@ -1023,9 +1480,7 @@ export default function IPTVService() {
             ? Promise.resolve(cachedPreview.paymentInfo)
             : requestCablePaymentDetails(initialParts);
 
-        const walletPromise = getWalBal({ loginuname: logUname, servicekey: "cabletv" }, true)
-            .then(d => { if (d) setWalletBalance(d); })
-            .catch(() => {});
+        const walletPromise = refreshCableWalletBalance().catch(() => {});
 
         const customerRefreshPromise = Promise.allSettled([
             getCableCustomerDetails(userid, true).catch(() => null),
@@ -1120,16 +1575,22 @@ export default function IPTVService() {
             return;
         }
 
+        if (payInFlightRef.current || payLoading) {
+            return;
+        }
+        payInFlightRef.current = true;
         setPayLoading(true);
+        const walletBeforePay = parseWalletBalanceAmount(walletBalance);
+        let effectivePaymentInfo = finalPaymentInfo;
+        let effectivePaymentBody = initialPaymentBody;
+        let effectivePaidAmount = initialPaidAmount;
+        let freshTxnId = txnId;
+        let operatorShare = 0;
         try {
             // STEP 0 — Refresh paymentinfo/cabletv for a FRESH transactionid.
             // The cached transaction ID from initial load may be expired or
             // invalidated by backend. This is cheap insurance against
             // "Invalid transaction id" errors (same pattern as FofiPayment.jsx).
-            let effectivePaymentInfo = finalPaymentInfo;
-            let effectivePaymentBody = initialPaymentBody;
-            let effectivePaidAmount = initialPaidAmount;
-            let freshTxnId = txnId;
             try {
                 const freshPaymentInfo = await requestCablePaymentDetails({
                     period: periodForPay,
@@ -1149,6 +1610,7 @@ export default function IPTVService() {
                 console.warn('⚠️ [IPTV] Could not refresh payment info, using cached txnId:', refreshErr?.message);
                 // Continue with cached txnId - generateorder might still accept it
             }
+            operatorShare = getOperatorShareFromPaymentBody(effectivePaymentBody || effectivePaymentInfo?.body || {});
 
             // generateorder must reflect the same selection that the
             // paymentinfo/cabletv call priced — sending [] for
@@ -1203,15 +1665,7 @@ export default function IPTVService() {
                 // doesn't roll back the order (it's already registered
                 // server-side; re-running just the debit is safer than
                 // attempting to undo a successful generateorder).
-                const fBodyAfter = effectivePaymentBody || effectivePaymentInfo?.body || {};
-                const operatorShare = parseFloat(
-                    fBodyAfter.oprtrshare ??
-                    fBodyAfter.optrshare ??
-                    fBodyAfter.amount_deductable ??
-                    fBodyAfter.amountdeductable ??
-                    (fBodyAfter.final_split_data?.OPERATOR?.amount) ??
-                    0
-                ) || 0;
+                let walletDebitConfirmed = false;
 
                 if (operatorShare > 0) {
                     try {
@@ -1235,10 +1689,14 @@ export default function IPTVService() {
                         };
                         console.log("🔴 [STEP 2] cable TV savePaymentApi — debiting wallet by", operatorShare, payNowPayload);
                         const payNowResp = await payNow(payNowPayload);
-                        const debitOk = payNowResp?.error === 0 || payNowResp?.status?.err_code === 0;
+                        const debitOk =
+                            payNowResp?.error === 0 ||
+                            payNowResp?.status?.err_code === 0 ||
+                            !!(payNowResp?.receipt_link || payNowResp?.invoice_link || payNowResp?.body?.receipt_link || payNowResp?.body?.invoice_link);
                         if (!debitOk) {
                             console.warn("⚠️ [STEP 2] Wallet debit reported failure:", payNowResp?.result || payNowResp?.status?.err_msg);
                         } else {
+                            walletDebitConfirmed = true;
                             console.log("✅ [STEP 2] Wallet debited:", operatorShare);
                         }
                     } catch (debitErr) {
@@ -1252,16 +1710,16 @@ export default function IPTVService() {
                 // and the setSelectedPackages([])/setSelectedChannels([])
                 // calls below clear this state, so the modal would
                 // render empty if we read these refs at render time.
-                setSuccessOrder({
-                    orderId: result?.body?.orderid || result?.body?.order_id || result?.body?.id || "",
-                    txnId: freshTxnId || result?.body?.transactionid || result?.body?.txnid || "",
-                    paidAmount: parseFloat(effectivePaidAmount) || numericPaid,
-                    walletDebited: operatorShare > 0 ? operatorShare : 0,
-                    period: periodForPay,
-                    packagesCount: pkgIds.length,
-                    channelsCount: chIds.length,
-                    customerName: customerData?.customer_name || customerData?.cust_name || customerData?.username || "",
-                    placedAt: new Date(),
+                completeCableOrderSuccess({
+                    result,
+                    freshTxnId,
+                    effectivePaidAmount,
+                    numericPaid,
+                    operatorShare,
+                    walletDebitConfirmed,
+                    periodForPay,
+                    pkgIds,
+                    chIds,
                 });
 
                 // Invalidate every localStorage cache that holds
@@ -1271,46 +1729,52 @@ export default function IPTVService() {
                 // though the backend has already accepted the order.
                 // Operators reported "the package isn't showing as
                 // subscribed after I bought it" — that's this gap.
-                try {
-                    lsRemove(`plandets_cabletv_${userid}_${fofiBoxId}`);
-                    lsRemove(`plandets_cabletv_${userid}_`);
-                    lsRemove(`plandets_fofi_${userid}_${fofiBoxId}`);
-                    lsRemove(`plandets_fofi_${userid}_`);
-                    lsRemove(`uai_fofi_${userid}`);
-                    lsRemove(`uai_cabletv_${userid}`);
-                    lsRemove(`cblcust_${userid}`);
-                    lsRemove(`pricust_${userid}`);
-                    lsRemove(`walbal_${logUname}_cabletv`);
-                } catch (_) { /* cache clear is best-effort */ }
-
-                getWalBal({ loginuname: logUname, servicekey: "cabletv" }, true)
-                    .then(d => { if (d) setWalletBalance(d); })
-                    .catch(() => {});
+                
 
                 // Refetch subscription state so the next view of
                 // the packages / channels grids correctly shows the
                 // new "Subscribed" flags. Fire-and-forget — popToOverview
                 // doesn't need to wait for it; the safety-net useEffect
                 // on view change will pick up the fresh value.
-                if (fofiBoxId) {
-                    getIptvLastSubscribedInfo({ userid, itemid: fofiBoxId })
-                        .then(d => { if (d) setLastSubscribedInfo(d); })
-                        .catch(() => {});
-                }
+                
 
                 // Reset and go back to overview. Also clear alacarte
                 // channel state so the next visit doesn't carry over
                 // the just-purchased selection into a fresh checkout.
-                setSelectedPackages([]);
-                setSelectedChannels([]);
-                setAlacarteChannels([]);
-                setPackageCategories([]);
-                setPackagesByCategory({});
-                setCheckoutPreview(null);
+                
                 // NOTE: popToOverview() is NOT called here — we show the
                 // success modal on the checkout page first. The modal's
                 // OK button will handle navigation back to overview.
             } else {
+                const reconciliation = await reconcileCablePaymentOutcome({
+                    pkgIds,
+                    chIds,
+                    operatorShare,
+                    walletBeforePay,
+                });
+                if (reconciliation.accepted) {
+                    console.warn("IPTV generateorder reported failure, but refreshed backend state confirms acceptance", {
+                        errCode: result?.status?.err_code,
+                        errMsg: result?.status?.err_msg,
+                        subscriptionConfirmed: reconciliation.subscriptionConfirmed,
+                        walletDeducted: reconciliation.walletDeducted,
+                    });
+                    completeCableOrderSuccess({
+                        result,
+                        freshTxnId,
+                        effectivePaidAmount,
+                        numericPaid,
+                        operatorShare,
+                        walletDebitConfirmed: reconciliation.walletDeducted,
+                        skipOptimisticDebit: true,
+                        periodForPay,
+                        pkgIds,
+                        chIds,
+                        freshSubscription: reconciliation.freshSubscription,
+                    });
+                    return;
+                }
+
                 // Translate the backend's confusing "Wallet failed
                 // due to some problem" message to a friendlier one
                 // when it almost certainly means "amount was 0".
@@ -1325,14 +1789,46 @@ export default function IPTVService() {
             }
         } catch (err) {
             console.error("Error generating order:", err);
+            const reconciliation = await reconcileCablePaymentOutcome({
+                pkgIds,
+                chIds,
+                operatorShare,
+                walletBeforePay,
+            }).catch((reconcileErr) => {
+                console.warn("Unable to reconcile failed IPTV payment outcome:", reconcileErr?.message);
+                return null;
+            });
+            if (reconciliation?.accepted) {
+                console.warn("IPTV payment call failed locally, but refreshed backend state confirms acceptance", {
+                    subscriptionConfirmed: reconciliation.subscriptionConfirmed,
+                    walletDeducted: reconciliation.walletDeducted,
+                });
+                completeCableOrderSuccess({
+                    result: null,
+                    freshTxnId,
+                    effectivePaidAmount,
+                    numericPaid,
+                    operatorShare,
+                    walletDebitConfirmed: reconciliation.walletDeducted,
+                    skipOptimisticDebit: true,
+                    periodForPay,
+                    pkgIds,
+                    chIds,
+                    freshSubscription: reconciliation.freshSubscription,
+                });
+                return;
+            }
             toast.add("Failed to place order. Please try again.", { type: "error" });
+        } finally {
+            payInFlightRef.current = false;
+            setPayLoading(false);
         }
-        setPayLoading(false);
     }
 
     const handleSelectPackages = () => {
         // Reset selections from previous visit
         setSelectedPackages([]);
+        setRestoredCheckoutPackages([]);
         setDetailPkg(null);
         setDetailChannels([]);
         setPackagesSearchTerm('');
@@ -1344,6 +1840,7 @@ export default function IPTVService() {
     const handleSelectChannels = () => {
         // Reset selections and load alacarte channels
         setSelectedChannels([]);
+        setRestoredCheckoutPackages([]);
         setPackagesSearchTerm('');
         enterSubView('channels');
         loadAlacarteChannels();
@@ -1399,7 +1896,7 @@ export default function IPTVService() {
 
     // CRITICAL TOP-LEVEL GUARD — must run BEFORE any view-specific
     useEffect(() => {
-        if (view !== "channels" || !userid || !fofiBoxId) return;
+        if (!["channels", "checkout"].includes(view) || !userid || !fofiBoxId) return;
         const parts = buildCheckoutParts(selectedPeriod || "30");
         if (parts.pkgIds.length === 0 && parts.chIds.length === 0) {
             setCheckoutPreview(null);
@@ -1426,6 +1923,9 @@ export default function IPTVService() {
                 .then((paymentInfo) => {
                     if (checkoutPreviewSeqRef.current !== seq) return;
                     setCheckoutPreview({ key: parts.key, paymentInfo, period: parts.period });
+                    if (view === "checkout") {
+                        setFinalPaymentInfo(paymentInfo);
+                    }
                 })
                 .catch(() => {});
         }, 120);
@@ -1541,7 +2041,16 @@ export default function IPTVService() {
 
     // ── Checkout View ──
     if (view === 'checkout') {
-        const walBal = walletBalance?.body?.wallet_balance || walletBalance?.body?.balance || '0.00';
+        const walBal = formatWalletBalance(walletBalance);
+        const hasWalletAmount = parseWalletBalanceAmount(walletBalance) !== null;
+        const walletLabel = walletLoading && !hasWalletAmount
+            ? "Loading..."
+            : hasWalletAmount
+                ? `₹ ${walBal}`
+                : "Unavailable";
+        const walletHelper = walletLoading && hasWalletAmount
+            ? "Refreshing..."
+            : walletError || (walletUsingCachedFallback ? "Showing cached balance" : "");
         const pay = finalPaymentInfo?.body || {};
         const contents = Array.isArray(pay.contents) ? pay.contents : [];
         const displayContents = contents.filter((c) => !/^\s*Channels\s*:/i.test(String(c?.title || '')));
@@ -1565,9 +2074,14 @@ export default function IPTVService() {
                         </button>
                         <h1 className="text-lg font-medium">Checkout</h1>
                     </div>
-                    <div className="bg-white/10 rounded-lg px-4 py-3 flex items-center justify-between">
-                        <span className="text-white/80 text-sm">Wallet Balance</span>
-                        <span className="text-white font-bold text-lg">₹ {walBal}</span>
+                    <div className="bg-white/10 rounded-lg px-4 py-3 flex items-center justify-between gap-3">
+                        <div>
+                            <span className="text-white/80 text-sm block">Wallet Balance</span>
+                            {walletHelper && (
+                                <span className="text-white/70 text-[11px] leading-tight block mt-0.5">{walletHelper}</span>
+                            )}
+                        </div>
+                        <span className="text-white font-bold text-lg text-right">{walletLabel}</span>
                     </div>
                     <div className="bg-white/10 rounded-lg px-4 py-2 mt-2 flex items-center justify-between">
                         <span className="text-white/80 text-sm">Operator Share</span>
@@ -1587,8 +2101,11 @@ export default function IPTVService() {
                                     <h3 className="text-indigo-600 font-semibold text-sm">Selected Packages</h3>
                                 </div>
                                 <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
-                                    {Object.values(packagesByCategory).flat()
-                                        .filter(pkg => selectedPackages.includes(getPackageId(pkg)) && pkg.issubscribed !== "yes")
+                                    {(Object.values(packagesByCategory).flat().length > 0
+                                        ? Object.values(packagesByCategory).flat()
+                                        : restoredCheckoutPackages
+                                    )
+                                        .filter(pkg => selectedPackages.includes(getPackageId(pkg)) && !isPackageSubscribed(pkg))
                                         .map((pkg, i) => (
                                             <div key={pkg.pkgid || i} className="flex items-center justify-between px-4 py-3 text-sm">
                                                 <span className="text-gray-700">{pkg.pkgname || pkg.packagename}</span>
@@ -2042,7 +2559,7 @@ export default function IPTVService() {
                                 const pkgId = getPackageId(pkg, `pkg-${idx}`);
                                 const pkgName = pkg.pkgname || pkg.packagename || pkg.name || 'Package';
                                 const pkgPrice = pkg.pkgprice || pkg.price || pkg.amount || 0;
-                                const isSubscribed = pkg.issubscribed === "yes" || pkg.issubscribed === true;
+                                const isSubscribed = isPackageSubscribed(pkg);
                                 const totalChannels = pkg.totchnls || '';
                                 const isSingleSelectCategory = /\b(lco|mso)\b/i.test(String(activeTab || ''));
 
@@ -2144,8 +2661,8 @@ export default function IPTVService() {
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-gray-500">Status</span>
-                                    <span className={`font-semibold ${detailPkg.issubscribed === 'yes' ? 'text-green-600' : 'text-orange-500'}`}>
-                                        {detailPkg.issubscribed === 'yes' ? 'Subscribed' : 'Not Subscribed'}
+                                    <span className={`font-semibold ${isPackageSubscribed(detailPkg) ? 'text-green-600' : 'text-orange-500'}`}>
+                                        {isPackageSubscribed(detailPkg) ? 'Subscribed' : 'Not Subscribed'}
                                     </span>
                                 </div>
                                 {detailPkg.expirydate && (
@@ -2523,16 +3040,20 @@ export default function IPTVService() {
                             ) : (
                                 <div className="mt-4 space-y-2">
                                     <p className="text-xs text-red-600 font-medium">
-                                        Plan expired on {expiryDate}. Renew below to enable Select Packages / Channels.
+                                        {isFofiSmartServicePaid
+                                            ? `Plan expired on ${expiryDate}. Renew below to enable Select Packages / Channels.`
+                                            : `Plan expired on ${expiryDate}. Complete FoFi Smart Service payment to enable renewal.`}
                                     </p>
-                                    <button
-                                        onClick={() => navigate(`/customer/${customerData.customer_id}/service/fofi-smart-box`, {
-                                            state: { customer: customerData, services: servicesFromState }
-                                        })}
-                                        className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-semibold py-3 px-4 rounded-lg shadow-md text-sm"
-                                    >
-                                        Renew Plan
-                                    </button>
+                                    {isFofiSmartServicePaid && (
+                                        <button
+                                            onClick={() => navigate(`/customer/${customerData.customer_id}/service/fofi-smart-box`, {
+                                                state: { customer: customerData, services: servicesFromState }
+                                            })}
+                                            className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-semibold py-3 px-4 rounded-lg shadow-md text-sm"
+                                        >
+                                            Renew Plan
+                                        </button>
+                                    )}
                                 </div>
                             )}
                         </div>

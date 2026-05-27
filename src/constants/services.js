@@ -13,23 +13,24 @@ export const SERVICES = {
   FOFI: {
     key: 'fofi',
     servid: '3',
-    servicesApp: null, // unknown for FoFi at the time of writing
-    aliases: ['fofi', 'fofi-smart-box', 'fofi_smart_box', 'smartbox', 'smart_box', 'smart-box', 'ott'],
-    planNamePatterns: [/\bfofi\b/i, /smart\s*box/i, /\bott\b/i],
+    servicesApp: 3,
+    aliases: ['fofi', 'fo-fi', 'fofi-smart-box', 'fo-fi-smart-box', 'fofi_smart_box', 'smartbox', 'smart_box', 'smart-box', 'fofibox', 'fofi_box', 'ott'],
+    planNamePatterns: [/\bfo-?fi\b/i, /smart\s*box/i, /fofi\s*box/i, /\bott\b/i],
   },
   INTERNET: {
     key: 'internet',
-    servid: null, // backend uses services_app=1 for Internet payments
-    servicesApp: 1,
-    aliases: ['internet', 'broadband'],
+    servid: null,
+    // services_app=1 is ambiguous: Internet and IPTV wallet-debit rows can both use it.
+    servicesApp: null,
+    aliases: ['internet', 'broadband', 'broad band', 'fiber', 'fibre'],
     planNamePatterns: [/\binternet\b/i, /\bbroadband\b/i, /\bfiber\b/i, /\bfibre\b/i, /\bmbps\b/i],
   },
   CABLETV: {
     key: 'cabletv',
     servid: null,
     servicesApp: null,
-    aliases: ['cabletv', 'iptv', 'cable_tv', 'cable-tv', 'cable', 'tv'],
-    planNamePatterns: [/\bcable\s*tv\b/i, /\biptv\b/i, /\bchannel\s*pack\b/i],
+    aliases: ['cabletv', 'iptv', 'iptv service', 'cable_tv', 'cable-tv', 'cable tv', 'cable', 'tv', 'catv', 'dpo', 'fta'],
+    planNamePatterns: [/\bcable\s*tv\b/i, /\biptv\b/i, /\bchannel\s*pack\b/i, /\bfta\b/i, /\bdpo\b/i, /free\s*to\s*air/i],
   },
   VOICE: {
     key: 'voice',
@@ -64,6 +65,7 @@ const EXPLICIT_KEY_FIELDS = [
   'servicekey', 'serv_key', 'service_key',
   'srvkey', 'srvtype', 'service_type', 'servicetype',
   'module', 'category', 'apptype', 'app_type',
+  'paytype', 'pymt_type', 'serv_name', 'service_name', 'product_type',
 ];
 
 // Numeric/coded fields (need scheme prefix to map). Order matters —
@@ -124,7 +126,10 @@ export function resolveServiceFromOrder(order, planIdMap = null) {
 
   // Layer C: plan-name regex (last resort, deliberately permissive —
   // returns the FIRST service whose pattern matches).
-  const planName = String(order.plan_name || order.planname || order.plan || '').trim();
+  const planName = String(
+    order.plan_name || order.planname || order.plan || order.serv_name ||
+    order.service_name || order.product_name || order.package_name || order.packagename || ''
+  ).trim();
   if (planName) {
     for (const svc of Object.values(SERVICES)) {
       if (svc.planNamePatterns.some((re) => re.test(planName))) return svc.key;
@@ -140,12 +145,22 @@ export function resolveServiceFromOrder(order, planIdMap = null) {
  * payment the operator made). Orders classified to a DIFFERENT service
  * are dropped.
  */
-export function filterOrdersByService(orders, serviceKey, planIdMap = null) {
+export function filterOrdersByService(orders, serviceKey, planIdMap = null, options = {}) {
   if (!serviceKey || !Array.isArray(orders)) return orders || [];
   const target = String(serviceKey).toLowerCase();
+  const unclassifiedServiceKey = options.unclassifiedServiceKey
+    ? canonicalServiceKey(options.unclassifiedServiceKey)
+    : null;
+  const keepUnclassified = options.keepUnclassified !== undefined
+    ? !!options.keepUnclassified
+    : true;
+
   return orders.filter((o) => {
     const detected = resolveServiceFromOrder(o, planIdMap);
-    return detected === null || detected === target;
+    if (detected === target) return true;
+    if (detected !== null) return false;
+    if (unclassifiedServiceKey) return target === unclassifiedServiceKey;
+    return keepUnclassified;
   });
 }
 

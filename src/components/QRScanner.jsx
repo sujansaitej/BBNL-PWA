@@ -25,6 +25,50 @@ export default function QRScanner({ onScan, onClose, onError }) {
     // leaving the "Starting camera" overlay stuck forever.
     const softTimeoutRef = useRef(null);
     const hardTimeoutRef = useRef(null);
+    const startupTimeoutRef = useRef(null);
+    const startRunRef = useRef(0);
+    const CAMERA_REQUEST_TIMEOUT_MS = 12000;
+    const CAMERA_STARTUP_TIMEOUT_MS = 15000;
+
+    const stopStream = (stream) => {
+        if (!stream) return;
+        try {
+            stream.getTracks().forEach((track) => {
+                try { track.onended = null; } catch (_) {}
+                try { track.stop(); } catch (_) {}
+            });
+        } catch (_) {}
+    };
+
+    const getUserMediaWithTimeout = (constraints, timeoutMs = CAMERA_REQUEST_TIMEOUT_MS) => {
+        return new Promise((resolve, reject) => {
+            let settled = false;
+            const timer = setTimeout(() => {
+                if (settled) return;
+                settled = true;
+                const err = new Error(`Camera request timed out after ${timeoutMs}ms`);
+                err.name = 'TimeoutError';
+                reject(err);
+            }, timeoutMs);
+
+            navigator.mediaDevices.getUserMedia(constraints)
+                .then((stream) => {
+                    if (settled) {
+                        stopStream(stream);
+                        return;
+                    }
+                    settled = true;
+                    clearTimeout(timer);
+                    resolve(stream);
+                })
+                .catch((err) => {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(timer);
+                    reject(err);
+                });
+        });
+    };
 
     // Auto-start camera on mount
     useEffect(() => {
@@ -40,18 +84,14 @@ export default function QRScanner({ onScan, onClose, onError }) {
             return;
         }
 
-        // Start scanning immediately (0ms defer keeps the user-gesture context
-        // alive on devices that gate getUserMedia behind a gesture check).
-        const timer = setTimeout(() => {
-            if (isMountedRef.current) {
-                startScanning();
-            }
-        }, 0);
+        // Start scanning immediately. Avoid deferring through a timer:
+        // some mobile browsers are stricter about camera requests that
+        // happen later than the user-triggered modal open.
+        startScanning();
 
         // Cleanup on unmount
         return () => {
             isMountedRef.current = false;
-            clearTimeout(timer);
             stopScanning();
         };
     }, []);
@@ -65,14 +105,28 @@ export default function QRScanner({ onScan, onClose, onError }) {
             console.warn('📷 [QRScanner] startScanning() ignored — another call is in flight');
             return;
         }
-        inFlightRef.current = true;
-
         // Stop any existing stream/interval before starting fresh (e.g. on Retry)
         stopScanning();
+        inFlightRef.current = true;
+        const runId = startRunRef.current + 1;
+        startRunRef.current = runId;
 
         try {
             setScanStatus('initializing');
             setError('');
+            startupTimeoutRef.current = setTimeout(() => {
+                if (!isMountedRef.current || startRunRef.current !== runId) return;
+                if (scanStatus === 'scanning' || scanStatus === 'processing') return;
+                stopScanning();
+                inFlightRef.current = false;
+                const ua = navigator.userAgent || '';
+                const isSamsung = /SamsungBrowser|SM-[A-Z]\d|Galaxy/i.test(ua);
+                setError(
+                    isSamsung
+                        ? 'Camera is taking too long to start on this Samsung phone. Close Camera/Bixby Vision/video-call apps, allow Camera permission, then tap Retry.'
+                        : 'Camera is taking too long to start. Close other camera apps and tap Retry.'
+                );
+            }, CAMERA_STARTUP_TIMEOUT_MS);
 
             // Note: we intentionally do NOT check navigator.permissions.query for camera.
             // On many Android devices/browsers, the Permissions API incorrectly reports
@@ -105,17 +159,53 @@ export default function QRScanner({ onScan, onClose, onError }) {
             // an immediately-ended track on Samsung A-series and some
             // MIUI devices. Iterate until we get a LIVE track.
             const csAttempts = [
-                { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, _name: 'ideal-env+720p' },
-                { video: { facingMode: { ideal: 'environment' } }, _name: 'ideal-env-only' },
-                { video: { facingMode: 'environment' }, _name: 'string-env' },
-                { video: true, _name: 'video-true' },
+                {
+                    video: {
+                        facingMode: { ideal: 'environment' },
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                        frameRate: { ideal: 24, max: 30 },
+                    },
+                    audio: false,
+                    _name: 'ideal-env-720p',
+                },
+                {
+                    video: {
+                        facingMode: { ideal: 'environment' },
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        frameRate: { ideal: 24, max: 30 },
+                    },
+                    audio: false,
+                    _name: 'ideal-env-480p',
+                },
+                { video: { facingMode: { ideal: 'environment' } }, audio: false, _name: 'ideal-env-only' },
+                { video: { facingMode: 'environment' }, audio: false, _name: 'string-env' },
                 // Per-device explicit deviceId attempts — the Samsung
                 // M51 escape hatch when facingMode resolution all
                 // fails with NotFoundError.
                 ...videoDeviceIds.map((id, i) => ({
-                    video: { deviceId: { exact: id } },
+                    video: {
+                        deviceId: { exact: id },
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        frameRate: { ideal: 24, max: 30 },
+                    },
+                    audio: false,
                     _name: `deviceId-${i}`,
                 })),
+                {
+                    video: {
+                        facingMode: { ideal: 'user' },
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        frameRate: { ideal: 24, max: 30 },
+                    },
+                    audio: false,
+                    _name: 'ideal-user-480p',
+                },
+                { video: { facingMode: 'user' }, audio: false, _name: 'string-user' },
+                { video: true, audio: false, _name: 'video-true' },
             ];
 
             const runAttempts = async () => {
@@ -126,12 +216,17 @@ export default function QRScanner({ onScan, onClose, onError }) {
                         console.log(`📷 [QRScanner] Trying ${cs._name}...`);
                         // eslint-disable-next-line no-unused-vars
                         const { _name, ...constraint } = cs;
-                        const got = await navigator.mediaDevices.getUserMedia(constraint);
+                        if (startRunRef.current !== runId) return { stream: null, lastErr: last };
+                        const got = await getUserMediaWithTimeout(constraint);
+                        if (startRunRef.current !== runId) {
+                            stopStream(got);
+                            return { stream: null, lastErr: last };
+                        }
                         const tracks = got.getVideoTracks();
                         const live = tracks.some(t => t.readyState === 'live');
                         console.log(`📷 [QRScanner] ${cs._name} → tracks=${tracks.length}, live=${live}`);
                         if (!live) {
-                            try { tracks.forEach(t => t.stop()); } catch (_) {}
+                            stopStream(got);
                             continue;
                         }
                         s = got;
@@ -149,6 +244,10 @@ export default function QRScanner({ onScan, onClose, onError }) {
             };
 
             let { stream, lastErr } = await runAttempts();
+            if (startRunRef.current !== runId) {
+                if (stream) stopStream(stream);
+                return;
+            }
             // Samsung One UI cold-start NotFoundError quirk — wait
             // 500ms, re-warm enumerateDevices, then retry the ladder
             // once. If the camera really doesn't exist (tablets, dev
@@ -163,16 +262,21 @@ export default function QRScanner({ onScan, onClose, onError }) {
                     }
                 } catch (_) {}
                 const second = await runAttempts();
+                if (startRunRef.current !== runId) {
+                    if (second.stream) stopStream(second.stream);
+                    return;
+                }
                 if (second.stream) stream = second.stream;
                 else lastErr = second.lastErr || lastErr;
             }
             if (!stream) {
                 throw lastErr || new Error('All camera-start attempts failed');
             }
+            if (startupTimeoutRef.current) { clearTimeout(startupTimeoutRef.current); startupTimeoutRef.current = null; }
 
             // Skip if component unmounted during camera request
             if (!isMountedRef.current) {
-                stream.getTracks().forEach(track => track.stop());
+                stopStream(stream);
                 return;
             }
 
@@ -203,8 +307,11 @@ export default function QRScanner({ onScan, onClose, onError }) {
                 try {
                     v.setAttribute('playsinline', 'true');
                     v.setAttribute('webkit-playsinline', 'true');
+                    v.playsInline = true;
                     v.muted = true;
                     v.autoplay = true;
+                    v.setAttribute('autoplay', 'true');
+                    v.setAttribute('muted', 'true');
                 } catch (_) {}
 
                 // CRITICAL: bind readiness listeners BEFORE setting
@@ -222,6 +329,7 @@ export default function QRScanner({ onScan, onClose, onError }) {
                 const markReady = () => {
                     if (videoReady) return;
                     if (!isMountedRef.current || !streamRef.current) return;
+                    if (startRunRef.current !== runId) return;
                     videoReady = true;
                     if (softTimeoutRef.current) { clearTimeout(softTimeoutRef.current); softTimeoutRef.current = null; }
                     if (hardTimeoutRef.current) { clearTimeout(hardTimeoutRef.current); hardTimeoutRef.current = null; }
@@ -354,6 +462,8 @@ export default function QRScanner({ onScan, onClose, onError }) {
             let errorMessage = 'Camera access denied.';
             if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
                 errorMessage = `Camera permission denied. Open ${permissionHint}, then tap Retry.`;
+            } else if (err.name === 'TimeoutError') {
+                errorMessage = "Camera took too long to start. Close other camera apps and tap Retry.";
             } else if (err.name === 'NotFoundError') {
                 errorMessage = isSamsung
                     ? "Camera couldn't open. On Samsung devices, check:\n" +
@@ -374,19 +484,21 @@ export default function QRScanner({ onScan, onClose, onError }) {
             }
 
             setError(errorMessage);
-            onError?.(err.message);
+            onError?.(errorMessage);
         } finally {
             // Always clear the re-entry guard, regardless of how we
             // exit (success / handled error / unmount-skip / explicit
             // return). Without this, a transient failure leaves the
             // guard set, and Retry / popstate-restart silently
             // no-ops.
-            inFlightRef.current = false;
+            if (startupTimeoutRef.current) { clearTimeout(startupTimeoutRef.current); startupTimeoutRef.current = null; }
+            if (startRunRef.current === runId) inFlightRef.current = false;
         }
     };
 
     // Stop camera and scanning
     const stopScanning = () => {
+        startRunRef.current += 1;
         setScanStatus('initializing');
         isProcessingRef.current = false;
 
@@ -398,9 +510,10 @@ export default function QRScanner({ onScan, onClose, onError }) {
         // or fire a Retry prompt after the component has moved on.
         if (softTimeoutRef.current) { clearTimeout(softTimeoutRef.current); softTimeoutRef.current = null; }
         if (hardTimeoutRef.current) { clearTimeout(hardTimeoutRef.current); hardTimeoutRef.current = null; }
+        if (startupTimeoutRef.current) { clearTimeout(startupTimeoutRef.current); startupTimeoutRef.current = null; }
 
         if (streamRef.current) {
-            streamRef.current.getTracks().forEach(track => track.stop());
+            stopStream(streamRef.current);
             streamRef.current = null;
         }
 
@@ -411,6 +524,7 @@ export default function QRScanner({ onScan, onClose, onError }) {
             videoRef.current.onloadedmetadata = null;
             videoRef.current.onloadeddata = null;
             videoRef.current.onplaying = null;
+            try { videoRef.current.pause(); } catch (_) {}
             videoRef.current.srcObject = null;
         }
     };
@@ -437,6 +551,13 @@ export default function QRScanner({ onScan, onClose, onError }) {
                             if (barcodes.length > 0) {
                                 console.log(`✅ [QRScanner] BarcodeDetector hit after ${attempts} attempts`);
                                 handleQRCodeDetected(barcodes[0].rawValue);
+                            } else if (attempts === 40) {
+                                console.warn('[QRScanner] BarcodeDetector found no QR after 40 attempts, switching to jsQR');
+                                clearInterval(scanIntervalRef.current);
+                                scanIntervalRef.current = null;
+                                isProcessingRef.current = false;
+                                startCanvasQRDetection();
+                                return;
                             } else if (attempts === 20 || attempts === 60 || attempts === 120) {
                                 // Periodic heartbeat: at ~3s, ~9s, ~18s
                                 console.log(`🔵 [QRScanner] BarcodeDetector ${attempts} attempts, no QR yet (errors=${detectErrors})`);

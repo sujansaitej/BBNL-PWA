@@ -1,0 +1,3029 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fo-Fi CRM PWA - Bug Fix Report</title>
+<style>
+  :root { --bg: #ffffff; --card: #f7f8fa; --border: #d0d5dd; --text: #1a1a2e; --muted: #475467; --accent: #1a3a5c; --accent2: #2563eb; --green: #027a48; --yellow: #b54708; --red: #b42318; --orange: #c4320a; --light-accent: #eff4fb; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 2rem; }
+  h1 { font-size: 2.2rem; font-weight: 800; color: var(--accent); margin-bottom: 0.5rem; }
+  h2 { font-size: 1.5rem; font-weight: 700; color: var(--accent); margin: 2.5rem 0 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid var(--accent); }
+  h3 { font-size: 1.15rem; font-weight: 600; color: var(--text); margin: 1.5rem 0 0.7rem; }
+  h4 { font-size: 1rem; font-weight: 600; color: var(--muted); margin: 1rem 0 0.5rem; }
+  p, li { color: var(--muted); font-size: 0.95rem; }
+  ul, ol { padding-left: 1.5rem; margin: 0.5rem 0; }
+  li { margin: 0.35rem 0; }
+  strong { color: var(--text); }
+  code { background: #f0f3f7; border: 1px solid var(--border); border-radius: 4px; padding: 0.15rem 0.4rem; font-size: 0.85rem; color: #0550ae; font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1.5rem; margin: 1rem 0; }
+  .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; border: 1px solid transparent; }
+  .badge-blue { background: #eff4fb; color: #1d4ed8; border-color: #bfdbfe; }
+  .badge-green { background: #ecfdf3; color: #027a48; border-color: #a7f3d0; }
+  .badge-yellow { background: #fffaeb; color: #b54708; border-color: #fde68a; }
+  .badge-red { background: #fef3f2; color: #b42318; border-color: #fecaca; }
+  .badge-purple { background: #f5f3ff; color: #6d28d9; border-color: #ddd6fe; }
+  .badge-orange { background: #fff7ed; color: #c4320a; border-color: #fdba74; }
+  .meta { color: var(--muted); font-size: 0.9rem; margin-bottom: 2rem; }
+  .warn { background: #fffaeb; border-left: 4px solid #d97706; padding: 0.8rem 1rem; border-radius: 0 8px 8px 0; margin: 0.8rem 0; }
+  .info { background: #eff4fb; border-left: 4px solid var(--accent2); padding: 0.8rem 1rem; border-radius: 0 8px 8px 0; margin: 0.8rem 0; }
+  .success { background: #ecfdf3; border-left: 4px solid #16a34a; padding: 0.8rem 1rem; border-radius: 0 8px 8px 0; margin: 0.8rem 0; }
+  table { width: 100%; border-collapse: collapse; margin: 0.8rem 0; font-size: 0.9rem; }
+  th, td { border: 1px solid var(--border); padding: 0.7rem 0.8rem; text-align: left; vertical-align: top; }
+  th { background: var(--light-accent); color: var(--accent); font-weight: 600; }
+  td { color: var(--muted); }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .header-bar { background: linear-gradient(135deg, #f0f4ff, #e8ecf7); border: 1px solid var(--border); border-radius: 12px; padding: 2rem; margin-bottom: 2rem; }
+  .toc { columns: 2; column-gap: 2rem; }
+  .toc li { break-inside: avoid; }
+  .toc a { color: var(--accent2); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .bug-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1.2rem 1.5rem; margin: 0.8rem 0; page-break-inside: avoid; }
+  .bug-card .bug-id { display: inline-block; background: #fef3f2; color: var(--red); font-weight: 700; font-size: 0.8rem; padding: 0.15rem 0.6rem; border-radius: 6px; border: 1px solid #fecaca; margin-right: 0.5rem; }
+  .bug-card .bug-title { font-weight: 700; color: var(--text); font-size: 1.02rem; }
+  .bug-card .bug-meta { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.8rem; font-size: 0.85rem; color: var(--muted); }
+  .bug-card .bug-meta span { display: inline-flex; align-items: center; gap: 0.3rem; background: #fff; border: 1px solid var(--border); border-radius: 999px; padding: 0.25rem 0.7rem; }
+  .bug-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; margin-top: 1rem; }
+  .step-box { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1rem 1rem 1.1rem; }
+  .step-box h4 { margin-top: 0; color: var(--accent); }
+  .section-label { display: inline-block; margin-bottom: 0.6rem; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent2); }
+  .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.6rem; }
+  .chip { background: #fff; border: 1px solid var(--border); border-radius: 999px; padding: 0.35rem 0.7rem; font-size: 0.84rem; color: var(--text); }
+  .compact-table th, .compact-table td { padding: 0.6rem 0.7rem; font-size: 0.88rem; }
+
+  @media (max-width: 768px) {
+    .container { padding: 1rem; }
+    .grid2, .bug-grid { grid-template-columns: 1fr; }
+    .toc { columns: 1; }
+    .header-bar { padding: 1.25rem; }
+    h1 { font-size: 1.8rem; }
+  }
+
+  @media print {
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+    @page { size: A4; margin: 15mm 12mm 15mm 12mm; }
+    body { background: #fff !important; font-size: 9pt; line-height: 1.5; }
+    .container { max-width: 100%; padding: 0; }
+    .card, .bug-card, .step-box { background: var(--card) !important; border: 1px solid var(--border) !important; }
+    .header-bar { background: linear-gradient(135deg, #f0f4ff, #e8ecf7) !important; }
+    .warn { background: #fffaeb !important; }
+    .info { background: #eff4fb !important; }
+    .success { background: #ecfdf3 !important; }
+    th { background: var(--light-accent) !important; }
+    h2 { page-break-after: avoid; }
+    h3, h4 { page-break-after: avoid; }
+    .card, .bug-card, .step-box { page-break-inside: avoid; }
+    tr { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="header-bar">
+  <h1>Fo-Fi CRM PWA</h1>
+  <p class="meta">Bug Fix Report &bull; Recent verified fix entry recreated from source &bull; Base path: <code>/smartphone/crm/</code><br>
+  One self-contained section per bug &bull; Base path preserved for production verification</p>
+  <div class="chips">
+    <span class="badge badge-blue">PDF 1.1</span>
+    <span class="badge badge-red">High</span>
+    <span class="badge badge-green">Fixed</span>
+    <span class="badge badge-orange">Mobile Camera</span>
+  </div>
+</div>
+
+<h2>Table of Contents</h2>
+<ol class="toc">
+  <li><a href="#pdf-1-1">PDF 1.1 - Internet Module Add User - Document Scan Stuck on "Starting camera" on Samsung Galaxy M51</a></li>
+  <li><a href="#pdf-1-2">PDF 1.2 - Internet Module Add User - Submit Shows Registration Submitted Too Early Before ONU Details</a></li>
+  <li><a href="#pdf-1-3">PDF 1.3 - Internet Payment Flow - Wrong Balance Amount Display After Payment or Subscription Renewal</a></li>
+  <li><a href="#pdf-1-4">PDF 1.4 - Internet Module Add User - Pick from Map Does Not Update Location Immediately on Tap</a></li>
+  <li><a href="#pdf-2-1">PDF 2.1 - Link Fo-Fi Box - Scan From TV Stuck on "Starting camera" on Samsung Galaxy M51</a></li>
+  <li><a href="#pdf-3-1">PDF 3.1 - Payment History - Service Filters Show Internet Bills Under All Services</a></li>
+  <li><a href="#pdf-3-2">PDF 3.2 - Payment History - Wrong Payment Breakdown Subtotal and Balance Label</a></li>
+  <li><a href="#pdf-4-1">PDF 4.1 - FoFi Smart Service Upgrade - Hide Plan Selection During Upgrade Link Continuation</a></li>
+  <li><a href="#pdf-4-2">PDF 4.2 - Link FO-FI Box - Manual Box ID GET MAC ID Does Not Fetch Device Data</a></li>
+  <li><a href="#pdf-4-3">PDF 4.3 - FoFi Smart Service - Scan From TV Stuck on Starting Camera on Samsung Galaxy M51</a></li>
+  <li><a href="#pdf-4-4">PDF 4.4 - FoFi Smart Service - Operator Is Disabled for Newly Created User Upgrade</a></li>
+  <li><a href="#pdf-4-5">PDF 4.5 - FoFi Smart Service - First-Time User Shows Wrong Upgrade Plan Button</a></li>
+  <li><a href="#pdf-4-6">PDF 4.6 - FoFi Smart Service - FOFI-BOX + FTA ONLY Shows Requested Plan Not Found</a></li>
+  <li><a href="#pdf-4-7">PDF 4.7 - FoFi Payment - Base Pack Shows Wrong Amount Deductible and Debits Internet Wallet</a></li>
+  <li><a href="#pdf-4-8">PDF 4.8 - FoFi Smart Service - Current Plan Details Missing Until Multiple Refreshes</a></li>
+  <li><a href="#pdf-5-1">PDF 5.1 - Service Screens - Slow Loading From Missed Warm Cache and Sequential Fallbacks</a></li>
+  <li><a href="#pdf-5-2">PDF 5.2 - Login Page - Logo Missing on Mobile Data</a></li>
+  <li><a href="#pdf-6-1">PDF 6.1 - IPTV Checkout - Payment Failed Message After Backend Accepted Order</a></li>
+  <li><a href="#pdf-6-2">PDF 6.2 - IPTV Checkout - Wallet Balance Sometimes Missing</a></li>
+  <li><a href="#pdf-6-3">PDF 6.3 - IPTV Checkout - Refresh Returns to Overview</a></li>
+  <li><a href="#pdf-6-4">PDF 6.4 - IPTV Select Packages - MSO/Broadcaster Pack Not Marked Subscribed</a></li>
+  <li><a href="#pdf-6-5">PDF 6.5 - IPTV Select Packages - Slow or Missing Package Data</a></li>
+</ol>
+
+<hr>
+
+<div class="bug-card" id="pdf-1-1">
+  <div>
+    <span class="bug-id">PDF 1.1</span>
+    <span class="bug-title">Internet Module Add User - Document Scan Stuck on "Starting camera" on Samsung Galaxy M51</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: High</span>
+    <span>Status: Fixed</span>
+    <span>Module: Internet / Add User / KYC</span>
+    <span>Target Device: Samsung Galaxy M51</span>
+  </div>
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> Opening document capture from the in-page camera modal could remain stuck on <code>Starting camera...</code> instead of transitioning to a live preview.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Summary</h4>
+      <p>The in-page camera startup flow was too device-sensitive for Samsung Galaxy M51. The modal could remain in initialization instead of completing a clean <code>navigator.mediaDevices.getUserMedia()</code> start and rendering live video frames.</p>
+
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/hooks/useCamera.js</code></li>
+        <li><code>src/components/PhotoCaptureModal.jsx</code></li>
+        <li><code>src/pages/UploadDocuments.jsx</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Camera startup now uses a direct <code>navigator.mediaDevices.getUserMedia()</code>-first flow.</li>
+        <li>Back camera is preferred first using <code>facingMode: environment</code>.</li>
+        <li>If back camera startup fails, the flow falls back to front camera and then to generic video.</li>
+        <li>Explicit startup timeout and ready-frame timeout prevent silent hangs on <code>Starting camera...</code>.</li>
+        <li><code>Retry</code> now fully stops the previous stream before requesting a new one.</li>
+        <li>Media tracks are stopped on retry, close, and unmount.</li>
+        <li>Uploaded Documents camera modal title mapping was corrected to match the selected proof type.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Low to medium. The fix is limited to the in-page camera capture flow. Registration API upload behavior and KYC submission contracts remain unchanged.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the camera-flow fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>Quick Facts</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Severity</th>
+            <td>High</td>
+          </tr>
+          <tr>
+            <th>Status</th>
+            <td>Fixed</td>
+          </tr>
+          <tr>
+            <th>Module</th>
+            <td>Internet / Add User / KYC</td>
+          </tr>
+          <tr>
+            <th>Target Device</th>
+            <td>Samsung Galaxy M51</td>
+          </tr>
+          <tr>
+            <th>Production Base Path</th>
+            <td><code>/smartphone/crm/</code></td>
+          </tr>
+          <tr>
+            <th>Affected Pages</th>
+            <td><code>/smartphone/crm/register</code><br><code>/smartphone/crm/upload-documents</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Exact UI Labels</h3>
+  <p>These labels were rechecked from the current source and should be used exactly during QA.</p>
+  <table class="compact-table">
+    <thead>
+      <tr>
+        <th>Page</th>
+        <th>Section</th>
+        <th>Exact Labels / Buttons</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>/smartphone/crm/register</code></td>
+        <td>KYC Documents</td>
+        <td><code>Customer Photo</code>, <code>Address Proof (max 3)</code>, <code>ID Proof (max 2)</code></td>
+      </tr>
+      <tr>
+        <td><code>/smartphone/crm/register</code></td>
+        <td>Upload bottom sheet</td>
+        <td><code>Cancel</code>, <code>Camera</code>, <code>Media picker</code></td>
+      </tr>
+      <tr>
+        <td><code>/smartphone/crm/register</code></td>
+        <td>Camera modal</td>
+        <td><code>Take Customer Photo</code>, <code>Capture Address Proof</code>, <code>Capture ID Proof</code>, <code>Starting camera...</code>, <code>Retry</code>, <code>Retake</code>, <code>Use Photo</code>, <code>Close</code></td>
+      </tr>
+      <tr>
+        <td><code>/smartphone/crm/upload-documents</code></td>
+        <td>Document sections</td>
+        <td><code>Photo Proof</code>, <code>Address Proof</code>, <code>ID Proof</code></td>
+      </tr>
+      <tr>
+        <td><code>/smartphone/crm/upload-documents</code></td>
+        <td>Change buttons</td>
+        <td><code>Change Profile</code>, <code>Change Address</code>, <code>Change Identity</code></td>
+      </tr>
+      <tr>
+        <td><code>/smartphone/crm/upload-documents</code></td>
+        <td>Upload bottom sheet</td>
+        <td><code>Cancel</code>, <code>Camera</code>, <code>Media picker</code></td>
+      </tr>
+      <tr>
+        <td><code>/smartphone/crm/upload-documents</code></td>
+        <td>Camera modal</td>
+        <td><code>Take Customer Photo</code>, <code>Capture Address Proof</code>, <code>Capture ID Proof</code>, <code>Starting camera...</code>, <code>Retry</code>, <code>Retake</code>, <code>Use Photo</code>, <code>Close</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Step-by-Step Test Process</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>Register Page</h4>
+      <p><code>/smartphone/crm/register</code></p>
+
+      <ol>
+        <li>Open the production PWA at <code>/smartphone/crm/</code> over HTTPS on Samsung Galaxy M51.</li>
+        <li>Log in with a working operator or franchisee account.</li>
+        <li>Go to <code>/smartphone/crm/register</code>.</li>
+        <li>Scroll to <code>KYC Documents</code>.</li>
+        <li>Tap the <code>+</code> tile under <code>Customer Photo</code>.</li>
+        <li>Confirm the bottom sheet shows <code>Cancel</code>, <code>Camera</code>, <code>Media picker</code>.</li>
+        <li>Tap <code>Camera</code>.</li>
+        <li>Confirm the title is <code>Take Customer Photo</code>.</li>
+        <li>Confirm <code>Starting camera...</code> clears into a live preview.</li>
+        <li>Confirm the rear camera is preferred first.</li>
+        <li>Tap the shutter button.</li>
+        <li>Confirm <code>Retake</code> and <code>Use Photo</code> appear.</li>
+        <li>Tap <code>Retake</code> and confirm the camera starts again.</li>
+        <li>Capture again and tap <code>Use Photo</code>.</li>
+        <li>Confirm the thumbnail appears under <code>Customer Photo</code>.</li>
+        <li>Repeat the same flow for <code>Address Proof (max 3)</code>.</li>
+        <li>Repeat the same flow for <code>ID Proof (max 2)</code>.</li>
+        <li>While <code>Starting camera...</code> is visible, tap <code>Cancel</code> and confirm the modal closes cleanly.</li>
+        <li>Reopen <code>Camera</code> and confirm the stream starts normally.</li>
+        <li>If startup fails, tap <code>Retry</code> and confirm the camera restarts without page reload.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Uploaded Documents Page</h4>
+      <p><code>/smartphone/crm/upload-documents</code></p>
+
+      <ol>
+        <li>Open a customer and navigate to <code>/smartphone/crm/upload-documents</code>.</li>
+        <li>Tap one of: <code>Change Profile</code>, <code>Change Address</code>, or <code>Change Identity</code>.</li>
+        <li>Tap <code>Camera</code> in the bottom sheet.</li>
+        <li>Confirm the modal title matches the proof type exactly:
+          <ul>
+            <li><code>Take Customer Photo</code></li>
+            <li><code>Capture Address Proof</code></li>
+            <li><code>Capture ID Proof</code></li>
+          </ul>
+        </li>
+        <li>Confirm <code>Starting camera...</code> clears into a live preview.</li>
+        <li>Capture a photo and tap <code>Use Photo</code>.</li>
+        <li>Confirm the image appears in the correct document section.</li>
+        <li>If permission is denied or startup is interrupted, tap <code>Retry</code> and confirm old tracks are released and the camera restarts cleanly.</li>
+      </ol>
+    </div>
+  </div>
+
+  <h3>Expected Result</h3>
+  <div class="success">
+    On Samsung Galaxy M51, the in-page KYC camera must no longer remain stuck on <code>Starting camera...</code>. It should open a live preview, prefer the back camera, recover via <code>Retry</code>, and close without leaving stale camera streams behind.
+  </div>
+
+  <div class="chips">
+    <span class="chip">No page reload during retry</span>
+    <span class="chip">Back camera preferred first</span>
+    <span class="chip">Retake works</span>
+    <span class="chip">Use Photo works</span>
+    <span class="chip">Clean close and reopen</span>
+  </div>
+</div>
+
+<div class="bug-card" id="pdf-1-2">
+  <div>
+    <span class="bug-id">PDF 1.2</span>
+    <span class="bug-title">Internet Module Add User - Submit Shows Registration Submitted Too Early Before ONU Details</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: High</span>
+    <span>Status: Fixed</span>
+    <span>Module: Internet / Add User / Registration</span>
+    <span>Route: <code>/smartphone/crm/register</code></span>
+  </div>
+
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> Clicking <code>Submit</code> on the Add User page was behaving like final registration too early. The app could show a final submitted message before the ONU Details step.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Summary</h4>
+      <p>The Add User page needed to save entered details and continue to plan selection only. Final customer registration must happen later from the ONU Details page after ONU MAC details are entered and <code>Register</code> is clicked.</p>
+
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/pages/Register.jsx</code></li>
+        <li><code>bugfixes.html</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Removed the premature final-style submit behavior from the Add User <code>Submit</code> action.</li>
+        <li>Kept the staged <code>registrationData</code> handoff for the next steps unchanged.</li>
+        <li>Changed the Add User message to a non-final handoff message.</li>
+        <li>Left final registration on the ONU Details page <code>Register</code> action.</li>
+        <li>Did not change backend payload fields, auth, or session storage keys.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Low. The fix changes only when final registration is triggered in the UI flow. Payload compatibility and final registration API behavior remain unchanged.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the registration-flow fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>Quick Facts</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Expected Flow</th>
+            <td><code>Add User</code> -> plan selection -> ONU Details -> <code>Register</code></td>
+          </tr>
+          <tr>
+            <th>Wrong Behavior</th>
+            <td><code>Submit</code> looked like final registration too early</td>
+          </tr>
+          <tr>
+            <th>Final Action</th>
+            <td><code>Register</code> on ONU Details page</td>
+          </tr>
+          <tr>
+            <th>Production Base Path</th>
+            <td><code>/smartphone/crm/</code></td>
+          </tr>
+          <tr>
+            <th>Production API Base</th>
+            <td><code>https://bbnlnetmon.bbnl.in/prod/</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Exact UI Labels</h3>
+  <table class="compact-table">
+    <thead>
+      <tr>
+        <th>Page</th>
+        <th>Section</th>
+        <th>Exact Labels / Buttons</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>/smartphone/crm/register</code></td>
+        <td>Add User page</td>
+        <td><code>Submit</code></td>
+      </tr>
+      <tr>
+        <td>Plan step</td>
+        <td>Plan selection</td>
+        <td>Select a plan and continue to ONU Details</td>
+      </tr>
+      <tr>
+        <td>ONU Details page</td>
+        <td>Final action</td>
+        <td><code>Register</code></td>
+      </tr>
+      <tr>
+        <td>ONU Details page</td>
+        <td>Success message</td>
+        <td><code>Registered successfully!</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Simple Test Steps</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>Flow Check</h4>
+      <ol>
+        <li>Open <code>/smartphone/crm/register</code>.</li>
+        <li>Fill the Add User form.</li>
+        <li>Click <code>Submit</code>.</li>
+        <li>Confirm the app goes to the plan step.</li>
+        <li>Confirm final registration is not shown here.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Final Register Check</h4>
+      <ol>
+        <li>Select a plan and continue to ONU Details.</li>
+        <li>Enter ONU details and ONU MAC.</li>
+        <li>Click <code>Register</code>.</li>
+        <li>Confirm <code>Registered successfully!</code> appears here.</li>
+        <li>Confirm the flow continues to payment.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="chips">
+    <span class="chip">Submit is no longer final registration</span>
+    <span class="chip">Plan step remains in between</span>
+    <span class="chip">Register remains final action</span>
+    <span class="chip">Session keys unchanged</span>
+  </div>
+</div>
+
+<div class="bug-card" id="pdf-1-3">
+  <div>
+    <span class="bug-id">PDF 1.3</span>
+    <span class="bug-title">Internet Payment Flow - Wrong Balance Amount Display After Payment or Subscription Renewal</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: High</span>
+    <span>Status: Fixed</span>
+    <span>Module: Internet / Payment</span>
+    <span>Routes: <code>/smartphone/crm/paynow</code>, <code>/smartphone/crm/payment</code></span>
+  </div>
+
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> Payment Details could show the wrong <code>Balance Amount</code> even when the wallet deduction was already correct. Example seen in production: total <code>₹59</code>, deducted amount <code>₹60</code>, displayed balance <code>₹1</code>.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Summary</h4>
+      <p>The Paynow page was mapping <code>shareinfo.balamt</code> directly into the displayed <code>Balance Amount</code>. In production, that field can represent an internal settlement delta between the customer renewal total and the operator wallet deduction, not the actual customer-facing pending balance.</p>
+
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/pages/Paynow.jsx</code></li>
+        <li><code>bugfixes.html</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Preserved the live payment API flow and one-month renewal contract.</li>
+        <li>Kept wallet deduction mapping from <code>totbbnlshare</code> / operator debit unchanged.</li>
+        <li>Changed only the displayed <code>Balance Amount</code> derivation.</li>
+        <li>Preferred customer-facing balance sources such as <code>prevbalance</code> and historical outstanding amounts.</li>
+        <li>Suppressed <code>shareinfo.balamt</code> when it only matches the internal settlement delta between total and deducted amount.</li>
+        <li>Preserved old response compatibility by falling back safely when historical balance fields are absent.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Low. The payment payload, save call, one-month renewal rule, and wallet deduction logic were not changed. Only the displayed breakdown mapping was corrected.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the payment display fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>Quick Facts</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Production API Base</th>
+            <td><code>https://bbnlnetmon.bbnl.in/prod/</code></td>
+          </tr>
+          <tr>
+            <th>Page Header</th>
+            <td><code>Payment</code></td>
+          </tr>
+          <tr>
+            <th>Key Sections</th>
+            <td><code>Payment details</code>, <code>More Details</code>, <code>Wallet Balance</code></td>
+          </tr>
+          <tr>
+            <th>Main Button</th>
+            <td><code>PROCEED TO PAY</code></td>
+          </tr>
+          <tr>
+            <th>API Paths Traced</th>
+            <td><code>apis/makepayment</code>, <code>internet/paymentinfo</code>, <code>apis/savePaymentApi</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Exact UI Labels</h3>
+  <table class="compact-table">
+    <thead>
+      <tr>
+        <th>Page</th>
+        <th>Section</th>
+        <th>Exact Labels / Buttons</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>/smartphone/crm/paynow</code> or <code>/smartphone/crm/payment</code></td>
+        <td>Header</td>
+        <td><code>Payment</code></td>
+      </tr>
+      <tr>
+        <td><code>/smartphone/crm/paynow</code> or <code>/smartphone/crm/payment</code></td>
+        <td>Top summary</td>
+        <td><code>Payment details</code>, <code>Wallet Balance</code></td>
+      </tr>
+      <tr>
+        <td><code>/smartphone/crm/paynow</code> or <code>/smartphone/crm/payment</code></td>
+        <td>Payment Details card</td>
+        <td><code>Plan Name</code>, <code>Plan Rate</code>, <code>CGST</code>, <code>SGST</code>, <code>Other Charges</code>, <code>Balance Amount</code>, <code>Total Amount</code></td>
+      </tr>
+      <tr>
+        <td><code>/smartphone/crm/paynow</code> or <code>/smartphone/crm/payment</code></td>
+        <td>More Details card</td>
+        <td><code>More Details</code>, <code>Operator Share</code>, <code>BBNL Share</code>, <code>Software Charges</code>, <code>TDS</code>, <code>Amount Deductable</code></td>
+      </tr>
+      <tr>
+        <td><code>/smartphone/crm/paynow</code> or <code>/smartphone/crm/payment</code></td>
+        <td>Payment action</td>
+        <td><code>PROCEED TO PAY</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Step-by-Step Test Process</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>Before payment</h4>
+      <ol>
+        <li>Open the production PWA at <code>/smartphone/crm/</code> over HTTPS.</li>
+        <li>Log in with a working operator or franchisee account.</li>
+        <li>Navigate to a customer Internet renewal flow that opens <code>/smartphone/crm/paynow</code> or <code>/smartphone/crm/payment</code>.</li>
+        <li>Confirm the page header shows <code>Payment</code>.</li>
+        <li>Confirm the top area shows <code>Payment details</code> and <code>Wallet Balance</code>.</li>
+        <li>Review the <code>Payment Details</code> card and note:
+          <ul>
+            <li><code>Total Amount</code></li>
+            <li><code>Balance Amount</code></li>
+          </ul>
+        </li>
+        <li>Review the <code>More Details</code> card and note <code>Amount Deductable</code>.</li>
+        <li>For the known problematic case, verify the screen does not show a misleading internal balance like <code>₹1</code> when the value is only the settlement delta between total and deducted amount.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>After payment</h4>
+      <ol>
+        <li>Tap <code>PROCEED TO PAY</code>.</li>
+        <li>Allow the payment to complete successfully.</li>
+        <li>Confirm the success alert appears and no false payment failure is shown.</li>
+        <li>Confirm the wallet deduction remains correct.</li>
+        <li>Confirm the displayed <code>Balance Amount</code> is not showing the internal settlement delta.</li>
+        <li>If the screen remains visible before redirect, confirm <code>Balance Amount</code> resolves to <code>₹0.00</code> after success.</li>
+        <li>Return to the customer Internet overview and verify the renewal completed without any double-payment symptom.</li>
+      </ol>
+    </div>
+  </div>
+
+  <h3>Expected Result</h3>
+  <div class="success">
+    Internet payment should continue deducting the correct wallet amount, while the Paynow page displays the correct customer-facing <code>Balance Amount</code> instead of an internal settlement difference.
+  </div>
+
+  <div class="chips">
+    <span class="chip">Wallet deduction unchanged</span>
+    <span class="chip">One-month renewal contract unchanged</span>
+    <span class="chip">No false payment failure</span>
+    <span class="chip">Balance display corrected</span>
+  </div>
+</div>
+
+<div class="bug-card" id="pdf-1-4">
+  <div>
+    <span class="bug-id">PDF 1.4</span>
+    <span class="bug-title">Internet Module Add User - Pick from Map Does Not Update Location Immediately on Tap</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: High</span>
+    <span>Status: Fixed</span>
+    <span>Module: Internet / Add User / Map</span>
+    <span>Route: <code>/smartphone/crm/register</code></span>
+  </div>
+
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> In the Add User map picker, tapping the map did not immediately push the selected location into the registration form. Users only saw the location update reliably after dragging the marker.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Summary</h4>
+      <p>The map picker already had marker drag support, but the tap-to-pick path was still waiting too long on address lookup. The fix now updates the selected coordinates immediately on map tap or click, while address lookup continues in the background.</p>
+
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/pages/Register.jsx</code></li>
+        <li><code>bugfixes.html</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Map tap/click now updates selected latitude and longitude immediately.</li>
+        <li>Marker position still updates immediately on tap/click.</li>
+        <li>Existing marker <code>dragend</code> behavior is preserved.</li>
+        <li>Reverse geocoding still runs after the coordinate update to fill the address fields.</li>
+        <li>Registration form field names and submission payload stay unchanged.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Low. The change is limited to the map selection handoff in the registration page and does not change payload structure, geolocation fallback, or registration submission flow.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the map selection fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>Quick Facts</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Main Button</th>
+            <td><code>Pick on map</code></td>
+          </tr>
+          <tr>
+            <th>Map Modal Title</th>
+            <td><code>Pick Installation Location</code></td>
+          </tr>
+          <tr>
+            <th>Map Actions</th>
+            <td>tap map, drag marker, <code>Use this address</code>, <code>Close</code></td>
+          </tr>
+          <tr>
+            <th>Production Base Path</th>
+            <td><code>/smartphone/crm/</code></td>
+          </tr>
+          <tr>
+            <th>Expected Result</th>
+            <td>Tap or click updates marker and selected location immediately</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Exact UI Labels</h3>
+  <table class="compact-table">
+    <thead>
+      <tr>
+        <th>Page</th>
+        <th>Section</th>
+        <th>Exact Labels / Buttons</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>/smartphone/crm/register</code></td>
+        <td>Address section</td>
+        <td><code>Installation Address</code>, <code>Pick on map</code>, <code>Use current location</code></td>
+      </tr>
+      <tr>
+        <td><code>/smartphone/crm/register</code></td>
+        <td>Map modal</td>
+        <td><code>Pick Installation Location</code>, <code>Selected Address:</code>, <code>Use this address</code>, <code>Close</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Simple Test Steps</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>Android Test</h4>
+      <ol>
+        <li>Open <code>/smartphone/crm/register</code>.</li>
+        <li>Go to <code>Installation Address</code>.</li>
+        <li>Tap <code>Pick on map</code>.</li>
+        <li>Tap a different point on the map.</li>
+        <li>Confirm the marker moves immediately.</li>
+        <li>Tap <code>Use this address</code> after the address appears.</li>
+        <li>Confirm the selected address is filled in the form.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Browser Test</h4>
+      <ol>
+        <li>Open <code>/smartphone/crm/register</code> in a normal browser.</li>
+        <li>Click <code>Pick on map</code>.</li>
+        <li>Click a different point on the map.</li>
+        <li>Confirm the marker moves immediately.</li>
+        <li>Drag the marker to another point.</li>
+        <li>Confirm drag still works.</li>
+        <li>Click <code>Use this address</code>.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="chips">
+    <span class="chip">Tap updates immediately</span>
+    <span class="chip">Marker drag still works</span>
+    <span class="chip">Address lookup preserved</span>
+    <span class="chip">Payload unchanged</span>
+  </div>
+</div>
+
+<div class="bug-card" id="pdf-2-1">
+  <div>
+    <span class="bug-id">PDF 2.1</span>
+    <span class="bug-title">Link Fo-Fi Box - Scan From TV Stuck on "Starting camera" on Samsung Galaxy M51</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: High</span>
+    <span>Status: Fixed</span>
+    <span>Module: Fo-Fi / Link Box / QR Scan</span>
+    <span>Route: <code>/smartphone/crm/customer/:customerId/service/fofi-smart-box</code></span>
+  </div>
+
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> In the Link Fo-Fi Box flow, tapping <code>Scan From TV</code> could stay on <code>Starting camera...</code> on Samsung Galaxy M51 even though the same scanner worked on other phones.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Summary</h4>
+      <p>The QR scanner camera startup was made more Android-safe. The scanner now starts with timed <code>getUserMedia</code> attempts, practical Android video constraints, cleaner fallback order, and stricter stream cleanup on retry and close.</p>
+
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/components/QRScanner.jsx</code></li>
+        <li><code>bugfixes.html</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Camera startup still uses direct <code>navigator.mediaDevices.getUserMedia()</code>.</li>
+        <li>Added timed camera requests so a hanging request cannot block the scanner forever.</li>
+        <li>Used practical Android-friendly camera constraints with rear-camera preference first.</li>
+        <li>Added fallback order for rear camera, explicit device camera, front camera, then generic video.</li>
+        <li>Kept scanning blocked until the video is actually ready.</li>
+        <li>Stopped all media tracks on retry, close, and unmount.</li>
+        <li>QR decode, manual box entry, FoFi validation, and payment flow were not changed.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Low to medium. The change is isolated to the QR camera startup and cleanup path. Validation, linking logic, and payment flow remain unchanged.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the QR camera fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>Quick Facts</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Main Button</th>
+            <td><code>Scan From TV</code></td>
+          </tr>
+          <tr>
+            <th>Scanner Header</th>
+            <td><code>Scan QR Code</code></td>
+          </tr>
+          <tr>
+            <th>Scanner Buttons</th>
+            <td><code>Cancel</code>, <code>Retry</code>, <code>Close</code></td>
+          </tr>
+          <tr>
+            <th>Problem Device</th>
+            <td>Samsung Galaxy M51</td>
+          </tr>
+          <tr>
+            <th>Expected Result</th>
+            <td><code>Starting camera...</code> changes to live camera preview</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Exact UI Labels</h3>
+  <table class="compact-table">
+    <thead>
+      <tr>
+        <th>Page</th>
+        <th>Section</th>
+        <th>Exact Labels / Buttons</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>/smartphone/crm/customer/:customerId/service/fofi-smart-box</code></td>
+        <td>Link box page</td>
+        <td><code>Scan From TV</code>, <code>GET MAC ID</code>, <code>LINK FO-FI BOX</code></td>
+      </tr>
+      <tr>
+        <td>Scanner modal</td>
+        <td>Header and actions</td>
+        <td><code>Scan QR Code</code>, <code>Starting camera...</code>, <code>Cancel</code>, <code>Retry</code>, <code>Close</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Simple Test Steps</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>Samsung Galaxy M51</h4>
+      <ol>
+        <li>Open the Fo-Fi page for a customer.</li>
+        <li>Tap <code>Scan From TV</code>.</li>
+        <li>Confirm <code>Scan QR Code</code> opens.</li>
+        <li>Confirm <code>Starting camera...</code> changes to live preview.</li>
+        <li>Point the phone at the TV QR code.</li>
+        <li>Confirm the QR is detected and the scanner closes.</li>
+        <li>If needed, tap <code>Retry</code> and confirm the camera starts again.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Another Android Phone</h4>
+      <ol>
+        <li>Open the same Fo-Fi page.</li>
+        <li>Tap <code>Scan From TV</code>.</li>
+        <li>Confirm live preview opens normally.</li>
+        <li>Tap <code>Cancel</code> and reopen the scanner.</li>
+        <li>Confirm the camera starts again.</li>
+        <li>Scan the TV QR code.</li>
+        <li>Confirm the normal Fo-Fi flow continues.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="chips">
+    <span class="chip">Android-safe constraints</span>
+    <span class="chip">Rear camera preferred first</span>
+    <span class="chip">Retry cleanup added</span>
+    <span class="chip">QR decode flow unchanged</span>
+  </div>
+</div>
+
+<div class="bug-card" id="pdf-3-1">
+  <div>
+    <span class="bug-id">PDF 3.1</span>
+    <span class="bug-title">Payment History - Service Filters Show Internet Bills Under All Services</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: High</span>
+    <span>Status: Fixed</span>
+    <span>Module: Payment History</span>
+    <span>Route: <code>/smartphone/crm/payment-history</code></span>
+  </div>
+
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> The generic payment history API returns all customer payments. Internet bills could appear when opening Fo-Fi Smart Box or IPTV payment history because unclassified rows were kept for every service filter.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Summary</h4>
+      <p>The service filter now resolves more service identity fields and treats legacy unclassified generic rows as Internet history only. This keeps old Internet bills visible without leaking them into Fo-Fi Smart Box or IPTV history.</p>
+
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/pages/PaymentHistory.jsx</code></li>
+        <li><code>src/constants/services.js</code></li>
+        <li><code>bugfixes.html</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Normalized incoming service type before fetching and filtering.</li>
+        <li>Kept FoFi dedicated history behavior through <code>ServiceApis/cabletv/orderhistory</code>.</li>
+        <li>Kept Internet and IPTV generic history behavior through <code>apis/custpayhistory</code>.</li>
+        <li>Expanded service detection for FoFi, Internet, and IPTV/Cable TV order rows.</li>
+        <li>Stopped unclassified generic rows from appearing in FoFi and IPTV filters.</li>
+        <li>Preserved old unclassified Internet-era rows under Internet history.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Low to medium. The change is limited to display filtering. API endpoints, payment payloads, wallet deduction, and receipt rendering remain unchanged.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the payment history filter fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>Quick Facts</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Page</th>
+            <td><code>/smartphone/crm/payment-history</code></td>
+          </tr>
+          <tr>
+            <th>Internet Filter</th>
+            <td><code>serviceType: internet</code></td>
+          </tr>
+          <tr>
+            <th>FoFi Filter</th>
+            <td><code>serviceType: fofi</code></td>
+          </tr>
+          <tr>
+            <th>IPTV Filter</th>
+            <td><code>serviceType: cabletv</code></td>
+          </tr>
+          <tr>
+            <th>Production API Base</th>
+            <td><code>https://bbnlnetmon.bbnl.in/prod/</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Exact UI Labels</h3>
+  <table class="compact-table">
+    <thead>
+      <tr>
+        <th>Service Page</th>
+        <th>Button / Page</th>
+        <th>Expected History</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>Internet Service</code></td>
+        <td><code>Order History</code> / <code>Payment History</code></td>
+        <td>Internet bills only</td>
+      </tr>
+      <tr>
+        <td><code>Fo-Fi Smart Box</code></td>
+        <td><code>Order History</code> / <code>Payment History</code></td>
+        <td>Fo-Fi Smart Box bills only</td>
+      </tr>
+      <tr>
+        <td><code>IPTV Service</code></td>
+        <td><code>Order History</code> / <code>Payment History</code></td>
+        <td>IPTV bills only</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Simple Test Steps</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>Internet</h4>
+      <ol>
+        <li>Open a customer with Internet payments.</li>
+        <li>Open <code>Internet Service</code>.</li>
+        <li>Tap <code>Order History</code>.</li>
+        <li>Confirm only Internet bills are shown.</li>
+        <li>Confirm Fo-Fi and IPTV bills are not shown.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>FoFi and IPTV</h4>
+      <ol>
+        <li>Open <code>Fo-Fi Smart Box</code> and tap <code>Order History</code>.</li>
+        <li>Confirm only Fo-Fi Smart Box bills are shown.</li>
+        <li>Go back and open <code>IPTV Service</code>.</li>
+        <li>Tap <code>Order History</code>.</li>
+        <li>Confirm only IPTV bills are shown.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="chips">
+    <span class="chip">Internet isolated</span>
+    <span class="chip">FoFi isolated</span>
+    <span class="chip">IPTV isolated</span>
+    <span class="chip">Old Internet rows preserved</span>
+  </div>
+</div>
+
+<div class="bug-card" id="pdf-3-2">
+  <div>
+    <span class="bug-id">PDF 3.2</span>
+    <span class="bug-title">Payment History - Wrong Payment Breakdown Subtotal and Balance Label</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: High</span>
+    <span>Status: Fixed</span>
+    <span>Module: Payment History</span>
+    <span>Route: <code>/smartphone/crm/payment-history</code></span>
+  </div>
+
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> Payment History could show the wrong <code>Subtotal</code> for GST bills. Example: plan rate <code>50.00</code>, <code>CGST 4.58</code>, and <code>SGST 4.58</code> should round to <code>59.00</code>, but the PWA showed <code>58.00</code>. The balance label also said <code>Balance Due</code> while Netmon shows <code>Balance Amount</code>.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Summary</h4>
+      <p>The payment breakdown now uses a normalized display calculation. It prefers reliable backend values when available, derives subtotal from <code>Total Paid - Balance Amount</code> when those fields are present, and otherwise calculates plan rate plus GST and rounds the result.</p>
+
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/pages/PaymentHistory.jsx</code></li>
+        <li><code>bugfixes.html</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Added one shared payment breakdown normalizer for the card UI and downloaded receipt.</li>
+        <li>Normalized amount parsing for currency strings and numeric backend fields.</li>
+        <li>Mapped paid amount, balance amount, subtotal, tax, discount, and other charges safely across old response formats.</li>
+        <li>Corrected GST subtotal fallback to round <code>Plan Rate + CGST + SGST</code>.</li>
+        <li>Changed the UI/PDF label from <code>Balance Due</code> to <code>Balance Amount</code>.</li>
+        <li>Did not change payment APIs, wallet deduction, backend payloads, or order history endpoints.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Low. The change is display-only inside Payment History. Actual payment submission, wallet deduction, and backend API payloads are unchanged.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the payment breakdown fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>Quick Facts</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Page</th>
+            <td><code>/smartphone/crm/payment-history</code></td>
+          </tr>
+          <tr>
+            <th>Main Section</th>
+            <td><code>Payment Breakdown</code></td>
+          </tr>
+          <tr>
+            <th>Expected Example</th>
+            <td><code>50.00 + 4.58 + 4.58 = 59.16</code>, rounded to <code>59.00</code></td>
+          </tr>
+          <tr>
+            <th>Expected Label</th>
+            <td><code>Balance Amount</code></td>
+          </tr>
+          <tr>
+            <th>Production API Base</th>
+            <td><code>https://bbnlnetmon.bbnl.in/prod/</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Exact UI Labels</h3>
+  <table class="compact-table">
+    <thead>
+      <tr>
+        <th>Page / Section</th>
+        <th>Exact Labels / Buttons</th>
+        <th>Expected Result</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>Payment History</code></td>
+        <td><code>Payment Breakdown</code>, <code>Plan Rate</code>, <code>CGST</code>, <code>SGST</code>, <code>Subtotal</code></td>
+        <td><code>Subtotal</code> shows rounded bill amount, not the wrong lower amount.</td>
+      </tr>
+      <tr>
+        <td><code>Payment History</code></td>
+        <td><code>Total Paid</code>, <code>Balance Amount</code></td>
+        <td><code>Total Paid</code> and <code>Balance Amount</code> match Netmon meaning.</td>
+      </tr>
+      <tr>
+        <td><code>Payment History</code></td>
+        <td><code>Download Receipt</code></td>
+        <td>Downloaded PDF shows the same corrected breakdown as the app card.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Simple Test Steps</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>Check Payment History Card</h4>
+      <ol>
+        <li>Open a customer with the known payment example.</li>
+        <li>Open the service page.</li>
+        <li>Tap <code>Order History</code>.</li>
+        <li>Find the bill with <code>Plan Rate</code> <code>50.00</code>.</li>
+        <li>Confirm <code>CGST</code> shows <code>4.58</code>.</li>
+        <li>Confirm <code>SGST</code> shows <code>4.58</code>.</li>
+        <li>Confirm <code>Subtotal</code> shows <code>59</code> or <code>59.00</code>, not <code>58</code>.</li>
+        <li>Confirm <code>Total Paid</code> shows <code>60</code> or <code>60.00</code>.</li>
+        <li>Confirm the orange label says <code>Balance Amount</code>.</li>
+        <li>Confirm <code>Balance Amount</code> shows <code>1</code> or <code>1.00</code>.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Check Download Receipt</h4>
+      <ol>
+        <li>Stay on <code>Payment History</code>.</li>
+        <li>Tap the download icon with title <code>Download Receipt</code>.</li>
+        <li>Open the downloaded PDF receipt.</li>
+        <li>Confirm <code>Plan Rate</code>, <code>CGST</code>, <code>SGST</code>, and <code>Subtotal</code> match the app card.</li>
+        <li>Confirm the PDF says <code>Balance Amount</code>, not <code>Balance Due</code>.</li>
+        <li>Confirm no payment is retried and no wallet amount changes during this test.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="chips">
+    <span class="chip">Display-only fix</span>
+    <span class="chip">GST subtotal corrected</span>
+    <span class="chip">Balance label aligned</span>
+    <span class="chip">Payment APIs unchanged</span>
+  </div>
+</div>
+
+<div class="bug-card" id="pdf-4-1">
+  <div>
+    <span class="bug-id">PDF 4.1</span>
+    <span class="bug-title">FoFi Smart Service Upgrade - Hide Plan Selection During Upgrade Link Continuation</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: Medium</span>
+    <span>Status: Fixed</span>
+    <span>Module: FoFi Smart Box</span>
+    <span>Route: <code>/smartphone/crm/customer/:customerId/service/fofi-smart-box</code></span>
+  </div>
+
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> During FoFi Smart Service upgrade, after selecting an upgrade plan, the app moved to <code>Link FO-FI Box</code> but still showed the <code>Select a Plan</code> dropdown. That dropdown belongs only to the normal link/register FoFi Box flow.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Summary</h4>
+      <p>The link page is shared by two paths. The fix adds a small internal flag for the upgrade-continuation path, where the plan has already been selected on the upgrade plan screen. Only that path hides the plan dropdown.</p>
+
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/pages/services/FoFiSmartBox.jsx</code></li>
+        <li><code>bugfixes.html</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Detected upgrade continuation from <code>upgrade-plans</code> to <code>link-fofi</code>.</li>
+        <li>Kept the selected upgrade plan in state for payment/link submission.</li>
+        <li>Hid only the <code>Select a Plan</code> dropdown during upgrade continuation.</li>
+        <li>Kept the dropdown visible for the normal <code>Link FO-FI Box</code> flow.</li>
+        <li>Did not change FoFi APIs, payment payloads, QR scanner behavior, or service cache behavior.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Low. This is a conditional-rendering fix only. It does not modify API calls, device validation, scanner startup, or payment navigation.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the FoFi plan dropdown fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>Quick Facts</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Page</th>
+            <td><code>Link FO-FI Box</code></td>
+          </tr>
+          <tr>
+            <th>Upgrade Path</th>
+            <td><code>Upgrade Plan</code> / <code>UPGRADE</code> → select plan → <code>Link FO-FI Box</code></td>
+          </tr>
+          <tr>
+            <th>Normal Link Path</th>
+            <td><code>Internet Service</code> → <code>Link FoFi Box</code> → <code>Link FO-FI Box</code></td>
+          </tr>
+          <tr>
+            <th>Hidden Only In Upgrade</th>
+            <td><code>Select a Plan</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Exact UI Labels</h3>
+  <table class="compact-table">
+    <thead>
+      <tr>
+        <th>Flow</th>
+        <th>Exact Labels / Buttons</th>
+        <th>Expected Result</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Upgrade continuation</td>
+        <td><code>FoFi Smart Box</code>, <code>Upgrade Plan</code> or <code>UPGRADE</code>, <code>Link FO-FI Box</code>, <code>Scan From TV</code>, <code>FOFI Box Id*</code>, <code>GET MAC ID</code>, <code>FOFI MAC ID*</code>, <code>LINK FO-FI BOX</code></td>
+        <td><code>Select a Plan</code> is not shown.</td>
+      </tr>
+      <tr>
+        <td>Normal link/register</td>
+        <td><code>Internet Service</code>, <code>Link FoFi Box</code>, <code>Link FO-FI Box</code>, <code>Select a Plan</code>, <code>Scan From TV</code>, <code>GET MAC ID</code>, <code>LINK FO-FI BOX</code></td>
+        <td><code>Select a Plan</code> is shown.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Simple Test Steps</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>Upgrade Flow</h4>
+      <ol>
+        <li>Open a customer on <code>FoFi Smart Box</code>.</li>
+        <li>Tap <code>Upgrade Plan</code> or <code>UPGRADE</code>.</li>
+        <li>Select any upgrade plan.</li>
+        <li>Confirm the page title is <code>Link FO-FI Box</code>.</li>
+        <li>Confirm <code>Scan From TV</code> is visible.</li>
+        <li>Confirm <code>FOFI Box Id*</code> is visible.</li>
+        <li>Confirm <code>GET MAC ID</code> is visible.</li>
+        <li>Confirm <code>FOFI MAC ID*</code> is visible.</li>
+        <li>Confirm <code>Select a Plan</code> is not visible.</li>
+        <li>Continue with <code>LINK FO-FI BOX</code> after scan/MAC validation.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Normal Link Flow</h4>
+      <ol>
+        <li>Open a customer on <code>Internet Service</code>.</li>
+        <li>Tap <code>Link FoFi Box</code>.</li>
+        <li>Confirm the page title is <code>Link FO-FI Box</code>.</li>
+        <li>Confirm <code>Select a Plan</code> is visible.</li>
+        <li>Select a plan from <code>Select a Plan</code>.</li>
+        <li>Use <code>Scan From TV</code> or enter <code>FOFI Box Id*</code>.</li>
+        <li>Tap <code>GET MAC ID</code>.</li>
+        <li>Confirm <code>LINK FO-FI BOX</code> remains available after plan, box ID, and MAC are ready.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="chips">
+    <span class="chip">Render-only fix</span>
+    <span class="chip">Upgrade dropdown hidden</span>
+    <span class="chip">Normal link dropdown preserved</span>
+    <span class="chip">APIs unchanged</span>
+  </div>
+</div>
+
+<div class="bug-card" id="pdf-4-2">
+  <div>
+    <span class="bug-id">PDF 4.2</span>
+    <span class="bug-title">Link FO-FI Box - Manual Box ID GET MAC ID Does Not Fetch Device Data</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: High</span>
+    <span>Status: Fixed</span>
+    <span>Module: FoFi Smart Box</span>
+    <span>Route: <code>/smartphone/crm/customer/:customerId/service/fofi-smart-box</code></span>
+  </div>
+
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> On <code>Link FO-FI Box</code>, entering a FoFi Box ID manually and tapping <code>GET MAC ID</code> could fail to populate <code>FOFI MAC ID*</code> even for a valid Box ID.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Summary</h4>
+      <p>The manual lookup now uses the same operator-first validation approach as the QR flow, includes the legacy <code>superadmin</code> userid fallback, keeps OPID validation attempts, clears stale device data before each lookup, and parses nested backend response shapes for MAC, serial, and Box ID fields.</p>
+
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/pages/services/FoFiSmartBox.jsx</code></li>
+        <li><code>bugfixes.html</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Traced <code>GET MAC ID</code> to <code>handleFetchMAC</code> and <code>validateFoFiAsset</code>.</li>
+        <li>Manual request still uses <code>fofi/fofiapis/validateAsset</code> with existing API contract.</li>
+        <li>Lookup now tries <code>operator username</code>, <code>superadmin</code>, <code>operator OPID</code>, and customer username safely.</li>
+        <li>Nested response bodies like <code>body.data</code>, <code>body.details</code>, and <code>body.device</code> are parsed.</li>
+        <li>Invalid Box ID now shows a clear <code>Device details not found</code> message.</li>
+        <li>Already-assigned and different-OPID responses still show clear blocking errors.</li>
+        <li>QR scan flow, payment flow, FoFi API wrapper, and cache behavior are unchanged.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Low to medium. The change is limited to manual Box ID validation and response parsing. The same backend endpoint and payload keys are preserved.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the manual GET MAC ID fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>Quick Facts</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Page</th>
+            <td><code>Link FO-FI Box</code></td>
+          </tr>
+          <tr>
+            <th>Button</th>
+            <td><code>GET MAC ID</code></td>
+          </tr>
+          <tr>
+            <th>Input</th>
+            <td><code>FOFI Box Id*</code></td>
+          </tr>
+          <tr>
+            <th>Output</th>
+            <td><code>FOFI MAC ID*</code></td>
+          </tr>
+          <tr>
+            <th>Production API Base</th>
+            <td><code>https://bbnlnetmon.bbnl.in/prod/</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Exact UI Labels</h3>
+  <table class="compact-table">
+    <thead>
+      <tr>
+        <th>Page / Flow</th>
+        <th>Exact Labels / Buttons</th>
+        <th>Expected Result</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>Link FO-FI Box</code></td>
+        <td><code>FOFI Box Id*</code>, <code>GET MAC ID</code>, <code>FOFI MAC ID*</code>, <code>Device validated successfully</code></td>
+        <td>Valid Box ID populates MAC/device data.</td>
+      </tr>
+      <tr>
+        <td><code>Invalid Box ID</code></td>
+        <td><code>GET MAC ID</code></td>
+        <td>Shows <code>Device details not found. Please verify the Box ID and try again.</code></td>
+      </tr>
+      <tr>
+        <td><code>Already Assigned</code></td>
+        <td><code>GET MAC ID</code></td>
+        <td>Shows an already-assigned FoFi device error.</td>
+      </tr>
+      <tr>
+        <td><code>Different OPID</code></td>
+        <td><code>GET MAC ID</code></td>
+        <td>Shows <code>device not belongs to</code> with the OPID when backend provides it.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Simple Test Steps</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>Valid Box ID</h4>
+      <ol>
+        <li>Open a customer.</li>
+        <li>Open <code>Internet Service</code>.</li>
+        <li>Tap <code>Link FoFi Box</code>.</li>
+        <li>Type a valid available Box ID in <code>FOFI Box Id*</code>.</li>
+        <li>Tap <code>GET MAC ID</code>.</li>
+        <li>Confirm <code>FOFI MAC ID*</code> is filled.</li>
+        <li>Confirm <code>Device validated successfully</code> is shown.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Invalid Box ID</h4>
+      <ol>
+        <li>Stay on <code>Link FO-FI Box</code>.</li>
+        <li>Type an invalid Box ID in <code>FOFI Box Id*</code>.</li>
+        <li>Tap <code>GET MAC ID</code>.</li>
+        <li>Confirm <code>FOFI MAC ID*</code> stays empty.</li>
+        <li>Confirm the error says to verify the Box ID.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Already Assigned Box ID</h4>
+      <ol>
+        <li>Type a Box ID that is already assigned.</li>
+        <li>Tap <code>GET MAC ID</code>.</li>
+        <li>Confirm the page shows an already-assigned FoFi device error.</li>
+        <li>Confirm <code>LINK FO-FI BOX</code> cannot proceed without a valid MAC.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Different OPID Box ID</h4>
+      <ol>
+        <li>Type a Box ID from a different OPID/operator pool.</li>
+        <li>Tap <code>GET MAC ID</code>.</li>
+        <li>Confirm the page shows <code>device not belongs to</code>.</li>
+        <li>Confirm the OPID is shown if the backend returns it.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="chips">
+    <span class="chip">Manual lookup fixed</span>
+    <span class="chip">QR unchanged</span>
+    <span class="chip">OPID checks preserved</span>
+    <span class="chip">Payment unchanged</span>
+  </div>
+</div>
+
+<div class="bug-card" id="pdf-4-3">
+  <div>
+    <span class="bug-id">PDF 4.3</span>
+    <span class="bug-title">FoFi Smart Service - Scan From TV Stuck on Starting Camera on Samsung Galaxy M51</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: High</span>
+    <span>Status: Fixed</span>
+    <span>Module: FoFi Smart Box / QR Scanner</span>
+    <span>Route: <code>/smartphone/crm/customer/:customerId/service/fofi-smart-box</code></span>
+  </div>
+
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> While adding a FoFi Box, tapping <code>Scan From TV</code> could remain on <code>Starting camera...</code> on Samsung Galaxy M51 instead of opening the live scanner or showing a useful retry message.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Summary</h4>
+      <p>The QR scanner already used Android-safe camera constraints and track cleanup. The remaining issue was that multiple camera fallback attempts could keep the scanner in startup for too long on Samsung. A bounded startup guard now exits with a clear retry message and prevents late camera promises from reviving stale streams.</p>
+
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/components/QRScanner.jsx</code></li>
+        <li><code>bugfixes.html</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Kept direct <code>navigator.mediaDevices.getUserMedia</code> startup.</li>
+        <li>Kept existing Samsung/Android camera constraint fallback ladder.</li>
+        <li>Added a bounded startup timeout so <code>Starting camera...</code> cannot hang indefinitely.</li>
+        <li>Added retry-safe run guarding so old camera attempts cannot attach after <code>Retry</code>, <code>Close</code>, or unmount.</li>
+        <li>Kept video readiness checks before scanning.</li>
+        <li>Kept full media-track cleanup on close, retry, unmount, and stale stream resolution.</li>
+        <li>Did not change manual FoFi Box ID entry, FoFi validation APIs, or payment flow.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Low to medium. The change is isolated to scanner startup control. QR decode logic, manual Box ID lookup, and payment navigation remain unchanged.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the QR scanner startup fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>Quick Facts</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Page</th>
+            <td><code>Link FO-FI Box</code></td>
+          </tr>
+          <tr>
+            <th>Button</th>
+            <td><code>Scan From TV</code></td>
+          </tr>
+          <tr>
+            <th>Problem Text</th>
+            <td><code>Starting camera...</code></td>
+          </tr>
+          <tr>
+            <th>Target Device</th>
+            <td><code>Samsung Galaxy M51</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Exact UI Labels</h3>
+  <table class="compact-table">
+    <thead>
+      <tr>
+        <th>Page / Modal</th>
+        <th>Exact Labels / Buttons</th>
+        <th>Expected Result</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>Link FO-FI Box</code></td>
+        <td><code>Scan From TV</code>, <code>FOFI Box Id*</code>, <code>GET MAC ID</code>, <code>FOFI MAC ID*</code>, <code>LINK FO-FI BOX</code></td>
+        <td>Manual entry remains unchanged.</td>
+      </tr>
+      <tr>
+        <td><code>Scan QR Code</code></td>
+        <td><code>Starting camera...</code>, <code>Retry</code>, <code>Close</code></td>
+        <td>Camera opens or a retry message appears instead of hanging.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Simple Test Steps</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>Samsung Galaxy M51</h4>
+      <ol>
+        <li>Open the PWA on Samsung Galaxy M51.</li>
+        <li>Open a customer.</li>
+        <li>Open <code>Internet Service</code>.</li>
+        <li>Tap <code>Link FoFi Box</code>.</li>
+        <li>Tap <code>Scan From TV</code>.</li>
+        <li>Allow camera permission if prompted.</li>
+        <li>Confirm <code>Starting camera...</code> changes to the live camera view.</li>
+        <li>If camera cannot start, confirm a clear message appears with <code>Retry</code> and <code>Close</code>.</li>
+        <li>Tap <code>Retry</code> and confirm it starts a fresh camera attempt.</li>
+        <li>Tap <code>Close</code> and confirm the camera turns off.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Regression Checks</h4>
+      <ol>
+        <li>Reopen <code>Scan From TV</code>.</li>
+        <li>Scan the TV QR code.</li>
+        <li>Confirm <code>FOFI Box Id*</code> and <code>FOFI MAC ID*</code> populate as before.</li>
+        <li>Close the scanner and type a Box ID manually.</li>
+        <li>Tap <code>GET MAC ID</code>.</li>
+        <li>Confirm manual lookup still works.</li>
+        <li>Confirm <code>LINK FO-FI BOX</code> still continues to the normal FoFi payment flow.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="chips">
+    <span class="chip">Samsung startup bounded</span>
+    <span class="chip">Retry-safe scanner</span>
+    <span class="chip">Tracks stopped</span>
+    <span class="chip">Manual entry unchanged</span>
+  </div>
+</div>
+
+<div class="bug-card" id="pdf-4-4">
+  <div>
+    <span class="bug-id">PDF 4.4</span>
+    <span class="bug-title">FoFi Smart Service - Operator Is Disabled for Newly Created User Upgrade</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: High</span>
+    <span>Status: Fixed</span>
+    <span>Module: FoFi Smart Box / Upgrade</span>
+    <span>Route: <code>/smartphone/crm/customer/:customerId/service/fofi-smart-box</code></span>
+  </div>
+
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> For newly created users, tapping <code>UPGRADE</code> or <code>Upgrade Plan</code> could show <code>Operator is disabled</code> before the backend operator/customer entitlement sync completed.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Summary</h4>
+      <p>The new-user FoFi upgrade eligibility check now bypasses stale validation cache and retries only known backend operator-sync errors. Customer details are refreshed during the retry, but OPID/appkeytype rules and backend validation remain authoritative.</p>
+
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/pages/services/FoFiSmartBox.jsx</code></li>
+        <li><code>src/services/fofiApis.js</code></li>
+        <li><code>bugfixes.html</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Stopped caching failed <code>validateBeforeFofiBoxReg</code> responses.</li>
+        <li>New-user upgrade validation now calls <code>validateBeforeFofiBoxReg</code> with fresh data.</li>
+        <li>Retries only retryable operator-sync messages such as <code>Operator is disabled</code>.</li>
+        <li>Refreshes <code>cblCustDet</code> and <code>primaryCustdet</code> during the retry window.</li>
+        <li>Does not allow operator edits or bypass backend validation.</li>
+        <li>Preserves OPID/appkeytype rules, FoFi payment payloads, QR scanner, manual Box ID entry, and cache behavior outside this validation gate.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Low to medium. The fix changes only the new-user FoFi upgrade eligibility gate and validation cache behavior. Genuine backend rejection still stops the flow.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the operator-sync retry fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>Quick Facts</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Page</th>
+            <td><code>FoFi Smart Box</code></td>
+          </tr>
+          <tr>
+            <th>Button</th>
+            <td><code>UPGRADE</code> / <code>Upgrade Plan</code></td>
+          </tr>
+          <tr>
+            <th>Validation API</th>
+            <td><code>ServiceApis/validateBeforeFofiBoxReg</code></td>
+          </tr>
+          <tr>
+            <th>Retryable Message</th>
+            <td><code>Operator is disabled</code></td>
+          </tr>
+          <tr>
+            <th>Production API Base</th>
+            <td><code>https://bbnlnetmon.bbnl.in/prod/</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Exact UI Labels</h3>
+  <table class="compact-table">
+    <thead>
+      <tr>
+        <th>Page / Flow</th>
+        <th>Exact Labels / Buttons</th>
+        <th>Expected Result</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>FoFi Smart Box</code></td>
+        <td><code>UPGRADE</code>, <code>Upgrade Plan</code></td>
+        <td>Newly created user proceeds to plan list after backend sync completes.</td>
+      </tr>
+      <tr>
+        <td><code>Upgrade Plans</code></td>
+        <td><code>Search plans...</code>, plan card, <code>Select Plan</code></td>
+        <td>FoFi plans are shown for the new user.</td>
+      </tr>
+      <tr>
+        <td><code>Link FO-FI Box</code></td>
+        <td><code>Scan From TV</code>, <code>FOFI Box Id*</code>, <code>GET MAC ID</code>, <code>FOFI MAC ID*</code>, <code>LINK FO-FI BOX</code></td>
+        <td>Selected plan continues into the normal link flow.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Simple Test Steps</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>Newly Created User</h4>
+      <ol>
+        <li>Create a new Internet customer.</li>
+        <li>Open that customer from the customer list.</li>
+        <li>Open <code>FoFi Smart Box</code>.</li>
+        <li>Tap <code>UPGRADE</code> or <code>Upgrade Plan</code>.</li>
+        <li>If backend sync is still pending, wait on the loading state.</li>
+        <li>Confirm <code>Operator is disabled</code> does not remain as a dead-end error.</li>
+        <li>Confirm the FoFi plan list opens.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Continue Upgrade</h4>
+      <ol>
+        <li>Select a FoFi plan from the plan list.</li>
+        <li>Confirm <code>Link FO-FI Box</code> opens.</li>
+        <li>Use <code>Scan From TV</code> or enter <code>FOFI Box Id*</code>.</li>
+        <li>Tap <code>GET MAC ID</code>.</li>
+        <li>Confirm <code>FOFI MAC ID*</code> fills for a valid Box ID.</li>
+        <li>Tap <code>LINK FO-FI BOX</code>.</li>
+        <li>Confirm the normal FoFi payment flow opens.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="chips">
+    <span class="chip">Fresh validation</span>
+    <span class="chip">Operator-sync retry</span>
+    <span class="chip">No operator override</span>
+    <span class="chip">Payment unchanged</span>
+  </div>
+</div>
+
+<div class="bug-card" id="pdf-4-5">
+  <div>
+    <span class="bug-id">PDF 4.5</span>
+    <span class="bug-title">FoFi Smart Service - First-Time User Shows Wrong Upgrade Plan Button</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: High</span>
+    <span>Status: Fixed</span>
+    <span>Module: FoFi Smart Box / First-Time Add</span>
+    <span>Route: <code>/smartphone/crm/customer/:customerId/service/fofi-smart-box</code></span>
+  </div>
+
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> After creating a user, the FoFi Smart Box page could show <code>Plan Name: N/A</code> and <code>Expiry Date: N/A</code> but still display <code>Upgrade Plan</code>. Selecting that path could fail with <code>Failed to Register FoFi Box</code>.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Summary</h4>
+      <p>The FoFi overview now treats assigned-item data as provisional until the FoFi plan lookup confirms a real plan, expiry, or plan ID. If no active FoFi service is confirmed, the page guides the operator to first-time FoFi Box linking instead of the existing-service upgrade flow.</p>
+
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/pages/services/FoFiSmartBox.jsx</code></li>
+        <li><code>bugfixes.html</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Added confirmed FoFi service detection for box ID plus real plan, expiry, or plan ID.</li>
+        <li>Clears only the stale FoFi assigned-items cache when plan lookup proves there is no active FoFi service.</li>
+        <li>Shows a short <code>Checking FoFi service status...</code> state while cached assigned items are being verified.</li>
+        <li>Hides <code>Upgrade Plan</code> unless a real existing FoFi service is confirmed.</li>
+        <li>For first-time users, the CTA is now <code>ADD FO-FI BOX</code> and continues to the plan selection and link flow.</li>
+        <li>Preserves FoFi APIs, payment payloads, customer routing, QR scanning, manual Box ID entry, and cached overview hydration.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Low to medium. The change affects only the page-level decision between existing-service upgrade and first-time link. If the backend temporarily cannot confirm plan details for an existing FoFi user, the UI avoids the unsafe upgrade path instead of attempting a renewal with incomplete data.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the first-time FoFi state fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>Quick Facts</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Page</th>
+            <td><code>FoFi Smart Box</code></td>
+          </tr>
+          <tr>
+            <th>First-Time Button</th>
+            <td><code>ADD FO-FI BOX</code></td>
+          </tr>
+          <tr>
+            <th>Existing-Service Button</th>
+            <td><code>Upgrade Plan</code></td>
+          </tr>
+          <tr>
+            <th>Expected First-Time State</th>
+            <td>No <code>Plan Name: N/A</code> existing-service card and no <code>Upgrade Plan</code> button.</td>
+          </tr>
+          <tr>
+            <th>Production API Base</th>
+            <td><code>https://bbnlnetmon.bbnl.in/prod/</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Exact UI Labels</h3>
+  <table class="compact-table">
+    <thead>
+      <tr>
+        <th>Page / Flow</th>
+        <th>Exact Labels / Buttons</th>
+        <th>Expected Result</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>FoFi Smart Box</code></td>
+        <td><code>Checking FoFi service status...</code>, <code>ADD FO-FI BOX</code></td>
+        <td>First-time user is not shown the existing-service <code>Upgrade Plan</code> path.</td>
+      </tr>
+      <tr>
+        <td><code>Services</code></td>
+        <td><code>Search Plans</code>, plan card</td>
+        <td>Operator selects the FoFi plan for the first-time box add.</td>
+      </tr>
+      <tr>
+        <td><code>Link FO-FI Box</code></td>
+        <td><code>Scan From TV</code>, <code>FOFI Box Id*</code>, <code>GET MAC ID</code>, <code>FOFI MAC ID*</code>, <code>LINK FO-FI BOX</code></td>
+        <td>Selected plan continues into the correct FoFi Box link/register flow.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Simple Test Steps</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>First-Time FoFi Add</h4>
+      <ol>
+        <li>Create a new Internet customer.</li>
+        <li>Open the new customer from <code>Customers</code>.</li>
+        <li>Open <code>FoFi Smart Box</code>.</li>
+        <li>If shown, wait for <code>Checking FoFi service status...</code> to finish.</li>
+        <li>Confirm the page does not show <code>Plan Name: N/A</code> with <code>Upgrade Plan</code>.</li>
+        <li>Tap <code>ADD FO-FI BOX</code>.</li>
+        <li>Confirm the <code>Services</code> plan list opens.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Register Box</h4>
+      <ol>
+        <li>Tap the required FoFi plan card.</li>
+        <li>Confirm <code>Link FO-FI Box</code> opens.</li>
+        <li>Enter <code>FOFI Box Id*</code>.</li>
+        <li>Tap <code>GET MAC ID</code>.</li>
+        <li>Confirm <code>FOFI MAC ID*</code> fills for a valid Box ID.</li>
+        <li>Tap <code>LINK FO-FI BOX</code>.</li>
+        <li>Confirm the FoFi payment page opens instead of showing <code>Failed to Register FoFi Box</code>.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="chips">
+    <span class="chip">First-time state fixed</span>
+    <span class="chip">No stale upgrade path</span>
+    <span class="chip">Cache-safe downgrade</span>
+    <span class="chip">Payment unchanged</span>
+  </div>
+</div>
+
+<div class="bug-card" id="pdf-4-6">
+  <div>
+    <span class="bug-id">PDF 4.6</span>
+    <span class="bug-title">FoFi Smart Service - FOFI-BOX + FTA ONLY Shows Requested Plan Not Found</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: High</span>
+    <span>Status: Fixed</span>
+    <span>Module: FoFi Smart Box / Base Plan Link</span>
+    <span>Route: <code>/smartphone/crm/customer/:customerId/service/fofi-smart-box</code></span>
+  </div>
+
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> Selecting the base plan <code>FOFI-BOX + FTA ONLY</code> and tapping <code>LINK FO-FI BOX</code> could show <code>Requested plan not found, please contact BBNL NOC team</code> instead of continuing to the FoFi payment review page.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Summary</h4>
+      <p>The production <code>registrationNecessities</code> response returns the base plan with <code>planid: 51</code>, <code>priceid: 99</code>, <code>servid: 3</code>, <code>reg_serv_keys: ["ott"]</code>, <code>subscriptions: ["fofi","cabletv"]</code>, and <code>packages: ["unlimited"]</code>. The link flow now preserves the customer identity from route/customer state and carries the API-returned plan registration fields into <code>freeOTAService</code>.</p>
+
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/pages/services/FoFiSmartBox.jsx</code></li>
+        <li><code>bugfixes.html</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Added route <code>:customerId</code> fallback when resolving the customer for first-time FoFi Box linking.</li>
+        <li>Customer resolution now uses <code>customer.username</code>, then <code>customer.customer_id</code>, then route <code>customerId</code>, then logged-in operator only as a final fallback.</li>
+        <li><code>freeOTAService</code> now receives the selected plan's API-returned <code>reg_serv_keys</code>, <code>subscriptions</code>, and <code>packages</code> when present.</li>
+        <li>FoFi payment mapping now keeps the selected plan's returned <code>servid</code> and falls back to <code>3</code> only if the API did not provide one.</li>
+        <li>QR scan, manual Box ID entry, <code>GET MAC ID</code>, validation messages, payment redirect, and payment review behavior are preserved.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Low to medium. The change is scoped to first-time FoFi Box linking and selected-plan payload mapping. The backend remains authoritative for device ownership, plan validity, payment info, and order generation.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the FoFi base-plan mapping fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>Verified Base Plan Object</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Plan Name</th>
+            <td><code>FOFI-Box + FTA ONLY</code></td>
+          </tr>
+          <tr>
+            <th>Plan ID</th>
+            <td><code>51</code></td>
+          </tr>
+          <tr>
+            <th>Price ID</th>
+            <td><code>99</code></td>
+          </tr>
+          <tr>
+            <th>Service ID</th>
+            <td><code>3</code></td>
+          </tr>
+          <tr>
+            <th>Service Keys</th>
+            <td><code>["ott"]</code></td>
+          </tr>
+          <tr>
+            <th>Subscriptions</th>
+            <td><code>["fofi","cabletv"]</code></td>
+          </tr>
+          <tr>
+            <th>Packages</th>
+            <td><code>["unlimited"]</code></td>
+          </tr>
+          <tr>
+            <th>Plan Rate</th>
+            <td><code>130.00</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Expected Request Mapping</h3>
+  <table class="compact-table">
+    <thead>
+      <tr>
+        <th>Step</th>
+        <th>Endpoint / Page</th>
+        <th>Required Fields</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Link Box</td>
+        <td><code>ServiceApis/freeOTAService</code></td>
+        <td><code>fofiboxid</code>, <code>fofimac</code>, <code>fofiserailnumber</code>, <code>loginuname</code>, <code>username</code>, <code>plan_id: 51</code>, <code>services: ["ott"]</code>, <code>subscriptions: ["fofi","cabletv"]</code>, <code>packages: ["unlimited"]</code></td>
+      </tr>
+      <tr>
+        <td>Payment Info</td>
+        <td><code>service/paymentinfo/fofi</code></td>
+        <td><code>fofi_box_id</code>, <code>planid: 51</code>, <code>priceid: 99</code>, <code>servid: 3</code>, <code>userid</code>, <code>username: superadmin</code>, <code>servapptype: crmapp</code></td>
+      </tr>
+      <tr>
+        <td>Review</td>
+        <td><code>/smartphone/crm/fofi-payment</code></td>
+        <td>Same <code>userid</code>, <code>fofiboxid</code>, <code>planid</code>, <code>priceid</code>, <code>servid</code>, amount fields, transaction ID, and customer object.</td>
+      </tr>
+      <tr>
+        <td>Order</td>
+        <td><code>ServiceApis/cabletv/generateorder</code></td>
+        <td>Uses the payment review state for <code>planid: 51</code>, <code>priceid: 99</code>, <code>servid: 3</code>, <code>fofiboxid</code>, <code>userid</code>, and backend-issued <code>transactionid</code>.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Simple Test Steps</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>Base Plan Link</h4>
+      <ol>
+        <li>Open the production PWA at <code>/smartphone/crm/</code>.</li>
+        <li>Open a customer at <code>/smartphone/crm/customer/:customerId/service/fofi-smart-box</code>.</li>
+        <li>Start the first-time FoFi Box add/link flow.</li>
+        <li>Select <code>FOFI-BOX + FTA ONLY</code>.</li>
+        <li>Use <code>Scan From TV</code> or enter <code>FOFI Box Id*</code> manually.</li>
+        <li>Tap <code>GET MAC ID</code>.</li>
+        <li>Confirm <code>FOFI MAC ID*</code> fills for a valid available device.</li>
+        <li>Tap <code>LINK FO-FI BOX</code>.</li>
+        <li>Confirm <code>Requested plan not found, please contact BBNL NOC team</code> is not shown.</li>
+        <li>Confirm the app redirects to <code>/smartphone/crm/fofi-payment</code>.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Payment Redirect</h4>
+      <ol>
+        <li>On the FoFi payment review page, confirm the plan is <code>FOFI-Box + FTA ONLY</code>.</li>
+        <li>Confirm the plan ID is carried as <code>51</code>, price ID as <code>99</code>, and service ID as <code>3</code>.</li>
+        <li>Confirm plan rate is <code>130.00</code> and total amount includes taxes from backend payment info.</li>
+        <li>Tap <code>PROCEED TO PAY</code>.</li>
+        <li>Confirm the order/payment flow completes or shows only a real backend payment/device validation error.</li>
+        <li>Confirm success returns to the FoFi Smart Box page and refreshes the linked box/plan state.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="chips">
+    <span class="chip">Base plan ID preserved</span>
+    <span class="chip">Customer route fallback</span>
+    <span class="chip">Plan packages preserved</span>
+    <span class="chip">Payment redirect preserved</span>
+  </div>
+</div>
+
+<div class="bug-card" id="pdf-4-7">
+  <div>
+    <span class="bug-id">PDF 4.7</span>
+    <span class="bug-title">FoFi Payment - Base Pack Shows Wrong Amount Deductible and Debits Internet Wallet</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: Critical</span>
+    <span>Status: Fixed</span>
+    <span>Module: FoFi Payment / Wallet Debit</span>
+    <span>Route: <code>/smartphone/crm/fofi-payment</code></span>
+  </div>
+
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> For the base pack <code>FOFI-BOX + FTA ONLY</code>, the FoFi payment review could show <code>Amount Deductable</code> as <code>153.40</code> even when <code>service/paymentinfo/fofi</code> returned <code>deduction.totalamount: "0.00"</code>. The page also called the Internet <code>apis/savePaymentApi</code> path after FoFi order generation, which could debit the Internet wallet.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Summary</h4>
+      <p>The FoFi amount deductible calculation now treats the backend FoFi deduction field as authoritative, including a valid zero value. The FoFi payment page continues to use <code>service/paymentinfo/fofi</code> and <code>ServiceApis/cabletv/generateorder</code>, and no longer calls the Internet wallet debit endpoint.</p>
+
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/pages/services/FoFiSmartBox.jsx</code></li>
+        <li><code>src/pages/FofiPayment.jsx</code></li>
+        <li><code>bugfixes.html</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Added a FoFi deductible resolver that uses <code>deduction.totalamount</code> first, even when the value is <code>0.00</code>.</li>
+        <li>Removed the old fallback from zero deductible to <code>oprtrshare</code>, which caused the base pack to display <code>153.40</code>.</li>
+        <li>Kept compatibility fallbacks for explicit FoFi wallet deduction fields, <code>fofishare</code>, and FoFi split data only when <code>deduction.totalamount</code> is absent.</li>
+        <li>Removed the FoFi payment page call to Internet <code>apis/savePaymentApi</code>.</li>
+        <li>Preserved QR/manual Box ID entry, MAC validation, payment info refresh, FoFi order generation, and post-payment redirect behavior.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Medium. The change intentionally stops the FoFi payment screen from using the Internet debit API. The backend remains authoritative for FoFi payment info and order generation; if a separate FoFi debit endpoint is introduced later, it should be wired explicitly instead of reusing Internet payment APIs.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the FoFi wallet and deductible fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>Expected FoFi Payment Mapping</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Payment Info</th>
+            <td><code>service/paymentinfo/fofi</code> with <code>fofi_box_id</code>, <code>planid</code>, <code>priceid</code>, <code>servid</code>, <code>userid</code>, and operator <code>username</code></td>
+          </tr>
+          <tr>
+            <th>Deductible Display</th>
+            <td><code>deduction.totalamount</code> first, including <code>0.00</code>; no fallback to <code>oprtrshare</code></td>
+          </tr>
+          <tr>
+            <th>Wallet Balance</th>
+            <td><code>getWalBal</code> with <code>servicekey: "fofi"</code></td>
+          </tr>
+          <tr>
+            <th>Order</th>
+            <td><code>ServiceApis/cabletv/generateorder</code></td>
+          </tr>
+          <tr>
+            <th>Removed Path</th>
+            <td><code>apis/savePaymentApi</code> from the FoFi payment page</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Simple Test Steps</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>Base Pack Payment</h4>
+      <ol>
+        <li>Note the logged-in operator's Internet wallet balance and FoFi wallet balance before testing.</li>
+        <li>Open a customer whose FoFi Box was added through CRM.</li>
+        <li>Start the FoFi Smart Service payment flow for <code>FOFI-BOX + FTA ONLY</code>.</li>
+        <li>Continue to <code>/smartphone/crm/fofi-payment</code>.</li>
+        <li>Confirm <code>Wallet Balance</code> is the FoFi wallet balance.</li>
+        <li>Confirm <code>Amount Deductable</code> shows <code>0.00</code>.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Wallet Verification</h4>
+      <ol>
+        <li>Open DevTools Network and tap <code>PROCEED TO PAY</code>.</li>
+        <li>Confirm the page calls <code>service/paymentinfo/fofi</code> before payment.</li>
+        <li>Confirm the page calls <code>ServiceApis/cabletv/generateorder</code>.</li>
+        <li>Confirm there is no request to <code>apis/savePaymentApi</code> from <code>/fofi-payment</code>.</li>
+        <li>After completion, recheck the Internet wallet balance and confirm it did not reduce.</li>
+        <li>Confirm any FoFi wallet/order change matches the backend FoFi payment response, and the app redirects back to the FoFi Smart Box service page.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="chips">
+    <span class="chip">FoFi wallet only</span>
+    <span class="chip">Zero deductible preserved</span>
+    <span class="chip">Internet debit removed</span>
+    <span class="chip">Payment redirect preserved</span>
+  </div>
+</div>
+
+<div class="bug-card" id="pdf-4-8">
+  <div>
+    <span class="bug-id">PDF 4.8</span>
+    <span class="bug-title">FoFi Smart Service - Current Plan Details Missing Until Multiple Refreshes</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: High</span>
+    <span>Status: Fixed</span>
+    <span>Module: FoFi Smart Box / Current Plan</span>
+    <span>Route: <code>/smartphone/crm/customer/:customerId/service/fofi-smart-box</code></span>
+  </div>
+
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> After opting for FoFi Smart Box service and returning from payment, the <code>Current Plan</code> card could miss the box details, selected service, or expiry date until the operator refreshed the page multiple times.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Root Cause</h4>
+      <p>The post-success refresh path did not reuse the same all-bucket FoFi detection used by the initial overview load. The backend can expose the FoFi box under <code>fofi</code>, <code>multi</code>, <code>voip</code>, or <code>internet</code> while registration/payment propagates. The delayed refresh could therefore poll the wrong bucket or call <code>getMyPlanDetails</code> without a resolved box ID.</p>
+
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/pages/services/FoFiSmartBox.jsx</code></li>
+        <li><code>src/pages/FofiPayment.jsx</code></li>
+        <li><code>bugfixes.html</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Added shared FoFi assigned-items merge logic for <code>fofi</code>, <code>multi</code>, <code>voip</code>, and <code>internet</code> buckets.</li>
+        <li>Added shared FoFi subscribed-service detection for plan-details responses.</li>
+        <li>Passed the known FoFi Box ID back from <code>/fofi-payment</code> as optimistic return state.</li>
+        <li>Hydrates the <code>Current Plan</code> card immediately with known box and selected plan data while backend propagation completes.</li>
+        <li>Post-success polling now refreshes all FoFi-compatible assigned-item buckets and then fetches <code>getMyPlanDetails</code> with the resolved box ID.</li>
+        <li>Preserved cached hydration and avoided clearing all caches; only targeted FoFi status/order/wallet cache keys are invalidated.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Medium-low. The change is scoped to FoFi post-success status refresh. It adds limited extra assigned-item polling only when <code>refreshData</code> is present after a successful FoFi action.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the Current Plan refresh fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>Expected Refresh Mapping</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Fast Hydration</th>
+            <td>Keep local cached overview visible while revalidating in the background.</td>
+          </tr>
+          <tr>
+            <th>Assigned Items</th>
+            <td>Refresh <code>getUserAssignedItems</code> for <code>fofi</code>, <code>multi</code>, <code>voip</code>, and <code>internet</code>.</td>
+          </tr>
+          <tr>
+            <th>Box ID Source</th>
+            <td>Use backend resolved box ID, falling back to the payment return <code>optimisticFofiBoxId</code>.</td>
+          </tr>
+          <tr>
+            <th>Plan Details</th>
+            <td>Call <code>getMyPlanDetails</code> for <code>servicekey: "fofi"</code> with the resolved FoFi Box ID.</td>
+          </tr>
+          <tr>
+            <th>Cache Scope</th>
+            <td>Invalidate FoFi status/order/wallet keys only; do not clear all app caches.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Simple Test Steps</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>Immediate Current Plan</h4>
+      <ol>
+        <li>Open <code>/smartphone/crm/customer/:customerId/service/fofi-smart-box</code>.</li>
+        <li>Opt in or link a FoFi Smart Box using QR scan or manual Box ID entry.</li>
+        <li>Continue to <code>/smartphone/crm/fofi-payment</code>.</li>
+        <li>Complete the FoFi payment/order flow.</li>
+        <li>Confirm the app redirects back to the FoFi Smart Box service page.</li>
+        <li>Confirm the <code>Current Plan</code> card immediately shows the FoFi Box ID.</li>
+        <li>Confirm the selected service or plan name appears immediately or updates automatically without manual refresh.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Backend Propagation</h4>
+      <ol>
+        <li>Keep the FoFi Smart Box page open after payment success.</li>
+        <li>Confirm the expiry date fills automatically during the staged refresh window.</li>
+        <li>Open DevTools Network and confirm assigned items are checked for the FoFi-compatible buckets.</li>
+        <li>Confirm <code>getMyPlanDetails</code> is called with the resolved FoFi Box ID.</li>
+        <li>Refresh the page once and confirm the same box, service, and expiry date remain correct.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="chips">
+    <span class="chip">Current Plan refresh fixed</span>
+    <span class="chip">All FoFi buckets checked</span>
+    <span class="chip">Optimistic box hydration</span>
+    <span class="chip">No broad cache clear</span>
+  </div>
+</div>
+
+<div class="bug-card" id="pdf-5-1">
+  <div>
+    <span class="bug-id">PDF 5.1</span>
+    <span class="bug-title">Service Screens - Slow Loading From Missed Warm Cache and Sequential Fallbacks</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: Medium</span>
+    <span>Status: Fixed</span>
+    <span>Module: Customer Services / Internet / FoFi / IPTV</span>
+    <span>Routes: <code>/smartphone/crm/customer/:customerId/services</code>, <code>/service/internet</code>, <code>/service/fofi-smart-box</code>, <code>/service/iptv</code></span>
+  </div>
+
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> Several service screens felt slow because some normal navigation paths ignored freshly warmed cache, and IPTV box-ID fallback discovery could wait for a second API round trip.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Bottleneck Found</h4>
+      <p>The Customer Services list already rendered without blocking. The real bottleneck was in the service pages: Internet always bypassed cached plan details, FoFi always bypassed cached assigned-items status, and IPTV fetched fallback <code>voip</code>/<code>internet</code> assigned-item buckets only after the first batch failed to find a box ID.</p>
+
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/pages/Services.jsx</code></li>
+        <li><code>src/pages/services/InternetService.jsx</code></li>
+        <li><code>src/pages/services/FoFiSmartBox.jsx</code></li>
+        <li><code>src/pages/services/IPTVService.jsx</code></li>
+        <li><code>src/services/prefetch.js</code></li>
+        <li><code>bugfixes.html</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Services chooser now warms customer service data on mount, so cache can fill while the operator chooses a service.</li>
+        <li>Internet overview now uses cached <code>getMyPlanDetails</code> during normal navigation and only bypasses cache after payment refresh.</li>
+        <li>FoFi overview now uses freshly prefetched assigned-items cache during normal navigation and only bypasses cache after successful payment/link refresh.</li>
+        <li>Prefetch now warms <code>uai_voip</code> in addition to existing Internet/FoFi/Multi/customer caches.</li>
+        <li>IPTV box discovery now checks <code>fofi</code>, <code>multi</code>, <code>voip</code>, and <code>internet</code> assigned-item buckets in the first parallel batch instead of doing a delayed fallback round trip.</li>
+        <li>No service worker, auth, global cache architecture, or API contracts were changed.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Low to medium. Normal navigation now trusts existing short-TTL cache more often. Payment and post-action refresh paths still bypass cache so updated plan/order state is not hidden.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the service loading performance fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>Expected Behavior</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Services Page</th>
+            <td>Renders immediately and starts background prefetch for selected customer service data.</td>
+          </tr>
+          <tr>
+            <th>Internet</th>
+            <td>Uses warm <code>uai_internet</code> and <code>plandets_internet</code> cache unless returning from payment.</td>
+          </tr>
+          <tr>
+            <th>FoFi</th>
+            <td>Uses warm assigned-item cache on normal entry; payment/link returns still force fresh data.</td>
+          </tr>
+          <tr>
+            <th>IPTV</th>
+            <td>Finds FoFi Box ID from all known assigned-item buckets in one parallel request batch.</td>
+          </tr>
+          <tr>
+            <th>Perf Audit</th>
+            <td>Use <code>window.__apiPerf.printReport()</code> to compare network calls, cache hits, and slow endpoints.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Simple Test Steps</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>Before/After Speed Check</h4>
+      <ol>
+        <li>Open DevTools Console and run <code>window.__apiPerf.reset()</code>.</li>
+        <li>Open a customer from the customer list.</li>
+        <li>Wait on the Services chooser for one to two seconds so prefetch can warm cache.</li>
+        <li>Open Internet, FoFi Smart Box, and IPTV service pages one by one.</li>
+        <li>Run <code>window.__apiPerf.printReport()</code>.</li>
+        <li>Confirm cache hits are present for warmed customer overview APIs.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Regression Checks</h4>
+      <ol>
+        <li>Confirm each service page still refreshes correctly after payment or link success.</li>
+        <li>Confirm Internet payment return still shows updated plan/expiry and does not use stale cache.</li>
+        <li>Confirm FoFi payment/link return still refreshes assigned items and current plan data.</li>
+        <li>Confirm IPTV can resolve box ID when the box appears under <code>fofi</code>, <code>multi</code>, <code>voip</code>, or <code>internet</code>.</li>
+        <li>Confirm no auth/session changes and no service-worker behavior changes.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="chips">
+    <span class="chip">Warm cache used</span>
+    <span class="chip">Duplicate waits reduced</span>
+    <span class="chip">IPTV fallback parallelized</span>
+    <span class="chip">API contracts preserved</span>
+  </div>
+</div>
+
+<div class="bug-card" id="pdf-5-2">
+  <div>
+    <span class="bug-id">PDF 5.2</span>
+    <span class="bug-title">Login Page - Logo Missing on Mobile Data</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: Medium</span>
+    <span>Status: Fixed</span>
+    <span>Module: Login / PWA Install Gate / Static Assets</span>
+    <span>Route: <code>/smartphone/crm/login</code></span>
+  </div>
+
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> On mobile data, the login/install logo could fail to display. The logo URL was assembled from <code>VITE_API_APP_DIR_PATH</code> and logo env values that already started with <code>/</code>, which could produce double-slash paths such as <code>/smartphone/crm//img/logo.png</code>. The light logo also was not explicitly included in the PWA asset list.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Summary</h4>
+      <p>The login and BrowserGate logo URLs are now normalized against the Vite base path, so public assets resolve under <code>/smartphone/crm/</code> with a single slash. A small image fallback chain keeps the logo visible if the preferred logo request fails on a weak mobile network.</p>
+
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/pages/Login.jsx</code></li>
+        <li><code>src/components/BrowserGate.jsx</code></li>
+        <li><code>vite.config.js</code></li>
+        <li><code>bugfixes.html</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Added base-path-safe public asset URL construction for login and BrowserGate logo images.</li>
+        <li>Normalized logo paths to <code>/smartphone/crm/img/logo.png</code> or <code>/smartphone/crm/icons/logo.png</code> instead of double-slash URLs.</li>
+        <li>Added fallback loading from <code>icons/logo.png</code>, then <code>icons/icon-192.png</code>.</li>
+        <li>Added <code>img/logo.png</code> to PWA <code>includeAssets</code> so both logo variants are available to the generated service worker.</li>
+        <li>Kept manifest icon paths, production base path, BrowserGate behavior, ErrorBoundary recovery, and service worker runtime caching unchanged.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Low. The change is scoped to static logo URL generation and fallback behavior. PWA install icons still use the existing manifest entries.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the login logo asset fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>Expected Asset Paths</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Login Light Logo</th>
+            <td><code>/smartphone/crm/img/logo.png</code></td>
+          </tr>
+          <tr>
+            <th>Login Dark Logo</th>
+            <td><code>/smartphone/crm/icons/logo.png</code></td>
+          </tr>
+          <tr>
+            <th>Fallback</th>
+            <td><code>/smartphone/crm/icons/logo.png</code>, then <code>/smartphone/crm/icons/icon-192.png</code></td>
+          </tr>
+          <tr>
+            <th>Manifest Icons</th>
+            <td><code>/smartphone/crm/icons/icon-192.png</code> and <code>/smartphone/crm/icons/icon-512.png</code> unchanged</td>
+          </tr>
+          <tr>
+            <th>Base Path</th>
+            <td><code>/smartphone/crm/</code> unchanged</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Simple Test Steps</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>Mobile Data</h4>
+      <ol>
+        <li>Deploy the production build.</li>
+        <li>On a phone, disable Wi-Fi and use mobile data.</li>
+        <li>Open <code>/smartphone/crm/login</code>.</li>
+        <li>Confirm the logo appears on the login card or install screen.</li>
+        <li>Remote-debug Network and confirm there is no double-slash logo request.</li>
+        <li>Confirm the logo request resolves under <code>/smartphone/crm/</code>.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Wi-Fi and PWA</h4>
+      <ol>
+        <li>Repeat the login page test on Wi-Fi.</li>
+        <li>Toggle dark mode and confirm the alternate logo path works.</li>
+        <li>Block the primary logo request once and confirm fallback image appears.</li>
+        <li>Install the PWA and confirm manifest icons still appear correctly.</li>
+        <li>Open the installed app and confirm BrowserGate/login logo still loads.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="chips">
+    <span class="chip">Base path preserved</span>
+    <span class="chip">Double slash removed</span>
+    <span class="chip">Logo fallback added</span>
+    <span class="chip">Manifest icons unchanged</span>
+  </div>
+</div>
+
+<div class="bug-card" id="pdf-6-1">
+  <div>
+    <span class="bug-id">PDF 6.1</span>
+    <span class="bug-title">IPTV Checkout - Payment Failed Message After Backend Accepted Order</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: Critical</span>
+    <span>Status: Fixed</span>
+    <span>Module: IPTV / Cable TV Checkout</span>
+    <span>Route: <code>/smartphone/crm/customer/:customerId/service/iptv</code></span>
+  </div>
+
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> During IPTV package/channel checkout, the UI could show payment failed even when the backend had already accepted the Cable TV order, deducted the wallet, and reflected the subscription. This could happen when the final payment/order call returned a noisy failure or local network error after server-side completion.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/pages/services/IPTVService.jsx</code></li>
+        <li><code>bugfixes.html</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Added a hard in-flight guard so repeated taps cannot send duplicate IPTV checkout payments.</li>
+        <li>Kept the existing <code>service/paymentinfo/cabletv</code>, <code>ServiceApis/cabletv/generateorder</code>, and wallet debit payloads unchanged.</li>
+        <li>After an apparent order failure or thrown request error, refreshes <code>iptvLastSubscribedinfo</code> and the Cable TV wallet before showing a failure toast.</li>
+        <li>If refreshed backend state confirms the selected package/channel or wallet deduction, the UI treats the checkout as accepted, refreshes caches, refreshes wallet/current subscription state, and shows the success modal.</li>
+        <li>Extended wallet debit success parsing to accept old response shapes with receipt or invoice links.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Low to medium. The fix is scoped to IPTV checkout completion handling and duplicate-click protection. It does not alter API payloads, auth headers, service worker behavior, or global cache architecture.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the IPTV checkout fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>Trace verified</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Wallet loading</th>
+            <td><code>getWalBal({ servicekey: "cabletv" })</code> refreshes Cable TV wallet only.</td>
+          </tr>
+          <tr>
+            <th>Payment info</th>
+            <td><code>getCableTvPaymentDetails</code> prices selected packages/channels and returns the transaction id.</td>
+          </tr>
+          <tr>
+            <th>Extension period</th>
+            <td><code>getPlanExtensionPeriods</code> supplies days; selected period is sent as <code>cblextenperiod</code>.</td>
+          </tr>
+          <tr>
+            <th>Order generation</th>
+            <td><code>generateCableTvOrder</code> sends FoFi Box ID, package IDs, channel IDs, amount, transaction id, user id, and CRM username unchanged.</td>
+          </tr>
+          <tr>
+            <th>Wallet debit</th>
+            <td><code>payNow</code> debits the operator share from the Cable TV payment split.</td>
+          </tr>
+          <tr>
+            <th>Recovery check</th>
+            <td>On apparent failure, refreshed subscription and wallet state decide whether backend actually accepted the checkout.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Simple Test Steps</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>Normal Checkout</h4>
+      <ol>
+        <li>Open a customer at <code>/smartphone/crm/customer/:customerId/service/iptv</code>.</li>
+        <li>Select one paid IPTV package or alacarte channel.</li>
+        <li>Go to checkout and confirm wallet balance, amount, period, FoFi Box ID, package/channel IDs, and transaction ID are populated.</li>
+        <li>Tap Pay once and confirm the button changes to processing.</li>
+        <li>Confirm the order success modal appears.</li>
+        <li>Confirm the selected package/channel shows subscribed after returning to IPTV service.</li>
+        <li>Confirm the Cable TV/FoFi wallet reflects the debit and the Internet wallet is not part of this flow.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Failure-Recovery Case</h4>
+      <ol>
+        <li>Use DevTools throttling or a weak network to simulate a timeout/noisy response during the final checkout call.</li>
+        <li>Complete payment once; do not tap repeatedly.</li>
+        <li>If the backend accepted the order, confirm the UI does not show a failed payment toast.</li>
+        <li>Confirm the success modal appears after subscription/wallet reconciliation.</li>
+        <li>Refresh the IPTV page and confirm the subscription remains reflected.</li>
+        <li>Check wallet history and confirm only the expected Cable TV wallet debit occurred.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="chips">
+    <span class="chip">Duplicate tap guarded</span>
+    <span class="chip">Backend acceptance reconciled</span>
+    <span class="chip">Payloads preserved</span>
+    <span class="chip">Cable TV wallet refreshed</span>
+  </div>
+</div>
+
+<div class="bug-card" id="pdf-6-2">
+  <div>
+    <span class="bug-id">PDF 6.2</span>
+    <span class="bug-title">IPTV Checkout - Wallet Balance Sometimes Missing</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: High</span>
+    <span>Status: Fixed</span>
+    <span>Module: IPTV / Cable TV Checkout</span>
+    <span>Route: <code>/smartphone/crm/customer/:customerId/service/iptv</code></span>
+  </div>
+
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> The IPTV checkout header could show an empty or misleading zero wallet balance while the Cable TV wallet request was still loading or after the wallet API failed. The background wallet request was swallowed and the UI had no explicit loading, error, or cached-fallback state.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/pages/services/IPTVService.jsx</code></li>
+        <li><code>bugfixes.html</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Hydrates the IPTV checkout wallet from the scoped <code>walbal_{username}_cabletv</code> cache when available.</li>
+        <li>Refreshes the Cable TV wallet when entering checkout using the existing <code>ServiceApis/myWallet</code> API contract.</li>
+        <li>Adds wallet loading, refresh error, and stale cached fallback states instead of silently rendering <code>0.00</code>.</li>
+        <li>Shows clear checkout header states: <code>Loading...</code>, refreshed balance, <code>Showing cached balance</code>, or <code>Unavailable</code>.</li>
+        <li>Preserves IPTV package selection, payment info, payment payloads, auth headers, and route behavior.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Low. The change is limited to wallet balance state and display in IPTV checkout, using the existing wallet API and cache key. No unrelated IPTV payment/package logic or global cache behavior was changed.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the IPTV wallet display fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>Wallet State Handling</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Fresh API success</th>
+            <td>Shows the refreshed Cable TV wallet balance.</td>
+          </tr>
+          <tr>
+            <th>Loading without cache</th>
+            <td>Shows <code>Loading...</code> instead of a false zero.</td>
+          </tr>
+          <tr>
+            <th>API failure with cache</th>
+            <td>Shows cached balance with a cached/fallback helper message.</td>
+          </tr>
+          <tr>
+            <th>API failure without cache</th>
+            <td>Shows <code>Unavailable</code> with a clear retry hint.</td>
+          </tr>
+          <tr>
+            <th>Cache scope</th>
+            <td>Uses only <code>walbal_{loginUsername}_cabletv</code>; no broad cache clearing.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Simple Test Steps</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>Mobile Data</h4>
+      <ol>
+        <li>Open a customer at <code>/smartphone/crm/customer/:customerId/service/iptv</code> on mobile data.</li>
+        <li>Select one IPTV package or channel and continue to checkout.</li>
+        <li>Confirm the wallet header first shows <code>Loading...</code> if the wallet has not arrived yet.</li>
+        <li>Confirm the header updates to the Cable TV wallet amount after <code>ServiceApis/myWallet</code> completes.</li>
+        <li>Throttle or interrupt the wallet request and confirm the UI shows cached balance or <code>Unavailable</code>, not a misleading blank/zero.</li>
+        <li>Confirm payment info, selected package/channel summary, and Pay button behavior are unchanged.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Wi-Fi and Cache</h4>
+      <ol>
+        <li>Repeat checkout on Wi-Fi and confirm the refreshed wallet balance appears.</li>
+        <li>Reopen checkout within the cache window and confirm cached wallet data paints immediately.</li>
+        <li>Disable network after cache exists and reopen checkout.</li>
+        <li>Confirm the cached balance appears with fallback text.</li>
+        <li>Re-enable network and reopen checkout; confirm the fallback clears after a fresh wallet response.</li>
+        <li>Complete one normal checkout and confirm wallet refresh after payment still works.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="chips">
+    <span class="chip">Wallet loading state</span>
+    <span class="chip">Cached fallback</span>
+    <span class="chip">API contract preserved</span>
+    <span class="chip">No broad cache clearing</span>
+  </div>
+</div>
+
+<div class="bug-card" id="pdf-6-3">
+  <div>
+    <span class="bug-id">PDF 6.3</span>
+    <span class="bug-title">IPTV Checkout - Refresh Returns to Overview</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: High</span>
+    <span>Status: Fixed</span>
+    <span>Module: IPTV / Cable TV Checkout</span>
+    <span>Route: <code>/smartphone/crm/customer/:customerId/service/iptv</code></span>
+  </div>
+
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> Refreshing or restoring the PWA while on the IPTV checkout view restarted <code>IPTVService.jsx</code> with <code>view = "overview"</code>. The page already preserved customer data and Android back-stack markers, but checkout view state and selected checkout data were not restored on initial render.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/pages/services/IPTVService.jsx</code></li>
+        <li><code>bugfixes.html</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Persists checkout view state in session storage using a customer-scoped <code>iptv_checkout_{customerId}</code> key.</li>
+        <li>Restores checkout view on first render from existing <code>history.state.iptvView</code> or saved checkout session data.</li>
+        <li>Restores selected packages, selected channels, selected period, checkout preview, final payment info, and selected package item details.</li>
+        <li>Rebuilds checkout payment info after refresh when saved payment info is missing or stale.</li>
+        <li>Normalizes restored history state so the existing <code>iptvView</code>/<code>iptvDepth</code> back-navigation logic remains intact.</li>
+        <li>Clears saved checkout state when leaving checkout or after successful order completion.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Medium-low. The change touches IPTV sub-view initialization and session persistence only. It preserves the existing route, Android popstate model, package/channel selection flow, and payment API payloads.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the checkout restore fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>State Restored</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Customer</th>
+            <td>Existing <code>iptv_cust_{customerId}</code> session fallback remains unchanged.</td>
+          </tr>
+          <tr>
+            <th>View</th>
+            <td>Restores <code>checkout</code> from history state or saved checkout session state.</td>
+          </tr>
+          <tr>
+            <th>Selection</th>
+            <td>Restores package IDs, channel IDs, selected period, and selected package item details.</td>
+          </tr>
+          <tr>
+            <th>Payment</th>
+            <td>Restores cached checkout preview/final payment info, then refreshes payment info when needed.</td>
+          </tr>
+          <tr>
+            <th>Back behavior</th>
+            <td>Preserves existing <code>iptvView</code> and <code>iptvDepth</code> popstate handling.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Simple Test Steps</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>Refresh on Checkout</h4>
+      <ol>
+        <li>Open <code>/smartphone/crm/customer/:customerId/service/iptv</code>.</li>
+        <li>Select a package or channel and continue to checkout.</li>
+        <li>Confirm selected item summary, wallet, operator share, period, and total amount are visible.</li>
+        <li>Refresh the browser or kill/restore the PWA while still on checkout.</li>
+        <li>Confirm the app returns directly to the checkout view, not the IPTV overview.</li>
+        <li>Confirm selected packages/channels and payment details are still present or reloaded.</li>
+        <li>Tap Pay only after confirming the refreshed transaction/payment details are available.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Back Navigation</h4>
+      <ol>
+        <li>From restored checkout, tap the checkout back arrow.</li>
+        <li>Confirm Android/browser back still follows the existing internal view stack when history state is available.</li>
+        <li>Return from checkout to packages/channels and confirm saved checkout restore state is cleared.</li>
+        <li>Refresh from packages/channels and confirm it does not incorrectly jump to checkout.</li>
+        <li>Complete one successful checkout and confirm success cleanup clears restored checkout state.</li>
+        <li>Reopen IPTV service and confirm the normal overview still loads correctly.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="chips">
+    <span class="chip">Checkout restored</span>
+    <span class="chip">Session-scoped state</span>
+    <span class="chip">History markers preserved</span>
+    <span class="chip">Payment payloads unchanged</span>
+  </div>
+</div>
+
+<div class="bug-card" id="pdf-6-4">
+  <div>
+    <span class="bug-id">PDF 6.4</span>
+    <span class="bug-title">IPTV Select Packages - MSO/Broadcaster Pack Not Marked Subscribed</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: High</span>
+    <span>Status: Fixed</span>
+    <span>Module: IPTV / Select Packages</span>
+    <span>Route: <code>/smartphone/crm/customer/:customerId/service/iptv</code></span>
+  </div>
+
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> After subscribing to an MSO Pack or Broadcaster Package, the Select Packages view could still show the pack as available instead of subscribed. The UI depended mostly on the <code>packagesList</code> response <code>issubscribed</code> flag after passing <code>lastSubscribedInfo.body.packageid</code>, but some subscribed package states are represented by package code or alternate package ID fields.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/pages/services/IPTVService.jsx</code></li>
+        <li><code>src/services/generalApis.js</code></li>
+        <li><code>bugfixes.html</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Refreshes <code>iptvLastSubscribedinfo</code> when entering Select Packages so the package screen does not rely on stale subscription state.</li>
+        <li>Normalizes subscribed package IDs across <code>packageid</code>, <code>packageids</code>, <code>pkgid</code>, <code>pkgids</code>, and nested package arrays.</li>
+        <li>Normalizes subscribed package codes across <code>pkgcode</code>, <code>pkgcodes</code>, <code>packagecode</code>, and nested package arrays.</li>
+        <li>Marks package rows subscribed client-side when either package ID or package code matches the refreshed subscription data.</li>
+        <li>Updates already-loaded package tabs when fresh subscription info arrives, so the green Subscribed ribbon appears without a full page reload.</li>
+        <li>Preserves alacarte channel subscription marking and checkout payload construction.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Low to medium. The change is scoped to subscription matching/marking for package rows and the existing last-subscribed-info merge. It does not change package checkout payloads, channel selection, auth, or route behavior.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the MSO/Broadcaster package marking fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>Matching Sources</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Subscription refresh</th>
+            <td><code>getIptvLastSubscribedInfo(..., true)</code> on Select Packages entry.</td>
+          </tr>
+          <tr>
+            <th>Package ID match</th>
+            <td><code>pkgid</code>, <code>packageid</code>, <code>id</code>, and alternate array field names.</td>
+          </tr>
+          <tr>
+            <th>Package code match</th>
+            <td><code>pkgcode</code>, <code>packagecode</code>, <code>pkg_code</code>, and nested package rows.</td>
+          </tr>
+          <tr>
+            <th>UI flag</th>
+            <td>Rows are marked <code>issubscribed: "yes"</code> client-side when refreshed subscription data matches.</td>
+          </tr>
+          <tr>
+            <th>Unaffected flow</th>
+            <td>Alacarte channel ribbons still use <code>channelid</code>; checkout package/channel payloads are unchanged.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Simple Test Steps</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>MSO Pack</h4>
+      <ol>
+        <li>Open <code>/smartphone/crm/customer/:customerId/service/iptv</code>.</li>
+        <li>Tap Select Packages and open the MSO tab.</li>
+        <li>Select an unsubscribed MSO Pack and complete checkout/payment.</li>
+        <li>Return to IPTV Service and open Select Packages again.</li>
+        <li>Confirm the subscribed MSO Pack checkbox is disabled.</li>
+        <li>Confirm the green Subscribed ribbon appears under the MSO Pack name.</li>
+        <li>Refresh/revisit the page and confirm the MSO Pack remains marked subscribed.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Broadcaster Package</h4>
+      <ol>
+        <li>Open Select Packages and switch to the Broadcaster tab.</li>
+        <li>Select a Broadcaster Package and complete checkout/payment.</li>
+        <li>Open Select Packages again after success.</li>
+        <li>Confirm the Broadcaster Package is disabled and marked Subscribed.</li>
+        <li>Search for the same package and confirm the subscribed marker remains visible.</li>
+        <li>Open Create Own Package / channels and confirm alacarte channel subscribed flags still work.</li>
+        <li>Confirm checkout still excludes already subscribed package rows.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="chips">
+    <span class="chip">Package ID match</span>
+    <span class="chip">Package code match</span>
+    <span class="chip">MSO/Broadcaster fixed</span>
+    <span class="chip">Checkout preserved</span>
+  </div>
+</div>
+
+<div class="bug-card" id="pdf-6-5">
+  <div>
+    <span class="bug-id">PDF 6.5</span>
+    <span class="bug-title">IPTV Select Packages - Slow or Missing Package Data</span>
+  </div>
+  <div class="bug-meta">
+    <span>Severity: High</span>
+    <span>Status: Fixed</span>
+    <span>Module: IPTV / Select Packages</span>
+    <span>Route: <code>/smartphone/crm/customer/:customerId/service/iptv</code></span>
+  </div>
+
+  <div class="info" style="margin-top: 1rem;">
+    <strong>Issue:</strong> Select Packages could be slow or show empty data on mobile data and Wi-Fi. The package loader could be triggered by both the user click and the sub-view safety effect, and transient category/package API failures were silently converted to empty tabs without retry or stale-cache fallback.
+  </div>
+
+  <div class="bug-grid">
+    <div class="step-box">
+      <h4>Files changed</h4>
+      <ul>
+        <li><code>src/pages/services/IPTVService.jsx</code></li>
+        <li><code>bugfixes.html</code></li>
+      </ul>
+
+      <h4>Fix summary</h4>
+      <ul>
+        <li>Added a synchronous in-flight guard for <code>loadPackages()</code> so click and view-effect paths do not duplicate package loading.</li>
+        <li>Changed the already-loaded check to require category slots to be populated, allowing retry after a previous failed/empty load.</li>
+        <li>Added one targeted retry for <code>pkgCategories</code> and per-category <code>packagesList</code> requests.</li>
+        <li>Added stale localStorage fallback for <code>pkgcats_{username}_{userid}</code> and <code>pkglist_{userid}_{category}_{subscriptionHash}</code> when the network fails.</li>
+        <li>Drops the package spinner when the first category resolves or fails, so the UI does not stay stuck while slower tabs continue in the background.</li>
+        <li>Preserved service worker behavior, global cache architecture, auth, payment, channel selection, and checkout payloads.</li>
+      </ul>
+
+      <div class="warn">
+        <strong>Risk:</strong> Low. The change is scoped to Select Packages loading reliability and uses existing API wrappers/cache keys. No API contract or global cache behavior was changed.
+      </div>
+
+      <div class="success">
+        <strong>Validated build:</strong> Production build passed after the Select Packages loading fix.
+      </div>
+    </div>
+
+    <div class="step-box">
+      <h4>Root Cause</h4>
+      <table class="compact-table">
+        <tbody>
+          <tr>
+            <th>Duplicate calls</th>
+            <td>Click handler and safety effect could both enter <code>loadPackages()</code> before React state reflected loading.</td>
+          </tr>
+          <tr>
+            <th>Transient failures</th>
+            <td>Failed package category/list calls had no targeted retry.</td>
+          </tr>
+          <tr>
+            <th>Missing fallback</th>
+            <td>Fresh cache was used by service wrappers, but stale cached package/category data was not used when network failed.</td>
+          </tr>
+          <tr>
+            <th>Empty tabs</th>
+            <td>Failed package calls were stored as empty category arrays, making tabs look like no data existed.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Simple Test Steps</h3>
+  <div class="grid2">
+    <div class="step-box">
+      <h4>Mobile Data</h4>
+      <ol>
+        <li>Open <code>/smartphone/crm/customer/:customerId/service/iptv</code> on mobile data.</li>
+        <li>Tap Select Packages once.</li>
+        <li>Confirm the tab strip and first package list render without duplicate loading loops.</li>
+        <li>Switch across LCO, MSO, Broadcaster, and Foundation tabs.</li>
+        <li>Confirm slow tabs populate as their package calls finish.</li>
+        <li>Temporarily throttle or interrupt the network and reopen Select Packages.</li>
+        <li>Confirm cached category/package data is shown when available instead of a stuck loader.</li>
+      </ol>
+    </div>
+
+    <div class="step-box">
+      <h4>Wi-Fi</h4>
+      <ol>
+        <li>Repeat Select Packages on Wi-Fi.</li>
+        <li>Open DevTools Network and confirm duplicate <code>pkgCategories</code> / same-category <code>packagesList</code> bursts are reduced.</li>
+        <li>Force one package-list request to fail and confirm the UI drops the spinner and shows available/cached category data.</li>
+        <li>Go back to overview and re-enter Select Packages.</li>
+        <li>Confirm previously failed empty tabs can retry instead of staying permanently empty.</li>
+        <li>Select a package and proceed to checkout to verify package selection and payment flow are unchanged.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="chips">
+    <span class="chip">Duplicate load guarded</span>
+    <span class="chip">Targeted retry</span>
+    <span class="chip">Stale cache fallback</span>
+    <span class="chip">Checkout preserved</span>
+  </div>
+</div>
+
+  </div>
+</body>
+</html>

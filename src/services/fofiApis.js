@@ -182,10 +182,12 @@ export async function getSpecialInternetPlans(payload) {
  * @param {Object} payload - { username: string, loginuname: string }
  * @returns {Promise<Object>} Response containing validation status
  */
-export async function validateBeforeFofiBoxReg(payload) {
+export async function validateBeforeFofiBoxReg(payload, options = {}) {
     const cacheKey = `valbfr_${payload.username || ''}`;
-    const cached = lsGet(cacheKey, 5 * 60 * 1000); // 5 min TTL
-    if (cached) { perfMonitor.recordCacheHit("FoFi", "validateBeforeFofiBoxReg", cacheKey); return cached; }
+    if (!options.skipCache) {
+        const cached = lsGet(cacheKey, 5 * 60 * 1000); // 5 min TTL
+        if (cached) { perfMonitor.recordCacheHit("FoFi", "validateBeforeFofiBoxReg", cacheKey); return cached; }
+    }
 
     const url = `${getBaseUrl()}ServiceApis/validateBeforeFofiBoxReg`;
     const headers = getHeadersJson();
@@ -204,7 +206,7 @@ export async function validateBeforeFofiBoxReg(payload) {
 
     const data = await resp.json();
     logger.debug("FoFi", "validateBeforeFofiBoxReg response", { errCode: data?.status?.err_code });
-    lsSet(cacheKey, data);
+    if (data?.status?.err_code === 0) lsSet(cacheKey, data);
     return data;
 }
 

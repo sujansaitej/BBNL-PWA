@@ -92,7 +92,7 @@ export default ({ mode }) => {
       appleIconPlugin(appleIcon),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['icons/logo.png'],
+        includeAssets: ['icons/logo.png', 'img/logo.png'],
         workbox: {
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           // Activate new SW immediately — don't wait for all tabs to close

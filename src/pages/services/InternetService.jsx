@@ -90,7 +90,7 @@ export default function InternetService() {
       // serve the pre-payment cache that getUserAssignedItems /
       // getMyPlanDetails populated on the previous overview visit.
       const skipCache = !!refreshData;
-      const skipPlanCache = true;
+      const skipPlanCache = !!refreshData;
       const [aiResult, planResult] = await Promise.allSettled([
         getUserAssignedItems("internet", userid, skipCache),
         getMyPlanDetails({ servicekey: "internet", userid, fofiboxid: "", voipnumber: "" }, skipPlanCache),

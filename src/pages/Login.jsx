@@ -13,6 +13,24 @@ import { useDarkMode } from "../hooks/useDarkMode";
 
 import { UserLogin } from "../services/generalApis";
 
+function publicAssetUrl(path) {
+  const base = import.meta.env.BASE_URL || import.meta.env.VITE_API_APP_DIR_PATH || "/";
+  return `${base.replace(/\/?$/, "/")}${String(path || "").replace(/^\/+/, "")}`;
+}
+
+function applyLogoFallback(event) {
+  const img = event.currentTarget;
+  const fallbackIndex = Number(img.dataset.fallbackIndex || "0");
+  const fallbacks = [
+    publicAssetUrl("icons/logo.png"),
+    publicAssetUrl("icons/icon-192.png"),
+  ];
+  const next = fallbacks[fallbackIndex];
+  if (!next || img.src.endsWith(next)) return;
+  img.dataset.fallbackIndex = String(fallbackIndex + 1);
+  img.src = next;
+}
+
 export default function Login() {
   const isDarkMode = useDarkMode();
   const [isInstalled, setIsInstalled] = useState(false);
@@ -30,8 +48,11 @@ export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  const logo = isDarkMode ? import.meta.env.VITE_API_APP_DIR_PATH + import.meta.env.VITE_API_APP_LOGO_WHITE
-                         : import.meta.env.VITE_API_APP_DIR_PATH + import.meta.env.VITE_API_APP_LOGO_BLACK;
+  const logo = publicAssetUrl(
+    isDarkMode
+      ? import.meta.env.VITE_API_APP_LOGO_WHITE
+      : import.meta.env.VITE_API_APP_LOGO_BLACK
+  );
 
   useEffect(() => {
     const checkPWAInstalled = () => {
@@ -161,7 +182,7 @@ export default function Login() {
       <>
       <div className="">
       <div className="flex justify-center mt-1 mb-3">
-        <img src={logo} alt="Fo-Fi Logo" className="h-12" />
+        <img src={logo} onError={applyLogoFallback} alt="Fo-Fi Logo" className="h-12" />
       </div>
       <div className="bg-white dark:bg-gray-900 shadow-xl rounded-2xl p-4 max-w-lg w-full text-center animate-fade-in">
         <p className="mb-2 justify-center text-sm">Welcome to our newly launched platform independent app. We appreciate your continued support as we enhance our services.</p>
@@ -261,7 +282,7 @@ export default function Login() {
       <div className="w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl shadow-xl p-8">
         {/* Logo */}
         <div className="flex justify-center mb-6">
-          <img src={logo} alt="App Logo" className="h-16" />
+          <img src={logo} onError={applyLogoFallback} alt="App Logo" className="h-16" />
         </div>
 
         {/* Title */}

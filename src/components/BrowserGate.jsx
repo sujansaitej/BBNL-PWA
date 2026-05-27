@@ -7,6 +7,24 @@ import { lsClearAll } from "../services/lsCache";
 function lsGet(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (_) {} }
 
+function publicAssetUrl(path) {
+  const base = import.meta.env.BASE_URL || import.meta.env.VITE_API_APP_DIR_PATH || "/";
+  return `${base.replace(/\/?$/, "/")}${String(path || "").replace(/^\/+/, "")}`;
+}
+
+function applyLogoFallback(event) {
+  const img = event.currentTarget;
+  const fallbackIndex = Number(img.dataset.fallbackIndex || "0");
+  const fallbacks = [
+    publicAssetUrl("icons/logo.png"),
+    publicAssetUrl("icons/icon-192.png"),
+  ];
+  const next = fallbacks[fallbackIndex];
+  if (!next || img.src.endsWith(next)) return;
+  img.dataset.fallbackIndex = String(fallbackIndex + 1);
+  img.src = next;
+}
+
 /* ------------------------------------------------------------------ */
 /*  BrowserGate                                                       */
 /*  Wraps the entire app.  In standalone (PWA) mode or local dev the  */
@@ -91,11 +109,11 @@ export default function BrowserGate({ children }) {
 
   if (isLocal || isStandalone) return children;
 
-  const logo = isDarkMode
-    ? import.meta.env.VITE_API_APP_DIR_PATH +
-      import.meta.env.VITE_API_APP_LOGO_WHITE
-    : import.meta.env.VITE_API_APP_DIR_PATH +
-      import.meta.env.VITE_API_APP_LOGO_BLACK;
+  const logo = publicAssetUrl(
+    isDarkMode
+      ? import.meta.env.VITE_API_APP_LOGO_WHITE
+      : import.meta.env.VITE_API_APP_LOGO_BLACK
+  );
 
   /* ---- Already installed → Thank-you screen ---- */
   if (isInstalled) {
@@ -103,7 +121,7 @@ export default function BrowserGate({ children }) {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 px-4">
         <div className="flex flex-col items-center">
           <div className="flex justify-center mt-1 mb-3">
-            <img src={logo} alt="Fo-Fi Logo" className="h-12" />
+            <img src={logo} onError={applyLogoFallback} alt="Fo-Fi Logo" className="h-12" />
           </div>
           <div className="text-sm bg-white dark:bg-gray-900 shadow-xl rounded-2xl p-8 max-w-md w-full text-center animate-fade-in">
             <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3 animate-pulse" />
@@ -143,7 +161,7 @@ export default function BrowserGate({ children }) {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 px-4">
       <div className="">
         <div className="flex justify-center mt-1 mb-3">
-          <img src={logo} alt="Fo-Fi Logo" className="h-12" />
+          <img src={logo} onError={applyLogoFallback} alt="Fo-Fi Logo" className="h-12" />
         </div>
         <div className="bg-white dark:bg-gray-900 shadow-xl rounded-2xl p-4 max-w-lg w-full text-center animate-fade-in">
           <p className="mb-2 justify-center text-sm">

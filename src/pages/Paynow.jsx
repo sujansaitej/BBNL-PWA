@@ -190,18 +190,56 @@ export default function Subscribe() {
         )
     );
 
+    const explicitHistoricalBalance = (() => {
+      const oldTotalAmount = toAmount(raw?.oldtotamt);
+      const oldPaidAmount = toAmount(raw?.oldpaidamt);
+      if (oldTotalAmount > 0) {
+        return roundCurrency(Math.max(0, oldTotalAmount - oldPaidAmount));
+      }
+
+      const rootPrevBalance = raw?.prevbalance;
+      const rootBalanceAmount = raw?.balanceamount ?? raw?.balanceamt ?? raw?.balance;
+      if (rootPrevBalance !== undefined && rootPrevBalance !== null && rootPrevBalance !== "") {
+        return roundCurrency(rootPrevBalance);
+      }
+      if (rootBalanceAmount !== undefined && rootBalanceAmount !== null && rootBalanceAmount !== "") {
+        return roundCurrency(rootBalanceAmount);
+      }
+      return null;
+    })();
+
+    const sharedBalanceAmount = roundCurrency(
+      raw?.balamt ??
+      det?.balamt ??
+      det?.shareinfo?.balamt
+    );
+    const settlementDelta = roundCurrency(Math.max(0, operatorDebit - totalAmount));
+    const fallbackBalanceAmount = roundCurrency(fallback.balanceAmount);
+
+    // `shareinfo.balamt` can be an internal settlement delta between
+    // the displayed customer total and the operator wallet deduction.
+    // Example observed in production: total=59, totbbnlshare=60,
+    // shareinfo.balamt=1. Showing that as the customer's "Balance Amount"
+    // is misleading because the wallet deduction is already correct.
+    const displayBalanceAmount = explicitHistoricalBalance !== null
+      ? explicitHistoricalBalance
+      : (
+        sharedBalanceAmount > 0 && Math.abs(sharedBalanceAmount - settlementDelta) <= 0.01
+          ? 0
+          : (
+            sharedBalanceAmount > 0
+              ? sharedBalanceAmount
+              : fallbackBalanceAmount
+          )
+      );
+
     return {
       planName: raw?.planname || det?.planname || fallback.planName || "N/A",
       planRate,
       cgst,
       sgst,
       otherCharges,
-      balanceAmount: toAmount(
-        raw?.balamt ??
-        det?.shareinfo?.balamt ??
-        det?.balamt ??
-        fallback.balanceAmount
-      ),
+      balanceAmount: displayBalanceAmount,
       totalAmount,
       operatorShare: toAmount(
         raw?.optrshare ??

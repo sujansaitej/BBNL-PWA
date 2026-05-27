@@ -2,11 +2,104 @@ import { useEffect, useState } from "react";
 import Layout from "../layout/Layout";
 import { useNavigate, useLocation } from "react-router-dom";
 import { formatToDecimals } from "../services/helpers";
-import { Button, Loader, Alert } from "@/components/ui";
+import { Loader, Alert } from "@/components/ui";
 import { generateFofiOrder, getFofiPaymentInfo } from "../services/fofiApis";
-import { getCableCustomerDetails, getPrimaryCustomerDetails, getWalBal } from "../services/generalApis";
-import { payNow } from "../services/registrationApis";
+import { getCableCustomerDetails, getPrimaryCustomerDetails, getWalBal, getMyPlanDetails, getUserAssignedItems } from "../services/generalApis";
 import { getUser } from "../services/safeStorage";
+import { lsRemove } from "../services/lsCache";
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function normalizeText(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function getAssignedFoFiItems(response) {
+  const body = response?.body || {};
+  const buckets = ["fofi", "multi", "voip", "internet"];
+  return buckets.flatMap((bucket) => {
+    const rows = Array.isArray(body?.[bucket]) ? body[bucket] : [];
+    return rows;
+  });
+}
+
+function responseHasFoFiBox(response, boxId) {
+  const targetBox = normalizeText(boxId);
+  if (!targetBox) return false;
+  return getAssignedFoFiItems(response).some((item) => {
+    const candidates = [
+      item?.fofiboxid,
+      item?.fofi_box_id,
+      item?.boxid,
+      item?.box_id,
+      item?.stbid,
+      item?.stb_id,
+      item?.device_id,
+      item?.itemid,
+      item?.product_name,
+    ].map(normalizeText);
+    return candidates.includes(targetBox);
+  });
+}
+
+function getFoFiSubscribedService(planResponse) {
+  const services = planResponse?.body?.subscribed_services || [];
+  if (!Array.isArray(services)) return null;
+  return services.find((service) => {
+    const serviceKey = normalizeText(service?.servicekey);
+    const searchable = normalizeText(`${service?.serv_name || ""} ${service?.title || ""} ${service?.planname || ""} ${service?.plan_name || ""}`);
+    return serviceKey === "fofi" || /\bfofi\b|smart\s*box|smartbox|fofibox|\bfta\b|\bcabletv\b|\biptv\b/.test(searchable);
+  }) || null;
+}
+
+function planLooksActivated(planResponse, expectedPlanId, expectedPlanName) {
+  const service = getFoFiSubscribedService(planResponse);
+  if (!service) return false;
+
+  const expectedId = normalizeText(expectedPlanId);
+  const expectedName = normalizeText(expectedPlanName);
+  const backendIds = [
+    service?.planid,
+    service?.srvid,
+    service?.servid,
+    service?.internet_planid,
+    service?.ottplanid,
+  ].map(normalizeText).filter(Boolean);
+  const backendName = normalizeText(service?.planname || service?.plan_name);
+  const hasExpiry = !!(service?.expirydate || service?.expiry_date || service?.expdate);
+
+  if (expectedId && backendIds.includes(expectedId)) return true;
+  if (expectedName && backendName && backendName === expectedName) return true;
+  return hasExpiry && (backendName || backendIds.length > 0);
+}
+
+function resolveFoFiAmountDeductable(paymentBody, fallback = 0) {
+  const deductionRaw = paymentBody?.deduction?.totalamount;
+  if (deductionRaw !== undefined && deductionRaw !== null && deductionRaw !== '') {
+    const deductionAmount = parseFloat(deductionRaw);
+    if (Number.isFinite(deductionAmount)) return deductionAmount;
+  }
+
+  const explicitAmount = parseFloat(
+    paymentBody?.amount_deductable ??
+    paymentBody?.amountdeductable ??
+    paymentBody?.fofi_wallet_deduction ??
+    paymentBody?.wallet_deduction
+  );
+  if (Number.isFinite(explicitAmount)) return explicitAmount;
+
+  const fofiShare = parseFloat(paymentBody?.fofishare);
+  if (Number.isFinite(fofiShare) && fofiShare > 0) return fofiShare;
+
+  const fofiSplit = parseFloat(
+    paymentBody?.final_split_data?.FOFI?.amount ??
+    paymentBody?.final_split_data?.fofi?.amount
+  );
+  if (Number.isFinite(fofiSplit) && fofiSplit > 0) return fofiSplit;
+
+  const fallbackAmount = parseFloat(fallback);
+  return Number.isFinite(fallbackAmount) ? fallbackAmount : 0;
+}
 
 // Backend-issued transactionid only. Local format-matching strings
 // (SERV-DDMM-3-XXXXXXX) are rejected by generateorder with "Invalid
@@ -54,18 +147,6 @@ export default function FofiPayment() {
       "Amount Deductable": paymentData?.amountDeductable || 0
     }
   );
-
-  // Additional data needed for payment
-  const [paymentPayload, setPaymentPayload] = useState({
-    userid: paymentData?.userid || '',
-    fofiboxid: paymentData?.fofiboxid || '',
-    planid: paymentData?.planid || '',
-    priceid: paymentData?.priceid || '',
-    servid: paymentData?.servid || '',
-    loginuname: paymentData?.loginuname || '',
-    noofmonth: paymentData?.noofmonth || 1,
-    cashpaid: paymentData?.totalAmount || paymentData?.operatorShare || 0
-  });
 
   useEffect(() => {
     // If no payment data, redirect back
@@ -133,6 +214,61 @@ export default function FofiPayment() {
     }
   };
 
+  const confirmFoFiServiceActivation = async ({ userid, fofiboxid, planid, planName }) => {
+    if (!userid || !fofiboxid) {
+      throw new Error('Payment recorded, but FoFi service confirmation is missing customer or box details. Please verify in Netmon before retrying.');
+    }
+
+    const delays = [0, 2000, 5000, 10000, 18000];
+    let lastAssigned = null;
+    let lastPlan = null;
+
+    for (let attempt = 0; attempt < delays.length; attempt += 1) {
+      if (delays[attempt] > 0) await sleep(delays[attempt]);
+
+      try {
+        lsRemove(`uai_fofi_${userid}`);
+        lsRemove(`uai_multi_${userid}`);
+        lsRemove(`uai_voip_${userid}`);
+        lsRemove(`uai_internet_${userid}`);
+        lsRemove(`plandets_fofi_${userid}_${fofiboxid}`);
+        lsRemove(`plandets_fofi_${userid}_`);
+        lsRemove(`orderhist_${userid}_fofi`);
+        lsRemove(`orderhist_${userid}_all`);
+      } catch (_) { /* best-effort cache invalidation */ }
+
+      const [assignedFofiResp, assignedMultiResp, assignedVoipResp, assignedInternetResp, planResp] = await Promise.all([
+        getUserAssignedItems('fofi', userid, true).catch(() => null),
+        getUserAssignedItems('multi', userid, true).catch(() => null),
+        getUserAssignedItems('voip', userid, true).catch(() => null),
+        getUserAssignedItems('internet', userid, true).catch(() => null),
+        getMyPlanDetails({ servicekey: 'fofi', userid, fofiboxid, voipnumber: '' }, true).catch(() => null),
+      ]);
+      const assignedResp = {
+        body: {
+          fofi: assignedFofiResp?.body?.fofi || assignedFofiResp?.body || [],
+          multi: assignedMultiResp?.body?.multi || assignedMultiResp?.body || [],
+          voip: assignedVoipResp?.body?.voip || assignedVoipResp?.body || [],
+          internet: assignedInternetResp?.body?.internet || assignedInternetResp?.body || [],
+        },
+      };
+      lastAssigned = assignedResp;
+      lastPlan = planResp;
+
+      const boxConfirmed = responseHasFoFiBox(assignedResp, fofiboxid);
+      const planConfirmed = planLooksActivated(planResp, planid, planName);
+      if (boxConfirmed && planConfirmed) {
+        return { assignedResp, planResp };
+      }
+    }
+
+    const planMessage = lastPlan?.status?.err_msg || lastPlan?.result || '';
+    const assignedMessage = lastAssigned?.status?.err_msg || lastAssigned?.result || '';
+    throw new Error(
+      `Payment/order was accepted, but FoFi service activation was not confirmed yet${planMessage || assignedMessage ? `: ${planMessage || assignedMessage}` : ''}. Please verify this customer in Netmon before retrying payment.`
+    );
+  };
+
   // Handle proceed to pay
   const handleProceedToPay = async () => {
     setSubmitting(true);
@@ -143,8 +279,6 @@ export default function FofiPayment() {
       
       const user = getUser();
       const loginuname = user?.username || paymentData?.loginuname || 'superadmin';
-      // Backend team (May 2026): use logged-in operator username in paydoneby/payreceivedby
-      const payDoneBy = loginuname;
 
       // ALWAYS re-fetch paymentinfo/fofi right before pay to get a
       // current, plan-correct transactionid. Reasons "trust state"
@@ -159,6 +293,11 @@ export default function FofiPayment() {
       // Cost is one extra ~1-2s call. Cheap insurance against
       // "Invalid transaction id" / silent wallet skips.
       let transactionId;
+      let refreshedAmountDeductable = parseFloat(
+        paymentData?.amountDeductable ??
+        moreDetails?.["Amount Deductable"] ??
+        0
+      ) || 0;
       try {
         console.log('🟡 Refreshing paymentinfo/fofi for a fresh transactionid…');
         const refreshResp = await getFofiPaymentInfo({
@@ -181,6 +320,7 @@ export default function FofiPayment() {
         if (!transactionId) {
           throw new Error('Payment service did not issue a transaction id. Please go back and try again.');
         }
+        refreshedAmountDeductable = resolveFoFiAmountDeductable(refreshResp?.body, refreshedAmountDeductable);
         console.log('✅ Fresh transactionid received:', transactionId, '(state had:', paymentData?.transactionid, ')');
       } catch (refreshErr) {
         throw new Error(refreshErr?.message || 'Could not get a valid transaction id. Please go back and try again.');
@@ -194,16 +334,10 @@ export default function FofiPayment() {
                           0;
       const paidAmount = totalAmount;
 
-      // walletDeduction = operator-side wallet hit (operator share /
-      // amountDeductable). This is what we send to savepaymentapi
-      // below to actually debit the operator wallet. SEPARATE from
-      // paidAmount, which is the customer total.
-      const walletDeduction = parseFloat(
-        paymentData?.amountDeductable ??
-        moreDetails?.["Amount Deductable"] ??
-        paymentData?.operatorShare ??
-        0
-      ) || 0;
+      // FoFi wallet deduction must come from paymentinfo/fofi only.
+      // Do not fall back to oprtrshare: the base pack can return
+      // deduction.totalamount = "0.00" while oprtrshare is non-zero.
+      const walletDeduction = refreshedAmountDeductable;
 
       console.log('🔵 Paid Amount (paidamount):', paidAmount);
       console.log('🔵 Wallet Deduction (cashpaid):', walletDeduction);
@@ -226,7 +360,7 @@ export default function FofiPayment() {
         // combo; the real bug was the username field — see below.
         paymentmode: "offline",
         payresponse: "",
-        paytype: paymentData?.paytype || "upgrade",
+        paytype: "upgrade",
         planid: String(paymentData?.planid || ""),
         priceid: String(paymentData?.priceid || "99"),
         servid: String(paymentData?.servid || "3"),
@@ -236,7 +370,7 @@ export default function FofiPayment() {
         // System caller — must match the username used in
         // paymentinfo above so the backend recognizes the txn id.
         // Backend team (May 2026): use logged-in operator username.
-        // Operator identity is sent via payNow's apiopid/paydoneby/payreceivedby below.
+        // Operator identity is represented by the paymentinfo/generateorder username.
         username: loginuname,
         voipnumber: ""
       };
@@ -260,7 +394,7 @@ export default function FofiPayment() {
       const numericTotalAmount = parseFloat(totalAmount) || 0;
       const isFreeUpgrade = numericTotalAmount <= 0 && walletDeduction <= 0;
       if (isFreeUpgrade) {
-        console.log('✅ Free upgrade — nothing to charge, skipping generateorder + payNow', {
+        console.log('✅ Free upgrade — nothing to charge, skipping generateorder', {
           totalAmount: numericTotalAmount,
           walletDeduction,
         });
@@ -287,6 +421,7 @@ export default function FofiPayment() {
               paymentSuccess: true,
               isNewRegistration: paymentData?.paytype === 'new_registration',
               optimisticPlan: paymentData?.planName || paymentDetails?.["Plan Name"] || null,
+              optimisticFofiBoxId: paymentData?.fofiboxid || '',
               _t: Date.now(),
             }
           });
@@ -305,89 +440,19 @@ export default function FofiPayment() {
         throw new Error(errMsg);
       }
 
-      // STEP 2: Debit the operator wallet via savepaymentapi.
-      //
-      // This is the same API used by the Internet "Pay Bill" flow
-      // (Paynow.jsx) — the only API in the system that actually moves
-      // money out of the operator wallet. cabletv/generateorder above
-      // registers the order but does not debit the wallet for FoFi
-      // (servid=3); without this second call the user sees the
-      // "Plan Upgraded" success popup but their wallet stays at the
-      // same balance — that's the production bug being reported.
-      //
-      // Skipped when walletDeduction <= 0 (FTA/free plans where the
-      // operator owes nothing). Wrapped in try/catch so a wallet-debit
-      // failure surfaces as a console warning rather than rolling the
-      // user back to an error screen — the upgrade is already
-      // registered server-side, and re-running just this step is
-      // safer than trying to undo a successful generateorder.
-      if (walletDeduction > 0) {
-        try {
-          const opUser = getUser();
-          const apiopid = paymentData?.customer?.op_id || opUser?.op_id || '';
-          const payNowPayload = {
-            apiopid,
-            apiuserid: paymentData?.userid || '',
-            applicationname: import.meta.env.VITE_API_APP_KEY_TYPE,
-            paymode: 'cash',
-            noofmonth: paymentData?.noofmonth || 1,
-            cashpaid: walletDeduction,
-            paidamount: paidAmount, // Added Customer Total
-            transstatus: 'success',
-            renewstatus: 'success',
-            usagecompleted: 0,
-            services_app: 3,
-            paydoneby: loginuname,
-            payreceivedby: loginuname,
-            receivedremark: 'cash',
-          };
-
-          console.log('🔴 [STEP 2] savepaymentapi REQUEST payload:', JSON.stringify(payNowPayload, null, 2));
-          const payNowResp = await payNow(payNowPayload);
-          console.log('🔴 [STEP 2] savepaymentapi RESPONSE:', JSON.stringify(payNowResp, null, 2));
-
-          // Backend response interpretation — savePaymentApi has
-          // historically misleading wrappers. Three possible
-          // outcomes that mean SUCCESS to the user:
-          //   1. error === 0 / status.err_code === 0       ← clean success
-          //   2. error === 1 + receipt_link/invoice_link   ← noisy success
-          //                                                  (verified live May 2026:
-          //                                                  wallet IS debited and
-          //                                                  plan IS renewed even
-          //                                                  with this response;
-          //                                                  the backend just
-          //                                                  couldn't generate a
-          //                                                  proper receipt id
-          //                                                  and reports "something
-          //                                                  went wrong")
-          //   3. error === 1 + no receipt_link             ← genuine failure
-          //
-          // Even on case 3 we DO NOT throw — STEP 1 already
-          // registered the order server-side and re-running just
-          // this step is safer than rolling back to an error
-          // screen that hides the partially-completed state.
-          // We log loudly for ops review and continue to success.
-          const debitOk = payNowResp?.error === 0 || payNowResp?.status?.err_code === 0;
-          const hasReceipt = !!(payNowResp?.receipt_link || payNowResp?.invoice_link);
-          if (debitOk) {
-            console.log('✅ Wallet debited:', walletDeduction);
-          } else if (hasReceipt) {
-            console.warn('⚠️ savepaymentapi reported error:1 but receipt/invoice URLs are present — operation appears to have succeeded server-side. Treating as success.', payNowResp?.result || payNowResp?.status?.err_msg);
-          } else {
-            console.error('❌ savepaymentapi reported failure with no receipt URLs — operator wallet may not have been debited. Order STEP 1 already registered, so NOT rolling back. Manual reconciliation may be required.', payNowResp?.result || payNowResp?.status?.err_msg);
-          }
-        } catch (debitErr) {
-          // Network / timeout / parse failure on STEP 2 only.
-          // Log loudly but don't throw — STEP 1 already registered
-          // the order server-side. Throwing here used to surface
-          // a "Payment Failed" popup over a successful upgrade,
-          // confusing operators who could see the wallet had
-          // actually been debited.
-          console.error('❌ savepaymentapi network/parse error — order STEP 1 already registered, not rolling back:', debitErr?.message || debitErr);
-        }
-      } else {
-        console.log('ℹ️ Wallet debit skipped — walletDeduction <= 0 (likely FTA/free plan)');
-      }
+      // Do not call the Internet savePaymentApi from FoFi payment.
+      // FoFi uses paymentinfo/fofi + cabletv/generateorder. Calling
+      // the Internet debit API here can debit the Internet wallet even
+      // when the FoFi paymentinfo deductible is 0.00.
+      console.log('FoFi order generated; Internet savePaymentApi skipped.', {
+        amountDeductable: walletDeduction,
+      });
+      await confirmFoFiServiceActivation({
+        userid: paymentData?.userid || "",
+        fofiboxid: paymentData?.fofiboxid || "",
+        planid: paymentData?.planid || "",
+        planName: paymentData?.planName || paymentDetails?.["Plan Name"] || "",
+      });
 
       // STEP 3: Refresh customer details in PARALLEL so the next page sees fresh data.
       await Promise.allSettled([
@@ -479,6 +544,7 @@ export default function FofiPayment() {
             paymentSuccess: true,
             isNewRegistration: isNewRegistration,
             optimisticPlan: paymentData?.planName || paymentDetails?.["Plan Name"] || null,
+            optimisticFofiBoxId: paymentData?.fofiboxid || '',
             optimisticDeduction: walletDeduction,
             _t: Date.now(),
           }

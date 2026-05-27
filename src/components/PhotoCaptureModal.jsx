@@ -44,6 +44,7 @@ export default function PhotoCaptureModal({
     // Reset the capture state whenever the modal is closed from outside.
     useEffect(() => {
         if (!isOpen) {
+            stop();
             if (previewUrl) {
                 try { URL.revokeObjectURL(previewUrl); } catch (_) {}
             }
@@ -51,7 +52,7 @@ export default function PhotoCaptureModal({
             capturedBlobRef.current = null;
             setConverting(false);
         }
-    }, [isOpen, previewUrl]);
+    }, [isOpen, previewUrl, stop]);
 
     const handleShutter = useCallback(async () => {
         const video = videoRef.current;
@@ -113,6 +114,11 @@ export default function PhotoCaptureModal({
         stop();
         onClose?.();
     }, [stop, onClose]);
+
+    const handleRetry = useCallback(() => {
+        stop();
+        start();
+    }, [start, stop]);
 
     if (!isOpen) return null;
 
@@ -189,7 +195,7 @@ export default function PhotoCaptureModal({
                             </div>
                             <div className="flex gap-3 justify-center">
                                 <button
-                                    onClick={() => start()}
+                                    onClick={handleRetry}
                                     className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-medium py-3 px-6 rounded-xl"
                                 >
                                     Retry

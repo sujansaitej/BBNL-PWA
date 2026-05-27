@@ -3,11 +3,13 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { ArrowLeftIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { getServiceList, getCustKYCPreview } from "../services/generalApis";
 import { lsGetStale } from "../services/lsCache";
+import { prefetchCustomerData } from "../services/prefetch";
 import { loadKycWithRetry } from "../utils/kycRetry";
 import BottomNav from "../components/BottomNav";
 import { formatCustomerId } from "../services/helpers";
 import { useToast } from "@/components/ui/Toast";
 import { Modal } from "@/components/ui";
+import { getUser } from "../services/safeStorage";
 
 // Only these 4 services are shown (matches production)
 const ALLOWED_SERVICES = [
@@ -77,6 +79,13 @@ export default function Services() {
     const [selectedService, setSelectedService] = useState(null);
     const [uploadLoading, setUploadLoading] = useState(false);
     const [comingSoonOpen, setComingSoonOpen] = useState(false);
+
+    useEffect(() => {
+        const userid = customerData?.customer_id || customerData?.username || customerId;
+        if (!userid) return;
+        const logUname = getUser()?.username || '';
+        prefetchCustomerData(userid, logUname);
+    }, [customerData, customerId]);
 
     // Background refresh — updates display names if backend has them
     // changed, but never blocks the UI. Only fires when we don't

@@ -46,6 +46,9 @@ export function prefetchCustomerData(userid, logUname) {
   if (!lsGet(`uai_multi_${userid}`, OVERVIEW_TTL)) {
     tasks.push(getUserAssignedItems("multi", userid).catch(() => null));
   }
+  if (!lsGet(`uai_voip_${userid}`, OVERVIEW_TTL)) {
+    tasks.push(getUserAssignedItems("voip", userid).catch(() => null));
+  }
   if (!lsGet(`cblcust_${userid}`, OVERVIEW_TTL)) {
     tasks.push(getCableCustomerDetails(userid).catch(() => null));
   }

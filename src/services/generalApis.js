@@ -605,14 +605,46 @@ export async function getIptvLastSubscribedInfo({ userid, itemid }, skipCache = 
     // as null (verified live: "Please choose fofiboxid" path returns
     // body:{channelid:null}). Without the guard the spread crashes the
     // overview load on bad input.
-    const asArray = (v) => Array.isArray(v) ? v.map(String) : [];
+    const asArray = (v, fields = []) => {
+      if (!Array.isArray(v)) return [];
+      return v.flatMap((item) => {
+        if (item && typeof item === "object") {
+          return fields.map((field) => item[field]);
+        }
+        return [item];
+      }).filter((item) => item !== undefined && item !== null && item !== "").map(String);
+    };
     const mergedChannelIds = Array.from(new Set([
       ...asArray(defBody.channelid),
       ...asArray(actBody.channelid),
     ]));
     const mergedPackageIds = Array.from(new Set([
-      ...asArray(defBody.packageid),
-      ...asArray(actBody.packageid),
+      ...asArray(defBody.packageid, ["pkgid", "packageid", "id"]),
+      ...asArray(actBody.packageid, ["pkgid", "packageid", "id"]),
+      ...asArray(defBody.packageids),
+      ...asArray(actBody.packageids),
+      ...asArray(defBody.pkgid),
+      ...asArray(actBody.pkgid),
+      ...asArray(defBody.pkgids),
+      ...asArray(actBody.pkgids),
+      ...asArray(defBody.packages, ["pkgid", "packageid", "id"]),
+      ...asArray(actBody.packages, ["pkgid", "packageid", "id"]),
+      ...asArray(defBody.subscribed_packages, ["pkgid", "packageid", "id"]),
+      ...asArray(actBody.subscribed_packages, ["pkgid", "packageid", "id"]),
+    ]));
+    const mergedPackageCodes = Array.from(new Set([
+      ...asArray(defBody.pkgcode),
+      ...asArray(actBody.pkgcode),
+      ...asArray(defBody.pkgcodes),
+      ...asArray(actBody.pkgcodes),
+      ...asArray(defBody.packagecode),
+      ...asArray(actBody.packagecode),
+      ...asArray(defBody.packagecodes),
+      ...asArray(actBody.packagecodes),
+      ...asArray(defBody.packages, ["pkgcode", "packagecode", "pkg_code", "package_code"]),
+      ...asArray(actBody.packages, ["pkgcode", "packagecode", "pkg_code", "package_code"]),
+      ...asArray(defBody.subscribed_packages, ["pkgcode", "packagecode", "pkg_code", "package_code"]),
+      ...asArray(actBody.subscribed_packages, ["pkgcode", "packagecode", "pkg_code", "package_code"]),
     ]));
 
     // Prefer the success status — if either call returned err_code:0,
@@ -631,6 +663,7 @@ export async function getIptvLastSubscribedInfo({ userid, itemid }, skipCache = 
         ...actBody,
         channelid: mergedChannelIds,
         packageid: mergedPackageIds,
+        pkgcode: mergedPackageCodes,
       },
     };
     lsSet(cacheKey, merged);

@@ -819,7 +819,7 @@ export default function UploadDocuments() {
       <PhotoCaptureModal
         isOpen={photoCaptureOpen}
         title={
-          uploadOptionsType === 'photo' ? 'Capture Customer Photo'
+          uploadOptionsType === 'photoProof' ? 'Take Customer Photo'
           : uploadOptionsType === 'addressProof' ? 'Capture Address Proof'
           : uploadOptionsType === 'idProof' ? 'Capture ID Proof'
           : 'Take Photo'

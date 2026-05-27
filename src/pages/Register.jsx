@@ -12,12 +12,11 @@ import {
   checkEmailAvailability,
   checkMobileAvailability,
   uploadKycFile,
-  submitRegistrationNecessities,
   getDeviceId,
 } from "../services/registrationApis";
 import { Modal } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
-import { getUser, safeGetArray } from "../services/safeStorage";
+import { safeGetArray } from "../services/safeStorage";
 import {
   isLowMemoryDevice,
   prepareForCameraCapture,
@@ -967,6 +966,12 @@ export default function Register() {
   // when user picks a map position
   const onMapChange = (ll) => {
     setMapPos({ lat: ll.lat, lng: ll.lng });
+    setForm((p) => ({
+      ...p,
+      latitude: ll.lat,
+      longitude: ll.lng,
+    }));
+    setReverseAddress("Fetching selected address...");
     reverseGeocode(ll.lat, ll.lng);
   };
 
@@ -1103,13 +1108,8 @@ export default function Register() {
     if (!validate()) return;
     setSubmitting(true);
     try {
-      const username = form.username;
-      // await uploadAllKycFiles(username);
-      
-      const logUname = getUser().username || "";
-      const regRes = await submitRegistrationNecessities(logUname);
-
-      // Save data in localStorage
+      // Stage the Add User payload locally. Final registration happens
+      // later from the ONU Details Register action after ONU MAC data exists.
       const filerefid = safeGetArray("filerefid");
       const data = { ...form, isKirana: false }; //signature
       if (filerefid.length > 0) data.filerefid = filerefid;
@@ -1122,7 +1122,7 @@ export default function Register() {
       localStorage.removeItem("addrproofIds");
       localStorage.removeItem("idcardIds");
       localStorage.removeItem("filerefid");
-      toast.add('Registration submitted successfully!', { type: 'success' });
+      toast.add('Details saved. Continue to plan selection.', { type: 'success' });
       navigate("/plans");
     } catch (err) {
       console.error("Submit error:", err);
