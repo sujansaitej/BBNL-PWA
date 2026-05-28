@@ -45,7 +45,7 @@ const OVERVIEW_TTL = 2 * 60 * 1000;
 // (multi, voip, internet) depending on user classification. We scan ALL
 // buckets to find the box, not just body.fofi.
 const _BBNL_BOX_RE = /^(bbnl[-_]andbox[-_]|BBNL[-_]ANDBOX[-_])/i;
-const _FOFI_BOX_RE = /\b(fofi|smart\s*box|smartbox|fofibox|fta|cabletv|iptv|stb|box)\b/i;
+const _FOFI_BOX_RE = /\b(fofi|fo-fi|smart\s*box|smartbox|fofibox|fofi[_-]?box|fta)\b/i;
 
 function extractBoxFromItem(item) {
     if (!item || typeof item !== 'object') return null;
@@ -61,7 +61,7 @@ function extractBoxFromItem(item) {
     let bbnlMatch = candidates.find(v => _BBNL_BOX_RE.test(v));
     if (bbnlMatch) return { boxId: bbnlMatch, source: 'bbnl-pattern', item };
 
-    // Look for any box-like ID that mentions FoFi/SmartBox/IPTV
+    // Look for values that explicitly indicate FoFi/SmartBox identity.
     let fofiMatch = candidates.find(v => _FOFI_BOX_RE.test(v) && v.length > 3);
     if (fofiMatch) return { boxId: fofiMatch, source: 'fofi-pattern', item };
 
@@ -74,10 +74,6 @@ function extractBoxFromItem(item) {
             }
         }
     }
-
-    // Fallback: any non-username candidate
-    const nonUsername = candidates.find(v => v !== item.username && v.length > 3);
-    if (nonUsername) return { boxId: nonUsername, source: 'fallback', item };
 
     return null;
 }
@@ -148,7 +144,7 @@ function findFoFiSubscribedService(planResponse) {
     const subscribedServices = planResponse?.body?.subscribed_services || [];
     if (!Array.isArray(subscribedServices)) return null;
     return subscribedServices.find(s => canonicalServiceKey(s?.servicekey) === 'fofi'
-        || /\bfofi\b|smart\s*box|smartbox|fofibox|\bfta\b|\bcabletv\b|\biptv\b/i.test(
+        || /\bfo-?fi\b|smart\s*box|fofibox|\bfta\b/i.test(
             `${s?.serv_name || ''} ${s?.title || ''} ${s?.planname || ''} ${s?.plan_name || ''}`
         ));
 }
@@ -176,9 +172,11 @@ function isMeaningfulFoFiValue(value) {
 function isConfirmedFofiServiceDetails(details) {
     if (!details) return false;
     const hasBox = isMeaningfulFoFiValue(details.boxId || details.fofiboxid || details.fofi_box_id);
+    // Existing-service upgrade flow must have human-verified plan context.
+    // A standalone ottPlanId without plan/expiry has led to false positives
+    // and wrong-box-id failures on submit.
     const hasPlanOrExpiry = isMeaningfulFoFiValue(details.planName)
-        || isMeaningfulFoFiValue(details.expiryDate)
-        || isMeaningfulFoFiValue(details.ottPlanId);
+        || isMeaningfulFoFiValue(details.expiryDate);
     return hasBox && hasPlanOrExpiry;
 }
 
@@ -856,7 +854,7 @@ function FoFiSmartBox() {
                         const planName = firstTrimmedValue(fofiSvc?.planname, fofiSvc?.plan_name);
                         const expiryDate = firstTrimmedValue(fofiSvc?.expirydate, fofiSvc?.expiry_date);
                         const ottPlanIdFromPlan = fofiSvc?.internet_planid || fofiSvc?.srvid || fofiSvc?.planid || null;
-                        if (!fofiSvc || (!isMeaningfulFoFiValue(planName) && !isMeaningfulFoFiValue(expiryDate) && !isMeaningfulFoFiValue(ottPlanIdFromPlan))) {
+                        if (!fofiSvc || (!isMeaningfulFoFiValue(planName) && !isMeaningfulFoFiValue(expiryDate))) {
                             if (refreshData) return;
                             clearUnconfirmedFoFiService();
                             return;

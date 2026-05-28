@@ -4,9 +4,8 @@ import Terms from "../components/Terms";
 import { useNavigate } from "react-router-dom";
 import SignaturePad from "react-signature-canvas";
 import { PhotoIcon, DocumentIcon, CheckCircleIcon, XCircleIcon, InformationCircleIcon, PencilSquareIcon, XMarkIcon, EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
-import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { MapContainer, Marker, TileLayer, useMapEvents, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, useMapEvents, useMap } from "react-leaflet";
 import {
   checkUsernameAvailability,
   checkEmailAvailability,
@@ -509,13 +508,6 @@ const ThumbnailUploader = forwardRef(({ label, max = 1, username, fieldKey, mult
   );
 });
 
-const customMarker = L.icon({
-  iconUrl: import.meta.env.VITE_API_APP_DIR_PATH + "icons/marker.png",
-  iconSize: [55, 55],
-  iconAnchor: [20, 40],
-  popupAnchor: [0, -40],
-});
-
 // Recenter map when center prop changes — defined at module level to avoid
 // React remounting the component on every parent render.
 function RecenterMap({ center }) {
@@ -526,52 +518,36 @@ function RecenterMap({ center }) {
   return null;
 }
 
-// Stable module-level component for handling map click events.
-// Defined outside LocationPicker so React never unmounts/remounts it on
-// parent re-renders — fixes BUG-002 (Android tap-to-pick not registering).
-function MapClickHandler({ onMapClick }) {
-  useMapEvents({
+function MapCenterTracker({ onCenterPick }) {
+  const map = useMapEvents({
     click(e) {
-      onMapClick(e.latlng);
+      map.setView(e.latlng, map.getZoom());
+      onCenterPick(e.latlng);
+    },
+    moveend() {
+      onCenterPick(map.getCenter());
     },
   });
   return null;
 }
 
-// Small component to let user move a marker and update parent with lat/lng
+// Center-locked picker: map moves under a fixed center pointer.
 function LocationPicker({ center, onChange }) {
-  const [pos, setPos] = useState(center);
-
-  // Sync marker position when center prop changes (e.g. from geolocation)
-  useEffect(() => {
-    setPos({ lat: center[0], lng: center[1] });
-  }, [center[0], center[1]]);
-
-  const handleMapClick = (latlng) => {
-    setPos(latlng);
-    onChange(latlng);
-  };
-
   return (
-    <MapContainer center={center} zoom={14} scrollWheelZoom={true} style={{ height: 400, width: "100%" }}>
-      <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-      <RecenterMap center={center} />
-      <MapClickHandler onMapClick={handleMapClick} />
-      {pos && (
-        <Marker
-          draggable
-          position={pos}
-          icon={customMarker}
-          eventHandlers={{
-            dragend(e) {
-              const ll = e.target.getLatLng();
-              setPos(ll);
-              onChange(ll);
-            },
-          }}
+    <div className="relative">
+      <MapContainer center={center} zoom={14} scrollWheelZoom={true} style={{ height: 400, width: "100%" }}>
+        <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        <RecenterMap center={center} />
+        <MapCenterTracker onCenterPick={onChange} />
+      </MapContainer>
+      <div className="pointer-events-none absolute inset-0 z-[500] flex items-center justify-center">
+        <img
+          src={import.meta.env.VITE_API_APP_DIR_PATH + "icons/marker.png"}
+          alt="Center pointer"
+          className="h-11 w-11 -translate-y-5 drop-shadow-md"
         />
-      )}
-    </MapContainer>
+      </div>
+    </div>
   );
 }
 
@@ -1305,7 +1281,7 @@ export default function Register() {
           <div className="fixed inset-0 bg-black/40" onClick={() => setShowMap(false)} />
           <div className="bg-white rounded-lg p-4 max-w-2xl w-full z-50">
             <h3 className="text-md font-semibold">Pick Installation Location</h3>
-            <p className="text-xs flex mb-1"><InformationCircleIcon className="h-4 w-4 mr-1" />Drag & drop the marker to change location</p>
+            <p className="text-xs flex mb-1"><InformationCircleIcon className="h-4 w-4 mr-1" />Drag the map. The center pointer marks the selected location.</p>
             <LocationPicker center={[mapPos.lat, mapPos.lng]} onChange={(ll) => onMapChange(ll)} />
 
             <p className="mt-2 text-xs text-black-600">Selected Address: <span className="text-blue-600">{reverseAddress}</span></p>

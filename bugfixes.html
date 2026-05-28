@@ -46,6 +46,17 @@
   .bug-card .bug-title { font-weight: 700; color: var(--text); font-size: 1.02rem; }
   .bug-card .bug-meta { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.8rem; font-size: 0.85rem; color: var(--muted); }
   .bug-card .bug-meta span { display: inline-flex; align-items: center; gap: 0.3rem; background: #fff; border: 1px solid var(--border); border-radius: 999px; padding: 0.25rem 0.7rem; }
+  .qa-status { margin-top: 1rem; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 0.9rem; }
+  .qa-status-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+  .qa-status-title { color: var(--accent); font-size: 0.9rem; font-weight: 700; }
+  .qa-toggle { border: 1px solid #86efac; background: #dcfce7; color: #166534; border-radius: 999px; padding: 0.45rem 0.85rem; font: inherit; font-size: 0.86rem; font-weight: 700; cursor: pointer; min-width: 112px; }
+  .qa-toggle:hover { filter: brightness(0.98); }
+  .qa-status[data-fixed="false"] .qa-toggle { border-color: #fecaca; background: #fee2e2; color: var(--red); }
+  .qa-issue-wrap { display: none; margin-top: 0.75rem; }
+  .qa-status[data-fixed="false"] .qa-issue-wrap { display: block; }
+  .qa-issue-label { display: block; color: var(--muted); font-size: 0.82rem; font-weight: 600; margin-bottom: 0.35rem; }
+  .qa-issue-input { width: 100%; min-height: 76px; resize: vertical; border: 1px solid var(--border); border-radius: 6px; padding: 0.65rem 0.75rem; font: inherit; font-size: 0.9rem; color: var(--text); background: #fff; }
+  .qa-issue-input:focus { outline: 2px solid #bfdbfe; border-color: var(--accent2); }
   .bug-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; margin-top: 1rem; }
   .step-box { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1rem 1rem 1.1rem; }
   .step-box h4 { margin-top: 0; color: var(--accent); }
@@ -68,6 +79,8 @@
     body { background: #fff !important; font-size: 9pt; line-height: 1.5; }
     .container { max-width: 100%; padding: 0; }
     .card, .bug-card, .step-box { background: var(--card) !important; border: 1px solid var(--border) !important; }
+    .qa-status { background: #fff !important; page-break-inside: avoid; }
+    .qa-issue-wrap { display: block !important; }
     .header-bar { background: linear-gradient(135deg, #f0f4ff, #e8ecf7) !important; }
     .warn { background: #fffaeb !important; }
     .info { background: #eff4fb !important; }
@@ -3025,5 +3038,93 @@
 </div>
 
   </div>
+<script>
+  (function () {
+    const storageKey = "fofi-bugfixes-testing-status-v1";
+
+    function readState() {
+      try {
+        return JSON.parse(localStorage.getItem(storageKey)) || {};
+      } catch (error) {
+        return {};
+      }
+    }
+
+    function writeState(state) {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(state));
+      } catch (error) {
+        // The report remains usable even when browser storage is unavailable.
+      }
+    }
+
+    const state = readState();
+
+    document.querySelectorAll(".bug-card").forEach(function (card) {
+      const bugId = card.id || "bug";
+      const title = card.querySelector(".bug-title")?.textContent?.trim() || bugId;
+      const bugState = state[bugId] || { fixed: true, issue: "" };
+
+      const panel = document.createElement("div");
+      panel.className = "qa-status";
+      panel.dataset.fixed = bugState.fixed === false ? "false" : "true";
+      panel.innerHTML = [
+        '<div class="qa-status-row">',
+        '  <span class="qa-status-title">Testing Status</span>',
+        '  <button class="qa-toggle" type="button" aria-pressed="true"></button>',
+        '</div>',
+        '<div class="qa-issue-wrap">',
+        '  <label class="qa-issue-label"></label>',
+        '  <textarea class="qa-issue-input" rows="3" placeholder="Enter the issue found during testing"></textarea>',
+        '</div>'
+      ].join("");
+
+      const toggle = panel.querySelector(".qa-toggle");
+      const label = panel.querySelector(".qa-issue-label");
+      const input = panel.querySelector(".qa-issue-input");
+
+      function sync() {
+        const isFixed = panel.dataset.fixed !== "false";
+        toggle.textContent = isFixed ? "Fixed" : "Not Fixed";
+        toggle.setAttribute("aria-pressed", String(isFixed));
+        input.disabled = isFixed;
+        input.required = !isFixed;
+      }
+
+      label.textContent = "Issue found in testing for " + title;
+      input.value = bugState.issue || "";
+      sync();
+
+      toggle.addEventListener("click", function () {
+        const nextFixed = panel.dataset.fixed === "false";
+        panel.dataset.fixed = nextFixed ? "true" : "false";
+        state[bugId] = {
+          fixed: nextFixed,
+          issue: input.value.trim()
+        };
+        writeState(state);
+        sync();
+        if (!nextFixed) {
+          input.focus();
+        }
+      });
+
+      input.addEventListener("input", function () {
+        state[bugId] = {
+          fixed: panel.dataset.fixed !== "false",
+          issue: input.value
+        };
+        writeState(state);
+      });
+
+      const meta = card.querySelector(".bug-meta");
+      if (meta) {
+        meta.insertAdjacentElement("afterend", panel);
+      } else {
+        card.insertAdjacentElement("afterbegin", panel);
+      }
+    });
+  })();
+</script>
 </body>
 </html>

@@ -17,7 +17,7 @@ import { refreshServiceController } from "../../services/navigationController";
 import { formatCustomerId } from "../../services/helpers";
 import { useToast } from "@/components/ui/Toast";
 
-const OVERVIEW_TTL = 2 * 60 * 1000; // 2 min
+const OVERVIEW_TTL = 10 * 60 * 1000; // 10 min
 
 export default function InternetService() {
   const { customerId } = useParams();
@@ -78,6 +78,7 @@ export default function InternetService() {
     }
 
     async function fetchOverview() {
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       // Only show loading for plan/internet sections, not the whole page
       setRenewalStatusReady(false);
       if (!_hasCachedPlan) {
@@ -91,7 +92,7 @@ export default function InternetService() {
       // getMyPlanDetails populated on the previous overview visit.
       const skipCache = !!refreshData;
       const skipPlanCache = !!refreshData;
-      const [aiResult, planResult] = await Promise.allSettled([
+      let [aiResult, planResult] = await Promise.allSettled([
         getUserAssignedItems("internet", userid, skipCache),
         getMyPlanDetails({ servicekey: "internet", userid, fofiboxid: "", voipnumber: "" }, skipPlanCache),
       ]);
@@ -99,6 +100,16 @@ export default function InternetService() {
       // Ignore results if requests were cancelled due to navigation
       const navCancelled = (r) => r.status === "rejected" && r.reason?.message?.includes('navigated away');
       if (navCancelled(aiResult) || navCancelled(planResult)) return;
+
+      // One quick retry for transient dual-failure on weak networks.
+      if (aiResult.status === "rejected" && planResult.status === "rejected") {
+        await sleep(500);
+        [aiResult, planResult] = await Promise.allSettled([
+          getUserAssignedItems("internet", userid, true),
+          getMyPlanDetails({ servicekey: "internet", userid, fofiboxid: "", voipnumber: "" }, true),
+        ]);
+        if (navCancelled(aiResult) || navCancelled(planResult)) return;
+      }
 
       if (aiResult.status === "fulfilled") setAssignedItems(aiResult.value);
       else console.error("Error fetching assigned items:", aiResult.reason);
@@ -113,8 +124,11 @@ export default function InternetService() {
         setRenewalStatusReady(true);
       }
 
-      if (aiResult.status === "rejected" && planResult.status === "rejected" && !_hasCachedPlan) {
+      const hasUsableFallback = !!(assignedItems || planDetails || _hasCachedPlan);
+      if (aiResult.status === "rejected" && planResult.status === "rejected" && !hasUsableFallback) {
         setError("Failed to load customer overview data.");
+      } else {
+        setError("");
       }
       setPlanLoading(false);
 
@@ -239,11 +253,13 @@ export default function InternetService() {
 
   // Handle Link FOFI BOX button click
   const handleLinkFofiBox = () => {
-    // Navigate to FoFi Smart Box page with customer data
+    // Open FoFi Smart Box in its normal overview flow so new users follow:
+    // overview -> ADD FO-FI BOX -> upgrade-plans -> link-fofi.
+    // Do not force fromInternet direct-entry mode, which jumps straight
+    // to link-fofi and bypasses the expected services/plan picker flow.
     navigate(`/customer/${customerId}/service/fofi-smart-box`, {
       state: {
         customer: customerData,
-        fromInternet: true,
         internetId: internetId,
         planDetails: planDetails
       }

@@ -47,6 +47,17 @@ const firstAmount = (...values) => {
   return null;
 };
 
+const toCents = (amount) => {
+  const parsed = toAmount(amount);
+  if (parsed === null) return null;
+  return Math.round(parsed * 100);
+};
+
+const fromCents = (cents) => {
+  if (cents === null || cents === undefined) return 0;
+  return cents / 100;
+};
+
 const normalizeSubtaxes = (order) => {
   const source = order?.subtaxes || order?.taxdetails?.subtaxes || order?.tax_details;
   if (Array.isArray(source)) {
@@ -76,7 +87,7 @@ const normalizeSubtaxes = (order) => {
 const getPaymentBreakdown = (order) => {
   const planRate = firstAmount(order?.plan_rate, order?.planrate, order?.base_amt, order?.baseamount) || 0;
   const subtaxes = normalizeSubtaxes(order);
-  const taxTotal = subtaxes.reduce((sum, tax) => sum + tax.value, 0);
+  const taxTotal = subtaxes.reduce((sum, tax) => sum + (toCents(tax.value) || 0), 0);
   const discount = firstAmount(order?.discount, order?.discount_amt, order?.discountamount) || 0;
   const otherCharges = firstAmount(order?.other_charges, order?.othercharges, order?.other_charges_amt) || 0;
 
@@ -100,7 +111,12 @@ const getPaymentBreakdown = (order) => {
     order?.dueamount
   ) || 0;
 
-  const calculatedSubtotal = planRate + taxTotal + otherCharges - discount;
+  const calculatedSubtotalCents =
+    (toCents(planRate) || 0) +
+    taxTotal +
+    (toCents(otherCharges) || 0) -
+    (toCents(discount) || 0);
+
   const billedTotal = firstAmount(
     order?.grandtotal,
     order?.payable_amt,
@@ -109,18 +125,35 @@ const getPaymentBreakdown = (order) => {
     order?.round_total
   );
   const fallbackSubtotal = firstAmount(order?.subtotal, order?.sub_total);
-  const paidMinusBalance = paidRaw !== null && balanceAmount > 0 ? paidRaw - balanceAmount : null;
-  const subtotal = paidMinusBalance ?? billedTotal ?? (calculatedSubtotal > 0 ? Math.round(calculatedSubtotal) : (fallbackSubtotal || 0));
-  const paidAmount = paidRaw ?? subtotal;
+  const paidCents = toCents(paidRaw);
+  const balanceCents = toCents(balanceAmount) || 0;
+  const billedCents = toCents(billedTotal);
+  const fallbackCents = toCents(fallbackSubtotal);
+
+  const paidMinusBalanceCents =
+    paidCents !== null && balanceCents > 0 && paidCents >= balanceCents
+      ? (paidCents - balanceCents)
+      : null;
+
+  const subtotalCents =
+    (billedCents !== null && billedCents > 0)
+      ? billedCents
+      : (paidMinusBalanceCents !== null)
+        ? paidMinusBalanceCents
+        : (calculatedSubtotalCents > 0)
+          ? calculatedSubtotalCents
+          : (fallbackCents !== null ? fallbackCents : 0);
+
+  const paidAmountCents = paidCents !== null && paidCents >= 0 ? paidCents : subtotalCents;
 
   return {
-    planRate,
+    planRate: fromCents(toCents(planRate) || 0),
     subtaxes,
-    discount,
-    otherCharges,
-    subtotal,
-    paidAmount,
-    balanceAmount,
+    discount: fromCents(toCents(discount) || 0),
+    otherCharges: fromCents(toCents(otherCharges) || 0),
+    subtotal: fromCents(subtotalCents),
+    paidAmount: fromCents(paidAmountCents),
+    balanceAmount: fromCents(balanceCents),
   };
 };
 
@@ -461,9 +494,9 @@ export default function PaymentHistory() {
 
   const formatAmount = (amount) => {
     const parsed = toAmount(amount);
-    if (parsed === null) return "0";
+    if (parsed === null) return "0.00";
     return parsed.toLocaleString('en-IN', {
-      minimumFractionDigits: Number.isInteger(parsed) ? 0 : 2,
+      minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
   };
