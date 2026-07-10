@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { Routes, Route, Navigate, useParams } from "react-router-dom";
 import PrivateRoute from "./PrivateRoute";
 import ErrorBoundary from "../components/ErrorBoundary";
+import Services from "../pages/Services";
 
 // Redirect unknown service routes back to the customer's services list
 function ServiceFallback() {
@@ -53,7 +54,6 @@ const Customers = lazyRetry(() => import("../pages/Customerlist"));
 const Tickets = lazyRetry(() => import("../pages/Tickets"));
 const TicketsMap = lazyRetry(() => import("../pages/TicketsMap"));
 const Support = lazyRetry(() => import("../pages/Support"));
-const Services = lazyRetry(() => import("../pages/Services"));
 const InternetService = lazyRetry(() => import("../pages/services/InternetService"));
 const VoiceService = lazyRetry(() => import("../pages/services/VoiceService"));
 const FoFiSmartBox = lazyRetry(() => import("../pages/services/FoFiSmartBox"));

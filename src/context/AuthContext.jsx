@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect } from "react";
 import logger from "../utils/logger";
 import { lsClearAll } from "../services/lsCache";
 import { runIptvPrefetch } from "../services/iptvPrefetch";
+import { invalidateIptvServiceStatusCache } from "../services/prefetch";
 
 const AuthContext = createContext();
 
@@ -59,6 +60,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const login = (userDetails) => {
+    invalidateIptvServiceStatusCache();
     setUser(userDetails);
     localStorage.setItem("user", JSON.stringify(userDetails));
     localStorage.setItem("loginTimestamp", String(Date.now()));

@@ -91,11 +91,22 @@ export async function getOrderHistory({ apiopid, cid, servicekey }) {
 }
 
 /**
- * Get FoFi Order History - Specific API for FoFi/CableTV orders
+ * Get service-scoped order history from the dedicated cabletv namespace.
  * API: ServiceApis/cabletv/orderhistory
- * This fetches orders created via the generateorder API
+ *
+ * Both FoFi Smart Box (servid=3) and Cable TV / IPTV (servid=1) register
+ * their orders through ServiceApis/cabletv/*. This endpoint is filtered
+ * SERVER-SIDE by servid, so every row it returns is authoritatively that
+ * service — including older records whose generic custpayhistory rows lack
+ * the modern servicekey/servid fields. Callers should treat these rows as
+ * definitive and never let client-side classification drop them.
+ *
+ * @param {Object} p
+ * @param {string} p.userid  customer username / id
+ * @param {string} p.boxid   FoFi box id (servid 3) or cable box id (servid 1)
+ * @param {string} p.servid  '3' = FoFi, '1' = Cable TV / IPTV
  */
-export async function getFofiOrderHistory({ userid, fofiboxid }) {
+export async function getServiceOrderHistory({ userid, boxid, servid }) {
   const timestamp = Date.now();
   const url = `${getBaseUrl()}ServiceApis/cabletv/orderhistory?_t=${timestamp}`;
 
@@ -113,28 +124,40 @@ export async function getFofiOrderHistory({ userid, fofiboxid }) {
 
   const payload = {
     userid: userid || '',
-    fofiboxid: fofiboxid || '',
-    servid: '3' // FoFi service ID
+    fofiboxid: boxid || '',
+    servid: String(servid || '3')
   };
 
-  logger.debug("Order", "getFofiOrderHistory request", { userid, fofiboxid });
+  logger.debug("Order", "getServiceOrderHistory request", { userid, boxid, servid });
 
   const resp = await apiFetchWithTimeout(url, {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
     cache: 'no-store'
-  }, "getFofiOrderHistory");
+  }, "getServiceOrderHistory");
 
   if (!resp.ok) {
     const errorText = await resp.text();
-    logger.error("Order", "getFofiOrderHistory error", { status: resp.status, error: errorText });
+    logger.error("Order", "getServiceOrderHistory error", { status: resp.status, error: errorText, servid });
     throw new Error(`HTTP ${resp.status}: ${errorText}`);
   }
 
   const result = await resp.json();
-  logger.debug("Order", "getFofiOrderHistory response", { errCode: result?.status?.err_code });
+  logger.debug("Order", "getServiceOrderHistory response", { errCode: result?.status?.err_code, servid });
   return result;
+}
+
+/**
+ * Get FoFi Order History (servid=3). Thin wrapper over
+ * getServiceOrderHistory kept for existing callers (FofiPayment.jsx).
+ */
+export async function getFofiOrderHistory({ userid, fofiboxid }) {
+  return getServiceOrderHistory({ userid, boxid: fofiboxid, servid: '3' });
+}
+
+function getHistoryRows(response) {
+  return Array.isArray(response?.body) ? response.body : [];
 }
 
 /**
@@ -144,34 +167,79 @@ export async function getFofiOrderHistory({ userid, fofiboxid }) {
  * service. Returns the SAME shape as getOrderHistory — `{ status, body }`
  * — so callers do not need to know which endpoint produced the result.
  *
- * - FoFi context with fofiboxid → dedicated /ServiceApis/cabletv/orderhistory
- *   (server-side filtered by servid=3). On any failure or empty body we
- *   fall back to the generic endpoint so operators are never left with a
- *   blank screen during a backend hiccup.
+ * - FoFi (servid=3) and Cable TV / IPTV (servid=1) with a box id →
+ *   dedicated /ServiceApis/cabletv/orderhistory (server-side filtered by
+ *   servid). Every row is authoritatively that service, so we tag it with
+ *   `_authoritativeService` and the registry resolver trusts it — older
+ *   records are never dropped by client-side classification. On any
+ *   failure or empty body we still merge the generic endpoint so operators
+ *   are never left with a blank screen during a backend hiccup.
  * - All other services → generic /apis/custpayhistory (returns ALL
  *   payments; caller must filter client-side via the registry resolver).
  */
-export async function getOrderHistoryFor(serviceType, { apiopid, cid, userid, fofiboxid } = {}) {
-  const wantsFofiDedicated =
-    String(serviceType || '').toLowerCase() === 'fofi' && fofiboxid;
+export async function getOrderHistoryFor(serviceType, { apiopid, cid, userid, fofiboxid, cableboxid } = {}) {
+  const normType = String(serviceType || '').toLowerCase();
 
-  if (wantsFofiDedicated) {
+  // Map service → dedicated cabletv-namespace fetch params. Both FoFi and
+  // Cable TV register orders through ServiceApis/cabletv/* under distinct
+  // servids; the box id scopes the lookup to this customer's device.
+  const dedicatedSpec = (() => {
+    if (normType === 'fofi' && fofiboxid) {
+      return { servid: '3', boxid: fofiboxid, source: 'fofi-dedicated', service: 'fofi' };
+    }
+    if (normType === 'cabletv' && (cableboxid || fofiboxid)) {
+      return { servid: '1', boxid: cableboxid || fofiboxid, source: 'cabletv-dedicated', service: 'cabletv' };
+    }
+    return null;
+  })();
+
+  let dedicated = null;
+  if (dedicatedSpec) {
     try {
-      const fofiResp = await getFofiOrderHistory({ userid: userid || cid, fofiboxid });
-      const hasUsableBody = Array.isArray(fofiResp?.body) && fofiResp.body.length > 0;
-      const noServerError = (fofiResp?.status?.err_code ?? 0) === 0;
-      if (hasUsableBody || noServerError) {
-        return { ...fofiResp, _source: 'fofi-dedicated' };
-      }
-      logger.warn("Order", "FoFi dedicated endpoint returned no usable data, falling back", {
-        errCode: fofiResp?.status?.err_code,
-        bodyLen: Array.isArray(fofiResp?.body) ? fofiResp.body.length : null,
+      const resp = await getServiceOrderHistory({
+        userid: userid || cid,
+        boxid: dedicatedSpec.boxid,
+        servid: dedicatedSpec.servid,
       });
+      const hasUsableBody = Array.isArray(resp?.body) && resp.body.length > 0;
+      const noServerError = (resp?.status?.err_code ?? 0) === 0;
+      if (hasUsableBody || noServerError) {
+        dedicated = { ...resp, _source: dedicatedSpec.source };
+      }
+      if (!hasUsableBody || !noServerError) {
+        logger.warn("Order", `${dedicatedSpec.source} endpoint returned no usable rows; generic history will also be checked`, {
+          errCode: resp?.status?.err_code,
+          bodyLen: Array.isArray(resp?.body) ? resp.body.length : null,
+          servid: dedicatedSpec.servid,
+        });
+      }
     } catch (err) {
-      logger.warn("Order", "FoFi dedicated endpoint failed, falling back to generic", { err: err?.message });
+      logger.warn("Order", `${dedicatedSpec.source} endpoint failed, falling back to generic`, { err: err?.message });
     }
   }
 
   const generic = await getOrderHistory({ apiopid, cid, servicekey: serviceType });
+  if (dedicated) {
+    return {
+      ...generic,
+      body: [
+        // Dedicated rows are server-filtered by servid → definitively this
+        // service. `_authoritativeService` makes the registry resolver
+        // return that service so the row is kept under the right tab and
+        // never dropped as "unclassified".
+        ...getHistoryRows(dedicated).map((row) => ({
+          ...row,
+          _source: dedicatedSpec.source,
+          _authoritativeService: dedicatedSpec.service,
+        })),
+        ...getHistoryRows(generic).map((row) => ({ ...row, _source: 'generic' })),
+      ],
+      _source: `${dedicatedSpec.source}+generic`,
+      _sources: {
+        dedicatedCount: getHistoryRows(dedicated).length,
+        genericCount: getHistoryRows(generic).length,
+      },
+    };
+  }
   return { ...generic, _source: 'generic' };
 }

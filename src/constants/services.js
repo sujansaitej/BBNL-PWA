@@ -93,6 +93,14 @@ const CODED_KEY_FIELDS = [
 export function resolveServiceFromOrder(order, planIdMap = null) {
   if (!order || typeof order !== 'object') return null;
 
+  // Layer 0: authoritative service tag. Set by orderApis when a row comes
+  // from a dedicated, server-side servid-filtered endpoint (FoFi servid=3 /
+  // Cable TV servid=1). These are definitive even when the row carries no
+  // recognizable servicekey/servid field or a legacy plan name, so older
+  // records are never lost to client-side classification.
+  const authoritative = canonicalServiceKey(order._authoritativeService);
+  if (authoritative) return authoritative;
+
   // Layer A: explicit string field
   for (const f of EXPLICIT_KEY_FIELDS) {
     const v = order[f];

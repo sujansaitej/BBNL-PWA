@@ -1,17 +1,54 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Layout from "../layout/Layout";
 import { useNavigate, useLocation } from "react-router-dom";
 import { formatToDecimals } from "../services/helpers";
 import { Loader, Alert } from "@/components/ui";
-import { generateFofiOrder, getFofiPaymentInfo } from "../services/fofiApis";
+import { generateFofiOrder, getFofiPaymentInfo, linkFoFiBox, upgradeRegistration } from "../services/fofiApis";
 import { getCableCustomerDetails, getPrimaryCustomerDetails, getWalBal, getMyPlanDetails, getUserAssignedItems } from "../services/generalApis";
+import { getFofiOrderHistory } from "../services/orderApis";
 import { getUser } from "../services/safeStorage";
 import { lsRemove } from "../services/lsCache";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// After the operator taps PROCEED TO PAY the screen shows "Processing…".
+// The submit API calls are each timeout-bounded (≤60s), but the post-payment
+// service-activation poll used to run ~35s in the foreground and the failure
+// reconciliation another ~35s, so the operator could sit on "Processing…" for
+// over a minute. We now (a) treat the generateorder result as the payment
+// outcome and navigate immediately, (b) run activation verification in the
+// background, and (c) bound the failure reconciliation below.
+const RECONCILE_TIMEOUT_MS = 15000;   // ceiling for the post-failure reconcile
+const PROCESSING_SLOW_HINT_MS = 12000; // after this, tell the operator it's still working
+
+// Resolve `promise`, but never wait longer than `ms` — fall back to `fallback`.
+// Used so a slow/hung reconciliation can't keep the screen on "Processing…".
+const withTimeout = (promise, ms, fallback) => Promise.race([
+  Promise.resolve(promise),
+  new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
+]);
+
 function normalizeText(value) {
   return String(value ?? "").trim().toLowerCase();
+}
+
+function parseFoFiCurrency(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const amount = parseFloat(String(value).replace(/,/g, ''));
+  return Number.isFinite(amount) ? amount : null;
+}
+
+function compactFoFiPlanName(value) {
+  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function isFoFiFtaOnlyPlan(planName) {
+  return compactFoFiPlanName(planName).includes('ftaonly');
+}
+
+function isFoFiDhamakaOfferPlan(planName) {
+  const compact = compactFoFiPlanName(planName);
+  return compact.includes('dhamakaoffer') || compact.includes('dhamaka');
 }
 
 function getAssignedFoFiItems(response) {
@@ -73,32 +110,94 @@ function planLooksActivated(planResponse, expectedPlanId, expectedPlanName) {
   return hasExpiry && (backendName || backendIds.length > 0);
 }
 
-function resolveFoFiAmountDeductable(paymentBody, fallback = 0) {
-  const deductionRaw = paymentBody?.deduction?.totalamount;
-  if (deductionRaw !== undefined && deductionRaw !== null && deductionRaw !== '') {
-    const deductionAmount = parseFloat(deductionRaw);
-    if (Number.isFinite(deductionAmount)) return deductionAmount;
-  }
+function resolveFoFiAmountDeductable(paymentBody, { fallback = 0, planName = '' } = {}) {
+  const resolvedPlanName = String(
+    paymentBody?.planname ??
+    paymentBody?.plan_name ??
+    paymentBody?.serv_name ??
+    planName ??
+    ''
+  ).trim();
 
-  const explicitAmount = parseFloat(
+  if (isFoFiFtaOnlyPlan(resolvedPlanName)) return 0;
+
+  const explicitAmount = parseFoFiCurrency(
+    paymentBody?.deduction?.totalamount ??
     paymentBody?.amount_deductable ??
     paymentBody?.amountdeductable ??
     paymentBody?.fofi_wallet_deduction ??
     paymentBody?.wallet_deduction
   );
-  if (Number.isFinite(explicitAmount)) return explicitAmount;
+  if (explicitAmount !== null && explicitAmount > 0) return explicitAmount;
 
-  const fofiShare = parseFloat(paymentBody?.fofishare);
-  if (Number.isFinite(fofiShare) && fofiShare > 0) return fofiShare;
+  const fofiShare = parseFoFiCurrency(paymentBody?.fofishare);
+  if (fofiShare !== null && fofiShare > 0) return fofiShare;
 
-  const fofiSplit = parseFloat(
+  const fofiSplit = parseFoFiCurrency(
     paymentBody?.final_split_data?.FOFI?.amount ??
     paymentBody?.final_split_data?.fofi?.amount
   );
-  if (Number.isFinite(fofiSplit) && fofiSplit > 0) return fofiSplit;
+  if (fofiSplit !== null && fofiSplit > 0) return fofiSplit;
 
-  const fallbackAmount = parseFloat(fallback);
-  return Number.isFinite(fallbackAmount) ? fallbackAmount : 0;
+  if (isFoFiDhamakaOfferPlan(resolvedPlanName)) return 35.40;
+
+  const totalAmount = parseFoFiCurrency(
+    paymentBody?.total_amt ??
+    paymentBody?.totalamount ??
+    paymentBody?.grandtotal ??
+    paymentBody?.paidamount
+  );
+  if (totalAmount !== null && totalAmount > 0) return totalAmount;
+
+  const fallbackAmount = parseFoFiCurrency(fallback);
+  if (fallbackAmount !== null) return fallbackAmount;
+
+  return explicitAmount !== null ? explicitAmount : 0;
+}
+
+function getFoFiOrderRows(response) {
+  const body = response?.body;
+  if (Array.isArray(body)) return body;
+  if (Array.isArray(body?.result)) return body.result;
+  if (Array.isArray(body?.orders)) return body.orders;
+  if (Array.isArray(body?.data)) return body.data;
+  return [];
+}
+
+function orderField(row, fields) {
+  for (const field of fields) {
+    const value = row?.[field];
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return "";
+}
+
+function orderLooksSuccessful(row) {
+  const searchable = normalizeText([
+    orderField(row, ["txn_status", "txnstatus", "transaction_status", "transactionstatus", "txnstatus_lbl"]),
+    orderField(row, ["renewal_status", "renewalstatus", "renewstatus", "status", "order_status"]),
+    orderField(row, ["payment_status", "paymentstatus", "paystatus"]),
+  ].join(" "));
+  return /\bsuccess\b|\bactive\b|\bactivated\b|\bapproved\b|\bpaid\b/.test(searchable);
+}
+
+function orderMatchesAttempt(row, { transactionId, paidAmount, planName }) {
+  const txn = normalizeText(transactionId);
+  const rowTxn = [
+    orderField(row, ["transactionid", "transaction_id", "txnid", "txn_id"]),
+    orderField(row, ["orderid", "order_id", "orderno", "order_no"]),
+  ].map(normalizeText).filter(Boolean);
+  if (txn && rowTxn.includes(txn)) return true;
+
+  const expectedAmount = Number(paidAmount);
+  const rowAmount = Number(String(orderField(row, ["paidamount", "paid_amount", "paid_amt", "total_amt", "amount"])).replace(/,/g, ""));
+  if (Number.isFinite(expectedAmount) && expectedAmount > 0 && Number.isFinite(rowAmount) && Math.abs(rowAmount - expectedAmount) < 0.01) {
+    return true;
+  }
+
+  const expectedPlan = normalizeText(planName);
+  const rowPlan = normalizeText(orderField(row, ["planname", "plan_name", "serv_name", "service_name"]));
+  return !!expectedPlan && !!rowPlan && rowPlan === expectedPlan;
 }
 
 // Backend-issued transactionid only. Local format-matching strings
@@ -113,6 +212,10 @@ export default function FofiPayment() {
   const location = useLocation();
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // Shows a "taking longer than usual" caption under the spinner so the
+  // operator isn't left wondering whether the app froze on a slow network.
+  const [processingSlow, setProcessingSlow] = useState(false);
+  const submitInFlightRef = useRef(false);
 
   // Alert state
   const [alertOpen, setAlertOpen] = useState(false);
@@ -122,7 +225,8 @@ export default function FofiPayment() {
   const paymentData = location.state;
 
   // Wallet balance
-  const [walletBalance, setWalletBalance] = useState(paymentData?.walletBalance || 0);
+  // null until confirmed by backend — prevents showing ₹0 during API flight
+  const [walletBalance, setWalletBalance] = useState(paymentData?.walletBalance ?? null);
 
   // Payment details - use paymentDetails object if available, fallback to direct fields
   const [paymentDetails, setPaymentDetails] = useState(
@@ -203,7 +307,7 @@ export default function FofiPayment() {
       const data = await getWalBal(payload);
       
       if (data?.status?.err_code === 0) {
-        const balance = data?.body?.wallet_balance || 0;
+        const balance = data?.body?.wallet_balance ?? 0;
         console.log('🟢 Wallet balance fetched:', balance);
         setWalletBalance(balance);
       } else {
@@ -269,10 +373,150 @@ export default function FofiPayment() {
     );
   };
 
+  const navigateToFoFiOverview = ({ walletDeduction = 0, isNewRegistration = paymentData?.paytype === 'new_registration', paymentSuccessOrderId = '' } = {}) => {
+    const customerId = paymentData?.customer?.customer_id || paymentData?.userid;
+    navigate(`/customer/${customerId}/service/fofi-smart-box`, {
+      replace: true,
+      state: {
+        customer: paymentData?.customer,
+        refreshData: true,
+        paymentSuccess: true,
+        paymentSuccessOrderId,
+        isNewRegistration,
+        optimisticPlan: paymentData?.planName || paymentDetails?.["Plan Name"] || null,
+        optimisticFofiBoxId: paymentData?.fofiboxid || '',
+        optimisticDeduction: walletDeduction,
+        _t: Date.now(),
+      }
+    });
+  };
+
+  // Save the just-made payment to localStorage so Payment History can show it
+  // immediately (the API may not reflect it for a few seconds).
+  const persistRecentFoFiPayment = (paidAmount, transactionId) => {
+    try {
+      const now = new Date();
+      const recentOtherCharges = parseFoFiCurrency(paymentDetails?.["Other Charges"]) || 0;
+      const recentBalanceAmount = parseFoFiCurrency(paymentDetails?.["Balance Amount"]) || 0;
+      const paymentRecord = {
+        cid: paymentData?.userid || paymentData?.customer?.customer_id,
+        name: paymentData?.customer?.name || '',
+        mobile: paymentData?.customer?.mobile || '',
+        total_amt: paidAmount,
+        paid_amt: paidAmount,
+        payment_date: `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}-${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`,
+        pymt_mode: 'offline',
+        pymt_type: paymentData?.paytype || 'upgrade',
+        plan_name: paymentDetails?.["Plan Name"] || paymentData?.planName || 'FoFi Plan',
+        plan_rate: paymentDetails?.["Plan Rate"] || paymentData?.planRate || paidAmount,
+        subtaxes: [
+          { key: 'CGST', perc: 9, value: paymentDetails?.["CGST"] || 0 },
+          { key: 'SGST', perc: 9, value: paymentDetails?.["SGST"] || 0 }
+        ],
+        discount: 0,
+        other_charges: recentOtherCharges,
+        subtotal: paidAmount,
+        balance_amt: recentBalanceAmount,
+        orderid: transactionId,
+        timestamp: Date.now()
+      };
+      const existingPaymentsJson = localStorage.getItem('fofi_recent_payments');
+      const existingPayments = existingPaymentsJson ? JSON.parse(existingPaymentsJson) : [];
+      existingPayments.unshift(paymentRecord);
+      const cutoffTime = Date.now() - (24 * 60 * 60 * 1000);
+      const filteredPayments = existingPayments
+        .filter(p => p.timestamp > cutoffTime)
+        .slice(0, 10);
+      localStorage.setItem('fofi_recent_payments', JSON.stringify(filteredPayments));
+    } catch (storageErr) {
+      console.warn('⚠️ Failed to save payment to localStorage:', storageErr);
+    }
+  };
+
+  // Verify service activation + refresh customer details WITHOUT blocking the
+  // operator on the Processing screen. The destination FoFi overview already
+  // polls for plan/expiry propagation and shows the optimistic plan meanwhile,
+  // so this runs fire-and-forget after we've navigated to success.
+  const confirmFoFiActivationInBackground = ({ userid, fofiboxid, planid, planName }) => {
+    Promise.allSettled([
+      confirmFoFiServiceActivation({ userid, fofiboxid, planid, planName }),
+      getCableCustomerDetails(userid),
+      getPrimaryCustomerDetails(userid),
+    ]).catch(() => { /* best-effort; overview reconciles the real state */ });
+  };
+
+  // Decide what really happened when the generateorder request threw an
+  // ambiguous error (network drop / timeout) — the payment MIGHT have reached
+  // the backend. Evidence comes from the order history (the payment truth),
+  // which resolves within its own 15s timeout, so this never runs the long
+  // foreground activation poll. Returns a status; it does NOT navigate (the
+  // caller owns navigation so success/verification handling stays in one place).
+  const reconcileFoFiPaymentOutcome = async ({ transactionId, paidAmount }) => {
+    const userid = paymentData?.userid || "";
+    const fofiboxid = paymentData?.fofiboxid || "";
+    const planName = paymentData?.planName || paymentDetails?.["Plan Name"] || "";
+
+    const orderHistory = await getFofiOrderHistory({ userid, fofiboxid }).catch(() => null);
+    const matchingSuccessOrder = getFoFiOrderRows(orderHistory).find((row) =>
+      orderLooksSuccessful(row) && orderMatchesAttempt(row, { transactionId, paidAmount, planName })
+    );
+
+    // A matching successful order means the payment went through.
+    if (matchingSuccessOrder) return { status: "accepted" };
+
+    // No matching order found. We still can't be sure the request didn't
+    // reach the backend (the history may simply lag), so the caller treats
+    // this as a verification state — never a plain "Failed" that invites a
+    // double charge.
+    return { status: "unconfirmed" };
+  };
+
+  const runPendingFoFiActivation = async () => {
+    const pending = paymentData?.pendingActivation;
+    if (!pending?.type || !pending?.payload) return null;
+
+    const response = pending.type === "link"
+      ? await linkFoFiBox(pending.payload)
+      : await upgradeRegistration(pending.payload);
+
+    if (response?.status?.err_code !== 0) {
+      throw new Error(response?.status?.err_msg || 'FoFi activation failed after payment/order success.');
+    }
+    return response;
+  };
+
   // Handle proceed to pay
   const handleProceedToPay = async () => {
+    // Duplicate-submit guard: ignore taps while a submit is in flight.
+    if (submitInFlightRef.current || submitting) return;
+    submitInFlightRef.current = true;
     setSubmitting(true);
-    
+    setProcessingSlow(false);
+
+    // Slow-network hint: after a few seconds of waiting, show a reassuring
+    // "taking longer than usual" caption. It NEVER re-enables the button
+    // (that would risk a double charge) — it only tells the operator the app
+    // is still working so they don't tap again or kill the app.
+    const slowHintTimer = setTimeout(() => setProcessingSlow(true), PROCESSING_SLOW_HINT_MS);
+    const stopProcessing = ({ keepDisabled = false } = {}) => {
+      clearTimeout(slowHintTimer);
+      setProcessingSlow(false);
+      // keepDisabled — for success/verification we keep the button disabled so
+      // a completed (or possibly-completed) payment can't be submitted twice.
+      if (!keepDisabled) {
+        setSubmitting(false);
+        submitInFlightRef.current = false;
+      }
+    };
+
+    let transactionId = paymentData?.transactionid || "";
+    let paidAmount = 0;
+    let walletDeduction = 0;
+    // Once the order is generated the payment HAS happened. From here on we
+    // never show a plain "Failed" (which would invite a double charge) — we
+    // move to success or, at worst, a verification state.
+    let orderGenerated = false;
+
     try {
       console.log('🔵 Processing FoFi Payment...');
       console.log('🔵 Payment Data:', paymentData);
@@ -292,7 +536,6 @@ export default function FofiPayment() {
       //     id in state that the next attempt picks up.
       // Cost is one extra ~1-2s call. Cheap insurance against
       // "Invalid transaction id" / silent wallet skips.
-      let transactionId;
       let refreshedAmountDeductable = parseFloat(
         paymentData?.amountDeductable ??
         moreDetails?.["Amount Deductable"] ??
@@ -320,25 +563,33 @@ export default function FofiPayment() {
         if (!transactionId) {
           throw new Error('Payment service did not issue a transaction id. Please go back and try again.');
         }
-        refreshedAmountDeductable = resolveFoFiAmountDeductable(refreshResp?.body, refreshedAmountDeductable);
+        refreshedAmountDeductable = resolveFoFiAmountDeductable(refreshResp?.body, {
+          fallback: refreshedAmountDeductable,
+          planName: paymentData?.planName || paymentDetails?.["Plan Name"] || '',
+        });
         console.log('✅ Fresh transactionid received:', transactionId, '(state had:', paymentData?.transactionid, ')');
       } catch (refreshErr) {
-        throw new Error(refreshErr?.message || 'Could not get a valid transaction id. Please go back and try again.');
+        // No order was attempted yet, so nothing could have been charged —
+        // this is a clean failure the operator can safely retry.
+        throw Object.assign(
+          new Error(refreshErr?.message || 'Could not get a valid transaction id. Please go back and try again.'),
+          { cleanFailure: true }
+        );
       }
 
-      // paidamount = full customer bill — matches the IPTV cable flow
-      // that uses the same generateorder endpoint, and the server's
-      // < 100 guard is on the total bill, not the operator share.
+      // Total Amount stays visible as the customer bill. The order
+      // paidamount must match the CRM deductible shown to the operator.
       const totalAmount = paymentData?.totalAmount ??
                           paymentDetails?.["Total Amount"] ??
                           0;
-      const paidAmount = totalAmount;
 
       // FoFi wallet deduction must come from paymentinfo/fofi only.
       // Do not fall back to oprtrshare: the base pack can return
       // deduction.totalamount = "0.00" while oprtrshare is non-zero.
-      const walletDeduction = refreshedAmountDeductable;
+      walletDeduction = refreshedAmountDeductable;
+      paidAmount = walletDeduction;
 
+      console.log('🔵 Total Amount (review):', totalAmount);
       console.log('🔵 Paid Amount (paidamount):', paidAmount);
       console.log('🔵 Wallet Deduction (cashpaid):', walletDeduction);
       console.log('🔵 Transaction ID:', transactionId);
@@ -379,192 +630,143 @@ export default function FofiPayment() {
       console.log('🔴 paidamount =', orderPayload.paidamount, '| orderedbytype =', orderPayload.orderedbytype);
       console.log('🔴 walletBalance (display, pre-deduction) =', walletBalance);
 
-      // Free / nothing-to-charge plans — skip generateFofiOrder and
-      // jump to success only when there is literally no money to
-      // move. The previous "plan name contains FTA" rule was wrong:
-      // "FOFI-Box + FTA ONLY" cost ₹153.40 with oprtrshare ₹153.40
-      // and the bypass silently skipped both generateorder AND the
-      // wallet debit, producing the "Plan Upgraded" popup with no
-      // actual upgrade and no wallet debit.
-      //
-      // Truth source: the customer total + the operator share.
-      // If BOTH are zero, nothing to register, nothing to debit,
-      // safe to bypass. Otherwise we MUST run generateorder + the
-      // wallet debit — even on plans with "FTA" in the name.
+      // Free / nothing-to-charge plans: CRM deductible is the source
+      // of truth for whether there is a wallet charge.
       const numericTotalAmount = parseFloat(totalAmount) || 0;
-      const isFreeUpgrade = numericTotalAmount <= 0 && walletDeduction <= 0;
+      const isFreeUpgrade = walletDeduction <= 0;
+
       if (isFreeUpgrade) {
+        // No wallet charge — the activation call IS the payment/order step.
         console.log('✅ Free upgrade — nothing to charge, skipping generateorder', {
           totalAmount: numericTotalAmount,
           walletDeduction,
         });
-
-        // Still fetch customer details in background so the service page shows updated info
-        Promise.allSettled([
-          getCableCustomerDetails(paymentData?.userid),
-          getPrimaryCustomerDetails(paymentData?.userid),
-        ]).catch(() => {});
-
-        // No success Alert here — see comment in the paid path below.
-        // FoFi SmartBox shows its "Plan Upgraded" / "Registration
-        // Successful" popup on arrival from location.state.paymentSuccess.
-        setTimeout(() => {
-          const customerId = paymentData?.customer?.customer_id || paymentData?.userid;
-          // replace: true — remove the /fofi-payment entry from history so
-          // back from the post-payment FoFi page doesn't land on the
-          // already-completed payment screen.
-          navigate(`/customer/${customerId}/service/fofi-smart-box`, {
-            replace: true,
-            state: {
-              customer: paymentData?.customer,
-              refreshData: true,
-              paymentSuccess: true,
-              isNewRegistration: paymentData?.paytype === 'new_registration',
-              optimisticPlan: paymentData?.planName || paymentDetails?.["Plan Name"] || null,
-              optimisticFofiBoxId: paymentData?.fofiboxid || '',
-              _t: Date.now(),
-            }
-          });
-        }, 600);
-
-        return;
+        await runPendingFoFiActivation();
+        orderGenerated = true;
+      } else {
+        // STEP 1: generateorder is the AUTHORITATIVE payment result.
+        // It registers the order; the wallet debit follows server-side.
+        const orderResponse = await generateFofiOrder(orderPayload);
+        if (orderResponse?.status?.err_code !== 0 && orderResponse?.error !== 0) {
+          // The backend explicitly rejected the order, so nothing was
+          // charged — a clean failure the operator can safely retry.
+          const errMsg = orderResponse?.status?.err_msg || orderResponse?.result || 'Failed to generate order';
+          throw Object.assign(new Error(errMsg), { cleanFailure: true });
+        }
+        // Payment is now done. Any later step that throws must NOT turn this
+        // into a "Failed" (would risk a double charge).
+        orderGenerated = true;
+        console.log('FoFi order generated; Internet savePaymentApi skipped.', { amountDeductable: walletDeduction });
+        // Activation (link / upgrade registration). If it throws after the
+        // order succeeded, the payment still went through — log and continue.
+        try {
+          await runPendingFoFiActivation();
+        } catch (activationErr) {
+          console.warn('FoFi activation step failed after order success (continuing):', activationErr?.message);
+        }
+        persistRecentFoFiPayment(paidAmount, transactionId);
       }
 
-      // STEP 1: Generate the order (registers the new plan / order
-      // record on the cable/FoFi side). This call returns success
-      // even when the wallet hasn't actually moved — see STEP 2.
-      const orderResponse = await generateFofiOrder(orderPayload);
-
-      if (orderResponse?.status?.err_code !== 0 && orderResponse?.error !== 0) {
-        const errMsg = orderResponse?.status?.err_msg || orderResponse?.result || 'Failed to generate order';
-        throw new Error(errMsg);
-      }
-
-      // Do not call the Internet savePaymentApi from FoFi payment.
-      // FoFi uses paymentinfo/fofi + cabletv/generateorder. Calling
-      // the Internet debit API here can debit the Internet wallet even
-      // when the FoFi paymentinfo deductible is 0.00.
-      console.log('FoFi order generated; Internet savePaymentApi skipped.', {
-        amountDeductable: walletDeduction,
-      });
-      await confirmFoFiServiceActivation({
+      // SUCCESS — leave the Processing screen immediately. The activation
+      // verification poll and customer-detail refresh run in the BACKGROUND
+      // (the FoFi overview polls for plan/expiry propagation and shows the
+      // optimistic plan meanwhile), so the operator is never held on
+      // "Processing…" for the 35s confirmation window. Keep the button
+      // disabled — we're navigating away and the payment is complete.
+      stopProcessing({ keepDisabled: true });
+      confirmFoFiActivationInBackground({
         userid: paymentData?.userid || "",
         fofiboxid: paymentData?.fofiboxid || "",
         planid: paymentData?.planid || "",
         planName: paymentData?.planName || paymentDetails?.["Plan Name"] || "",
       });
-
-      // STEP 3: Refresh customer details in PARALLEL so the next page sees fresh data.
-      await Promise.allSettled([
-        getCableCustomerDetails(paymentData?.userid),
-        getPrimaryCustomerDetails(paymentData?.userid),
-      ]);
-      console.log('✅ All payment APIs completed successfully');
-
-      // Save payment to localStorage for immediate display in PaymentHistory
-      // (since the API may not immediately reflect the new payment)
-      try {
-        const now = new Date();
-        const paymentRecord = {
-          cid: paymentData?.userid || paymentData?.customer?.customer_id,
-          name: paymentData?.customer?.name || '',
-          mobile: paymentData?.customer?.mobile || '',
-          total_amt: paidAmount,
-          paid_amt: paidAmount,
-          payment_date: `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}-${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`,
-          pymt_mode: 'offline',
-          pymt_type: paymentData?.paytype || 'upgrade',
-          plan_name: paymentDetails?.["Plan Name"] || paymentData?.planName || 'FoFi Plan',
-          plan_rate: paymentDetails?.["Plan Rate"] || paymentData?.planRate || paidAmount,
-          subtaxes: [
-            { key: 'CGST', perc: 9, value: paymentDetails?.["CGST"] || 0 },
-            { key: 'SGST', perc: 9, value: paymentDetails?.["SGST"] || 0 }
-          ],
-          discount: 0,
-          other_charges: paymentDetails?.["Other Charges"] || 0,
-          subtotal: paidAmount,
-          balance_amt: 0,
-          orderid: transactionId,
-          timestamp: Date.now()
-        };
-
-        // Get existing payments from localStorage
-        const existingPaymentsJson = localStorage.getItem('fofi_recent_payments');
-        const existingPayments = existingPaymentsJson ? JSON.parse(existingPaymentsJson) : [];
-
-        // Add new payment at the beginning
-        existingPayments.unshift(paymentRecord);
-
-        // Keep only last 10 payments and those less than 24 hours old
-        const cutoffTime = Date.now() - (24 * 60 * 60 * 1000);
-        const filteredPayments = existingPayments
-          .filter(p => p.timestamp > cutoffTime)
-          .slice(0, 10);
-
-        localStorage.setItem('fofi_recent_payments', JSON.stringify(filteredPayments));
-        console.log('✅ Payment saved to localStorage for immediate display');
-      } catch (storageErr) {
-        console.warn('⚠️ Failed to save payment to localStorage:', storageErr);
-      }
-
       // No success Alert here — the FoFi SmartBox page shows its own
-      // "Plan Upgraded" modal popup once we navigate (driven by
-      // location.state.paymentSuccess). Showing both produced the
-      // "popup coming again and again" feedback in production: the
-      // operator saw "Payment Successful!" briefly, then ~2s later
-      // "Plan Upgraded", which felt like the system flagging the same
-      // event twice. Keeping only the destination popup is also
-      // honest — that one stays open until the user taps OK and gives
-      // the plan-detail refetch time to land.
+      // "Plan Upgraded" / "Registration Successful" popup on arrival
+      // (driven by location.state.paymentSuccess).
+      navigateToFoFiOverview({
+        walletDeduction,
+        isNewRegistration: paymentData?.paytype === 'new_registration',
+        paymentSuccessOrderId: transactionId,
+      });
+      return;
 
-      // Navigate back to FoFi SmartBox page after success to show updated plan.
-      // replace: true — the /fofi-payment entry is now obsolete; removing it
-      // from history keeps the back stack clean so the user doesn't land on
-      // the completed payment page when pressing back.
-      //
-      // optimisticPlan / optimisticDeduction — the new plan name and the
-      // amount that was just deducted. FoFiSmartBox uses these to update
-      // the Current Plan card and the wallet balance immediately, instead
-      // of waiting on the staged backend refetches (which can take 12+
-      // seconds to propagate). The next backend response will overwrite
-      // these once it lands.
-      //
-      // 600ms delay (was 2000ms) — just enough time for the operator to
-      // perceive the click registered (button changed to "Processing...")
-      // before the next page paints. The destination page's popup is
-      // the actual success acknowledgement.
-      setTimeout(() => {
-        const customerId = paymentData?.customer?.customer_id || paymentData?.userid;
-        const isNewRegistration = paymentData?.paytype === 'new_registration';
-        navigate(`/customer/${customerId}/service/fofi-smart-box`, {
-          replace: true,
-          state: {
-            customer: paymentData?.customer,
-            refreshData: true,
-            paymentSuccess: true,
-            isNewRegistration: isNewRegistration,
-            optimisticPlan: paymentData?.planName || paymentDetails?.["Plan Name"] || null,
-            optimisticFofiBoxId: paymentData?.fofiboxid || '',
-            optimisticDeduction: walletDeduction,
-            _t: Date.now(),
-          }
-        });
-      }, 600);
-      
     } catch (err) {
       console.error('❌ Payment Error:', err);
+
+      // The payment already went through; only a post-payment step failed.
+      // Move to success — the overview reconciles the real state, and leaving
+      // the screen also makes an accidental re-pay impossible.
+      if (orderGenerated) {
+        persistRecentFoFiPayment(paidAmount, transactionId);
+        stopProcessing({ keepDisabled: true });
+        confirmFoFiActivationInBackground({
+          userid: paymentData?.userid || "",
+          fofiboxid: paymentData?.fofiboxid || "",
+          planid: paymentData?.planid || "",
+          planName: paymentData?.planName || paymentDetails?.["Plan Name"] || "",
+        });
+        navigateToFoFiOverview({
+          walletDeduction,
+          isNewRegistration: paymentData?.paytype === 'new_registration',
+          paymentSuccessOrderId: transactionId,
+        });
+        return;
+      }
+
+      // A clean, pre-payment failure (bad txn id, explicit order rejection):
+      // nothing was charged → show Failure and allow a retry.
+      if (err?.cleanFailure) {
+        setAlertConfig({
+          type: 'error',
+          title: 'Payment Failed',
+          message: err.message || 'An unknown error occurred. Please try again.',
+        });
+        setAlertOpen(true);
+        stopProcessing();
+        return;
+      }
+
+      // Ambiguous failure (network drop / timeout): the order MIGHT have
+      // reached the backend. Reconcile against the order history, bounded so
+      // the screen can't hang on "Processing…".
+      const reconciliation = await withTimeout(
+        reconcileFoFiPaymentOutcome({ transactionId, paidAmount }),
+        RECONCILE_TIMEOUT_MS,
+        { status: 'unconfirmed' }
+      ).catch((reconcileErr) => {
+        console.warn('FoFi payment reconciliation failed:', reconcileErr?.message);
+        return { status: 'unconfirmed' };
+      });
+
+      if (reconciliation?.status === 'accepted') {
+        // Order history confirms the payment — treat as success.
+        persistRecentFoFiPayment(paidAmount, transactionId);
+        stopProcessing({ keepDisabled: true });
+        confirmFoFiActivationInBackground({
+          userid: paymentData?.userid || "",
+          fofiboxid: paymentData?.fofiboxid || "",
+          planid: paymentData?.planid || "",
+          planName: paymentData?.planName || paymentDetails?.["Plan Name"] || "",
+        });
+        navigateToFoFiOverview({
+          walletDeduction,
+          isNewRegistration: paymentData?.paytype === 'new_registration',
+          paymentSuccessOrderId: transactionId,
+        });
+        return;
+      }
+
+      // Could not confirm either way → VERIFICATION state. Do NOT offer a
+      // retry on this screen (the payment may have succeeded) — guide the
+      // operator to verify, and keep the button disabled to prevent a double
+      // charge. They can use Back to return and re-check.
       setAlertConfig({
-        type: 'error',
-        title: 'Payment Failed',
-        message: err.message || 'An unknown error occurred. Please try again.'
+        type: 'warning',
+        title: 'Payment Needs Verification',
+        message: 'We could not confirm the payment result in time. If the wallet was debited, do NOT pay again — verify this customer in Netmon or the service page. Otherwise, go back and try again.',
       });
       setAlertOpen(true);
-      // Re-enable the button only on error so the user can retry. On
-      // success we deliberately leave submitting=true: the 2-second
-      // pre-navigation window was previously a re-click footgun where
-      // a frustrated operator (wallet not debited) could click again
-      // and double-charge once the wallet debit started working.
-      setSubmitting(false);
+      stopProcessing({ keepDisabled: true });
     }
   };
 
@@ -593,7 +795,7 @@ export default function FofiPayment() {
           <div className="text-center">
             <h3 className="text-base font-medium text-indigo-600 mb-1">Payment Details</h3>
             <p className="text-sm font-semibold text-purple-600">
-              Wallet Balance : ₹{formatToDecimals(walletBalance)}
+              Wallet Balance : {walletBalance === null ? <span className="opacity-50 animate-pulse">…</span> : `₹${formatToDecimals(walletBalance)}`}
             </p>
           </div>
 
@@ -645,14 +847,22 @@ export default function FofiPayment() {
             </div>
 
           {/* Proceed to Pay Button */}
-          <div className="pt-6 flex justify-center">
+          <div className="pt-6 flex flex-col items-center">
             <button
               onClick={handleProceedToPay}
               disabled={submitting}
               className="bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-semibold text-sm py-3 px-16 rounded-full shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wider transition-shadow duration-200"
             >
-              {submitting ? 'Processing...' : 'PROCEED TO PAY'}
+              {submitting ? 'Processing…' : 'PROCEED TO PAY'}
             </button>
+            {/* Slow-network reassurance — shown only while processing is
+                taking longer than usual, so the operator doesn't tap again or
+                close the app mid-payment. */}
+            {submitting && processingSlow && (
+              <p className="mt-3 text-xs text-gray-500 text-center max-w-xs">
+                Still processing — this is taking longer than usual. Please don&rsquo;t pay again or close the app; we&rsquo;ll confirm the result shortly.
+              </p>
+            )}
           </div>
         </div>
       </div>

@@ -2,7 +2,21 @@
   "permissions": {
     "allow": [
       "Bash(npx vite:*)",
-      "Bash(grep -iE \"\\\\.\\(md|zip|yaml|html|png\\)$|WhatsApp\")"
+      "Bash(grep -iE \"\\\\.\\(md|zip|yaml|html|png\\)$|WhatsApp\")",
+      "Bash(Get-ChildItem -Path . -Force)",
+      "Bash(Select-Object Name, PSIsContainer)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Nikhil\\\\Desktop\\\\BBNL-PWA\\\\src\" -Recurse -Filter \"*.jsx\" -Name)",
+      "PowerShell(npm run *)",
+      "Bash(npx esbuild *)",
+      "Bash(node --check src/pages/services/FoFiSmartBox.jsx)",
+      "Bash(npm run *)",
+      "Bash(node *)",
+      "Bash(xargs wc -l)",
+      "Skill(artifact-design)",
+      "Artifact",
+      "Bash(git status *)",
+      "PowerShell(node \"C:\\\\Users\\\\Nikhil\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Nikhil-Desktop-BBNL-PWA\\\\7ea6f666-b5ca-47d0-ba87-8242f89b864e\\\\scratchpad\\\\probe-apis.cjs\")",
+      "PowerShell(node tools/smoke-overview-apis.cjs)"
     ]
   }
 }

@@ -14,6 +14,8 @@ import { canonicalServiceKey } from "../../constants/services";
 import { loadKycWithRetry } from "../../utils/kycRetry";
 import { lsGetStale, lsRemove } from "../../services/lsCache";
 import { refreshServiceController } from "../../services/navigationController";
+import { prioritizeCustomerService } from "../../services/prefetch";
+import { getUser } from "../../services/safeStorage";
 import { formatCustomerId } from "../../services/helpers";
 import { useToast } from "@/components/ui/Toast";
 
@@ -56,6 +58,9 @@ export default function InternetService() {
   const [planLoading, setPlanLoading] = useState(!_hasCachedPlan); // Only for plan section
   const [renewalStatusReady, setRenewalStatusReady] = useState(false);
   const [error, setError] = useState("");
+  const [detailsLoading, setDetailsLoading] = useState(!(_cachedCD?.data && _cachedPC?.data));
+  const [detailsError, setDetailsError] = useState("");
+  const [overviewRetryKey, setOverviewRetryKey] = useState(0);
   const [uploadLoading, setUploadLoading] = useState(false);
   const lastRenewalCheckRef = useRef(0);
 
@@ -79,26 +84,83 @@ export default function InternetService() {
 
     async function fetchOverview() {
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const navCancelled = (r) => r.status === "rejected" && r.reason?.message?.includes('navigated away');
+      const loadLinkedDetails = async (forceRefresh = false) => {
+        setDetailsLoading(true);
+        setDetailsError("");
+        const [cableResult, primaryResult] = await Promise.allSettled([
+          getCableCustomerDetails(userid, forceRefresh),
+          getPrimaryCustomerDetails(userid, forceRefresh),
+        ]);
+        if (navCancelled(cableResult) || navCancelled(primaryResult)) return;
+
+        if (cableResult.status === "fulfilled") setCableDetails(cableResult.value);
+        else console.error("Error fetching cable details:", cableResult.reason);
+
+        if (primaryResult.status === "fulfilled") setPrimaryCustomerDetails(primaryResult.value);
+        else console.error("Error fetching primary customer details:", primaryResult.reason);
+
+        const hasAnyLinkedDetails =
+          cableResult.status === "fulfilled" ||
+          primaryResult.status === "fulfilled" ||
+          !!cableDetails ||
+          !!primaryCustomerDetails ||
+          !!_cachedCD?.data ||
+          !!_cachedPC?.data;
+
+        if (cableResult.status === "rejected" && primaryResult.status === "rejected" && !hasAnyLinkedDetails) {
+          setDetailsError("Linked-device details could not be loaded. Check the connection and retry.");
+        } else if (cableResult.status === "rejected" || primaryResult.status === "rejected") {
+          setDetailsError("Some linked-device details could not be refreshed. Retry to update them.");
+        }
+        setDetailsLoading(false);
+      };
+
       // Only show loading for plan/internet sections, not the whole page
       setRenewalStatusReady(false);
       if (!_hasCachedPlan) {
         setPlanLoading(true);
         setError("");
       }
-
-      // Fetch critical APIs (needed for render) in parallel.
       // Pass skipCache=true after a payment so we don't accidentally
       // serve the pre-payment cache that getUserAssignedItems /
       // getMyPlanDetails populated on the previous overview visit.
       const skipCache = !!refreshData;
       const skipPlanCache = !!refreshData;
-      let [aiResult, planResult] = await Promise.allSettled([
-        getUserAssignedItems("internet", userid, skipCache),
-        getMyPlanDetails({ servicekey: "internet", userid, fofiboxid: "", voipnumber: "" }, skipPlanCache),
-      ]);
 
-      // Ignore results if requests were cancelled due to navigation
-      const navCancelled = (r) => r.status === "rejected" && r.reason?.message?.includes('navigated away');
+      // CONNECTION-ORDER MATTERS: the browser opens a limited number of
+      // sockets per origin, and whichever fetch() is *called first* grabs a
+      // connection first. getMyPlanDetails gates the visible "Current Plan"
+      // section and is the fastest of the overview calls, so it MUST be
+      // initiated before the slower, non-critical linked-detail (cable +
+      // primary) and assigned-items calls — otherwise the plan section queues
+      // behind ~3 slower requests and the operator stares at "Loading plan
+      // details…" for their combined latency (the reported slowness).
+      const planPromise = getMyPlanDetails({ servicekey: "internet", userid, fofiboxid: "", voipnumber: "" }, skipPlanCache);
+
+      // Paint-fast path: render the plan section the moment plan
+      // details land. getUserAssignedItems is slower server-side and
+      // only feeds the Internet ID line, which falls back to the
+      // customer id until it arrives. Waiting on both in one
+      // allSettled made the operator stare at "Loading plan details…"
+      // for the full assigned-items latency. Errors are ignored here —
+      // the settled-results block below owns retry + error state.
+      planPromise.then((plan) => {
+        setPlanDetails(plan);
+        setRenewalStatusReady(true);
+        setError("");
+        setPlanLoading(false);
+      }).catch(() => {});
+
+      // Non-critical calls initiated AFTER the plan call so they don't
+      // steal its connection: assigned-items (Internet ID line only) and
+      // the linked-device details (cable + primary, their own section).
+      const aiPromise = getUserAssignedItems("internet", userid, skipCache);
+      aiPromise.then((ai) => setAssignedItems(ai)).catch(() => {});
+      const detailsPromise = loadLinkedDetails(!!refreshData || overviewRetryKey > 0);
+
+      let [aiResult, planResult] = await Promise.allSettled([aiPromise, planPromise]);
+
       if (navCancelled(aiResult) || navCancelled(planResult)) return;
 
       // One quick retry for transient dual-failure on weak networks.
@@ -131,35 +193,24 @@ export default function InternetService() {
         setError("");
       }
       setPlanLoading(false);
-
-
-      // Fetch cable + primary customer details in parallel.
-      // These two endpoints round out the four-call set the backend
-      // team confirmed for the Internet Customer OverView screen:
-      //
-      //   1. ServiceApis/getUserAssignedItems  (above, in parallel)
-      //   2. ServiceApis/getMyPlanDetails      (above, in parallel)
-      //   3. GeneralApi/cblCustDet              (here)
-      //   4. cabletvapis/primaryCustdet         (here)
-      //
-      // Both 3 and 4 are fire-and-forget for the initial render —
-      // they're consumed by downstream button handlers (Pay Bill,
-      // Order History, Upload Document) so we don't block the
-      // overview paint waiting for them.
-      getCableCustomerDetails(userid, !!refreshData)
-        .then(setCableDetails)
-        .catch(err => {
-          if (err?.message?.includes('navigated away')) return;
-          console.error("Error fetching cable details:", err);
-        });
-      getPrimaryCustomerDetails(userid, !!refreshData)
-        .then(setPrimaryCustomerDetails)
-        .catch(err => {
-          if (err?.message?.includes('navigated away')) return;
-          console.error("Error fetching primary customer details:", err);
-        });
+      detailsPromise.catch((err) => {
+        if (err?.message?.includes('navigated away')) return;
+        console.error("Error fetching linked-device details:", err);
+        setDetailsError("Linked-device details could not be loaded. Check the connection and retry.");
+        setDetailsLoading(false);
+      });
     }
     if (userid) fetchOverview();
+
+    // Warm the Internet-side caches in the background — most importantly
+    // the specialInternetPlans list that the "Link FOFI BOX" flow reads,
+    // so tapping it opens with plans already loaded even when this page
+    // was reached by deep link (bypassing the ServiceSelectionModal's
+    // prefetch). Runs in prefetch background mode, so route changes
+    // don't abort it; dedup guards make it a no-op when already warm.
+    try {
+      prioritizeCustomerService(userid, getUser()?.username || 'superadmin', 'internet');
+    } catch (_) { /* prefetch is best-effort */ }
 
     // Strip the refreshData / paymentSuccess flags from the history
     // entry after we've consumed them. Otherwise a page-refresh on
@@ -174,7 +225,7 @@ export default function InternetService() {
         window.history.replaceState(cleaned, document.title, window.location.pathname + window.location.search);
       } catch (_) { /* defensive */ }
     }
-  }, [userid, refreshData, paymentSuccess]);
+  }, [userid, refreshData, paymentSuccess, overviewRetryKey]);
 
   // Handle service selection — peer service switch.
   // replace: true so flipping between Internet/IPTV/Voice/FoFi via the
@@ -251,17 +302,19 @@ export default function InternetService() {
     });
   };
 
-  // Handle Link FOFI BOX button click
+  // Handle Link FOFI BOX button click.
+  // Navigate straight into the FoFi Smart Box page's link flow
+  // (view='link-fofi') via fromInternet=true, which loads the
+  // Internet-origin IPTV/Combo plans list — the same services list the
+  // operator gets when tapping "Link FoFi Box" inside FoFi Smart Box.
+  // (Previously this opened the peer-service switcher modal by mistake.)
   const handleLinkFofiBox = () => {
-    // Open FoFi Smart Box in its normal overview flow so new users follow:
-    // overview -> ADD FO-FI BOX -> upgrade-plans -> link-fofi.
-    // Do not force fromInternet direct-entry mode, which jumps straight
-    // to link-fofi and bypasses the expected services/plan picker flow.
     navigate(`/customer/${customerId}/service/fofi-smart-box`, {
       state: {
         customer: customerData,
-        internetId: internetId,
-        planDetails: planDetails
+        services: servicesFromState,
+        fromInternet: true,
+        internetId,
       }
     });
   };
@@ -380,6 +433,23 @@ export default function InternetService() {
             Order History
           </button>
         </div>
+
+        {(detailsLoading || detailsError) && (
+          <div className={`rounded-xl border px-4 py-3 text-sm ${detailsError ? 'bg-red-50 border-red-200 text-red-700' : 'bg-indigo-50 border-indigo-100 text-indigo-700'}`}>
+            <div className="flex items-center justify-between gap-3">
+              <span>{detailsError || 'Loading linked-device details...'}</span>
+              {detailsError && (
+                <button
+                  type="button"
+                  onClick={() => setOverviewRetryKey((key) => key + 1)}
+                  className="shrink-0 font-semibold text-indigo-600 hover:text-indigo-700"
+                >
+                  Retry
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Filter Badge — renders instantly */}
         <div className="flex items-center justify-between bg-white dark:bg-gray-800 px-4 py-3 -mx-4">

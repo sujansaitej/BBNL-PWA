@@ -18,7 +18,7 @@ export default function Loader({
 
   const LoadingSpinner = () => (
     <div className="relative">
-      {/* Simple rotating ring — no inner circle to avoid resembling a logo */}
+      {/* Simple rotating ring â€” no inner circle to avoid resembling a logo */}
       <motion.div
         className={`${sizeClasses[size]} rounded-full border-4 border-gray-200`}
         style={{ borderTopColor: '#6366f1' }}

@@ -31,6 +31,36 @@ const parsePaymentDate = (dateStr) => {
   return new Date(dateStr);
 };
 
+const firstText = (...values) => {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    const text = String(value).trim();
+    if (text) return text;
+  }
+  return "";
+};
+
+const getStableOrderKey = (order) => {
+  const stableId = firstText(
+    order?.orderid,
+    order?.order_id,
+    order?.orderno,
+    order?.order_no,
+    order?.txn_id,
+    order?.txnid,
+    order?.transactionid,
+    order?.transaction_id,
+    order?.paymentid,
+    order?.payment_id,
+    order?.receiptid,
+    order?.receipt_id,
+    order?.invoiceid,
+    order?.invoice_id
+  );
+
+  return stableId ? `stable:${stableId}` : "";
+};
+
 const toAmount = (value) => {
   if (value === null || value === undefined || value === "") return null;
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
@@ -47,6 +77,14 @@ const firstAmount = (...values) => {
   return null;
 };
 
+const firstPositiveAmount = (...values) => {
+  for (const value of values) {
+    const parsed = toAmount(value);
+    if (parsed !== null && parsed > 0) return parsed;
+  }
+  return null;
+};
+
 const toCents = (amount) => {
   const parsed = toAmount(amount);
   if (parsed === null) return null;
@@ -58,21 +96,42 @@ const fromCents = (cents) => {
   return cents / 100;
 };
 
+const normalizeResidualBalanceCents = (balanceCents, { subtotalCents, paidCents, billedCents } = {}) => {
+  if (!balanceCents || balanceCents <= 0) return 0;
+
+  // Older Internet receipts can carry a small residual (commonly
+  // Re.1, then 2/3 after repeated renewal) even when the operator
+  // wallet debit succeeded. If the row
+  // otherwise has a precise subtotal/paid value, do not let that
+  // residual become the displayed balance or reduce the subtotal.
+  if (
+    balanceCents <= 500 &&
+    (
+      (subtotalCents > 0 && paidCents !== null) ||
+      (billedCents > 0 && Math.abs(billedCents - subtotalCents) <= 100)
+    )
+  ) {
+    return 0;
+  }
+
+  return balanceCents;
+};
+
 const normalizeSubtaxes = (order) => {
   const source = order?.subtaxes || order?.taxdetails?.subtaxes || order?.tax_details;
   if (Array.isArray(source)) {
     return source.map((tax) => ({
-      key: tax?.key || tax?.name || tax?.taxname || "Tax",
+      key: tax?.key || tax?.name || tax?.taxname || tax?.title || tax?.label || "Tax",
       perc: tax?.perc ?? tax?.percentage ?? tax?.tax_perc ?? "",
-      value: firstAmount(tax?.value, tax?.amount, tax?.tax_amount) || 0,
+      value: firstAmount(tax?.value, tax?.amount, tax?.tax_amount, tax?.amt) || 0,
     })).filter((tax) => tax.value > 0);
   }
 
   if (source && typeof source === "object") {
     return Object.entries(source).map(([key, tax]) => ({
-      key,
+      key: tax?.key || tax?.name || tax?.taxname || tax?.title || tax?.label || key,
       perc: tax?.perc ?? tax?.percentage ?? tax?.tax_perc ?? "",
-      value: firstAmount(tax?.value, tax?.amount, tax?.tax_amount, tax) || 0,
+      value: firstAmount(tax?.value, tax?.amount, tax?.tax_amount, tax?.amt, tax) || 0,
     })).filter((tax) => tax.value > 0);
   }
 
@@ -84,32 +143,56 @@ const normalizeSubtaxes = (order) => {
   ].filter(Boolean);
 };
 
-const getPaymentBreakdown = (order) => {
+const getPaymentBreakdown = (order, serviceType) => {
   const planRate = firstAmount(order?.plan_rate, order?.planrate, order?.base_amt, order?.baseamount) || 0;
   const subtaxes = normalizeSubtaxes(order);
   const taxTotal = subtaxes.reduce((sum, tax) => sum + (toCents(tax.value) || 0), 0);
   const discount = firstAmount(order?.discount, order?.discount_amt, order?.discountamount) || 0;
-  const otherCharges = firstAmount(order?.other_charges, order?.othercharges, order?.other_charges_amt) || 0;
+  const otherCharges = (firstPositiveAmount(
+    order?.other_charges,
+    order?.othercharges,
+    order?.other_charges_amt,
+    order?.other_amt,
+    order?.othamt,
+    order?.othcharge?.amt,
+    order?.shareinfo?.othamt
+  ) ?? firstAmount(
+    order?.other_charges,
+    order?.othercharges,
+    order?.other_charges_amt,
+    order?.other_amt,
+    order?.othamt,
+    order?.othcharge?.amt,
+    order?.shareinfo?.othamt
+  )) || 0;
 
   const paidRaw = firstAmount(
     order?.paid_amt,
     order?.paidamount,
     order?.paid_amount,
-    order?.cashpaid,
     order?.receivedamount,
     order?.totalpaid,
     order?.total_amt,
     order?.totalamount,
-    order?.total_amount
+    order?.total_amount,
+    order?.cashpaid
   );
 
-  const balanceAmount = firstAmount(
+  const balanceAmount = (firstPositiveAmount(
     order?.balance_amt,
     order?.balanceamount,
     order?.balance_amount,
     order?.balamt,
-    order?.dueamount
-  ) || 0;
+    order?.dueamount,
+    order?.shareinfo?.balamt
+  ) ?? firstAmount(
+    order?.balance_amt,
+    order?.balanceamount,
+    order?.balance_amount,
+    order?.balamt,
+    order?.dueamount,
+    order?.shareinfo?.balamt
+  )) || 0;
 
   const calculatedSubtotalCents =
     (toCents(planRate) || 0) +
@@ -126,9 +209,13 @@ const getPaymentBreakdown = (order) => {
   );
   const fallbackSubtotal = firstAmount(order?.subtotal, order?.sub_total);
   const paidCents = toCents(paidRaw);
-  const balanceCents = toCents(balanceAmount) || 0;
   const billedCents = toCents(billedTotal);
   const fallbackCents = toCents(fallbackSubtotal);
+  const balanceCents = normalizeResidualBalanceCents(toCents(balanceAmount) || 0, {
+    subtotalCents: calculatedSubtotalCents,
+    paidCents,
+    billedCents,
+  });
 
   const paidMinusBalanceCents =
     paidCents !== null && balanceCents > 0 && paidCents >= balanceCents
@@ -136,15 +223,31 @@ const getPaymentBreakdown = (order) => {
       : null;
 
   const subtotalCents =
-    (billedCents !== null && billedCents > 0)
-      ? billedCents
-      : (paidMinusBalanceCents !== null)
+    (calculatedSubtotalCents > 0)
+      ? calculatedSubtotalCents
+      : (billedCents !== null && billedCents > 0)
+        ? billedCents
+        : (paidMinusBalanceCents !== null)
         ? paidMinusBalanceCents
-        : (calculatedSubtotalCents > 0)
-          ? calculatedSubtotalCents
-          : (fallbackCents !== null ? fallbackCents : 0);
+        : (fallbackCents !== null ? fallbackCents : 0);
 
   const paidAmountCents = paidCents !== null && paidCents >= 0 ? paidCents : subtotalCents;
+
+  // Internet receipts never carry a customer balance. Any positive
+  // "balance" on an Internet row is the share-settlement phantom
+  // (customer total − operator wallet debit) that older saves recorded
+  // as paid=walletDebit; left alone it shows as an orange Balance card
+  // and appears to grow 20 → 40 across renewals. For Internet, the
+  // customer paid the full cycle bill, so Total Paid == subtotal and
+  // the displayed balance is always zero.
+  const isInternet = serviceType === 'internet';
+  // Updated behavior: normalized internet balances are displayed; only
+  // zero-balance rows keep the old paid=subtotal presentation.
+  const displayPaidCents =
+    isInternet && balanceCents === 0 && paidAmountCents < subtotalCents
+      ? subtotalCents
+      : paidAmountCents;
+  const displayBalanceCents = balanceCents;
 
   return {
     planRate: fromCents(toCents(planRate) || 0),
@@ -152,8 +255,8 @@ const getPaymentBreakdown = (order) => {
     discount: fromCents(toCents(discount) || 0),
     otherCharges: fromCents(toCents(otherCharges) || 0),
     subtotal: fromCents(subtotalCents),
-    paidAmount: fromCents(paidAmountCents),
-    balanceAmount: fromCents(balanceCents),
+    paidAmount: fromCents(displayPaidCents),
+    balanceAmount: fromCents(displayBalanceCents),
   };
 };
 
@@ -164,6 +267,7 @@ export default function PaymentHistory() {
   const cableDetails = location.state?.cableDetails;
   const serviceType = canonicalServiceKey(location.state?.serviceType); // 'fofi' | 'internet' | 'cabletv' | undefined
   const fofiboxid = location.state?.fofiboxid; // present only when navigated from FoFi page
+  const cableboxid = location.state?.cableboxid; // present only when navigated from Cable TV / IPTV page
 
   // Discovery toggle: ?debugOrders=1 OR dev build. Renders a JSON
   // dump of the raw response at the bottom so we can confirm what
@@ -221,7 +325,7 @@ export default function PaymentHistory() {
         //   using the central service registry (constants/services.js).
         try {
           const userid = customerData?.username || customerData?.customer_id || cid;
-          const apiCtx = { apiopid, cid, userid, fofiboxid };
+          const apiCtx = { apiopid, cid, userid, fofiboxid, cableboxid };
           console.log("🔵 [PaymentHistory] Fetching for serviceType:", serviceType, "ctx:", apiCtx);
           const custPayData = await getOrderHistoryFor(serviceType, apiCtx);
           setRawResponse(custPayData);
@@ -252,13 +356,15 @@ export default function PaymentHistory() {
           console.log(`🔵 [PaymentHistory] Service filter "${serviceType}": ${before} → ${allOrders.length}`);
         }
 
-        // Remove duplicates based on payment_date and total_amt
+        // Remove duplicates only when the backend gives a stable order/payment
+        // identifier. Older rows often share amount/plan fields or omit dates,
+        // so collapsing by those fields can hide valid historic receipts.
         const uniqueOrders = [];
         const seen = new Set();
         for (const order of allOrders) {
-          const key = `${order.payment_date}_${order.total_amt}_${order.plan_name}`;
-          if (!seen.has(key)) {
-            seen.add(key);
+          const key = getStableOrderKey(order);
+          if (!key || !seen.has(key)) {
+            if (key) seen.add(key);
             uniqueOrders.push(order);
           }
         }
@@ -289,12 +395,12 @@ export default function PaymentHistory() {
     if (customerData) {
       fetchOrderHistory();
     }
-  }, [customerData, cableDetails, serviceType, fofiboxid]);
+  }, [customerData, cableDetails, serviceType, fofiboxid, cableboxid]);
 
   const orders = orderHistory?.body || [];
 
   const handleDownload = (order) => {
-    const breakdown = getPaymentBreakdown(order);
+    const breakdown = getPaymentBreakdown(order, serviceType);
     const customerName = order.name || customerData?.name || "N/A";
     const customerId = formatCustomerId(order.cid || customerData?.customer_id);
     const mobile = order.mobile || customerData?.mobile || "N/A";
@@ -589,7 +695,7 @@ export default function PaymentHistory() {
         ) : orders.length > 0 ? (
           <div className="space-y-4">
             {orders.map((order, idx) => {
-              const breakdown = getPaymentBreakdown(order);
+              const breakdown = getPaymentBreakdown(order, serviceType);
 
               return (
               <div

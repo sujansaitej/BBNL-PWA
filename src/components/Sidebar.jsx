@@ -18,7 +18,7 @@ export default function Sidebar({ open, onClose }) {
   const photo  = (user?.photo && user?.photo !='path') ? import.meta.env.VITE_API_BASE_URL + import.meta.env.VITE_API_APP_USER_IMG_PATH + user?.photo : import.meta.env.VITE_API_APP_DIR_PATH + import.meta.env.VITE_API_APP_DEFAULT_USER_IMG_PATH;
 
   const logUname = user?.username || '';
-  const [intWB, setIntWB] = useState(0);
+  const [intWB, setIntWB] = useState(null); // null = not yet fetched
   const isCustomer = localStorage.getItem('loginType') === 'customer'? true : false;
   // Fetch wallet balance every time the sidebar opens (skip cache for fresh data)
   useEffect(() => {
@@ -26,7 +26,7 @@ export default function Sidebar({ open, onClose }) {
       getWalBal({ loginuname: logUname, servicekey: 'internet' }, true)
         .then(data => {
           if (data?.status?.err_code === 0)
-            setIntWB((data?.body?.wallet_balance || 0).toFixed(2));
+            setIntWB((data?.body?.wallet_balance ?? 0).toFixed(2));
         })
         .catch(() => {});
     }
@@ -60,7 +60,11 @@ export default function Sidebar({ open, onClose }) {
         {!isCustomer &&
         <div className="bg-blue-600 text-white mt-1 p-4 shadow"> {/* rounded-xl mx-4 */}
           <h3 className="text-sm font-medium">Wallet Balance</h3>
-          <p className="text-2xl font-semibold mt-1">{import.meta.env.VITE_API_APP_DEFAULT_CURRENCY_SYMBOL +' '+ intWB}</p>
+          <p className="text-2xl font-semibold mt-1">
+            {intWB === null
+              ? <span className="opacity-50 animate-pulse">…</span>
+              : import.meta.env.VITE_API_APP_DEFAULT_CURRENCY_SYMBOL + ' ' + intWB}
+          </p>
 
           {/* Quick Actions */}
           <div className="flex justify-around mt-4">

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { XMarkIcon, ExclamationCircleIcon, MagnifyingGlassIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
@@ -14,7 +14,6 @@ const QRScanner = lazy(() => import("../../components/QRScanner"));
 import {
     getFoFiPlans,
     validateFoFiAsset,
-    linkFoFiBox,
     fetchMACBySerial,
     registerFoFiDevice,
     getFoFiDeviceDetails,
@@ -23,11 +22,17 @@ import {
     verifyFoFiPayment,
     validateBeforeFofiBoxReg,
     getFofiUpgradePlans,
-    upgradeRegistration,
+    getSpecialInternetPlans,
     getFofiPaymentInfo,
+    linkFoFiBox,
+    upgradeRegistration,
 } from "../../services/fofiApis";
 import { getCableCustomerDetails, getPrimaryCustomerDetails, getMyPlanDetails, getCustKYCPreview, getUserAssignedItems } from "../../services/generalApis";
-import { lsRemove, lsGetStale } from "../../services/lsCache";
+// Box-identity logic (extractBoxFromItem + linked-TV detection) lives in
+// utils/boxId.js so this page, IPTVService, and prefetch all resolve a box
+// the SAME way and can never diverge on "opted vs not opted".
+import { extractBoxFromItem, detectLinkedTvType, getLinkedTvIdentifier, extractBoxIdFromAssigned } from "../../utils/boxId";
+import { lsRemove, lsGetStale, lsSet, lsGet } from "../../services/lsCache";
 import { refreshServiceController } from "../../services/navigationController";
 import { loadKycWithRetry } from "../../utils/kycRetry";
 import { isExpiredDate } from "../../utils/dateParse";
@@ -35,6 +40,78 @@ import { isExpiredDate } from "../../utils/dateParse";
 // Cache key helpers
 const _uid = (cd) => cd?.username || cd?.customer_id || '';
 const OVERVIEW_TTL = 2 * 60 * 1000;
+
+// ── Pending upgrade-plan store ──────────────────────────────────────
+// After a successful FoFi payment/upgrade the backend takes several
+// seconds (sometimes 10+) to propagate the new plan across getMyPlanDetails
+// and the assigned-items buckets. During that window every backend read
+// still returns the OLD plan. To stop the Current Plan card flapping back
+// to the old plan — or showing it at all — we remember the just-purchased
+// plan per box id in sessionStorage and keep displaying it until the
+// backend confirms the SAME plan (or a short TTL elapses). This also keeps
+// the correct plan if the operator leaves and revisits the page before the
+// backend catches up.
+const PENDING_PLAN_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const _pendingPlanKey = (boxId) => `fofi_pending_plan_${String(boxId || '').trim().toLowerCase()}`;
+
+// Tolerant plan-name comparison: the optimistic name passed from the payment
+// screen and the backend's canonical plan name can differ in spacing/case/
+// punctuation (e.g. "FoFi-Box + FTA ONLY" vs "fofibox_fta_only").
+function plansEquivalent(a, b) {
+    const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    const na = norm(a);
+    const nb = norm(b);
+    return !!na && na === nb;
+}
+
+function readPendingPlan(boxId) {
+    if (!boxId) return null;
+    try {
+        const raw = window.sessionStorage?.getItem(_pendingPlanKey(boxId));
+        if (!raw) return null;
+        const rec = JSON.parse(raw);
+        if (!rec?.plan || !rec?.ts || (Date.now() - rec.ts) > PENDING_PLAN_TTL_MS) {
+            window.sessionStorage?.removeItem(_pendingPlanKey(boxId));
+            return null;
+        }
+        return rec.plan;
+    } catch (_) {
+        return null;
+    }
+}
+
+function writePendingPlan(boxId, plan) {
+    if (!boxId || !plan) return;
+    try {
+        window.sessionStorage?.setItem(_pendingPlanKey(boxId), JSON.stringify({ plan, ts: Date.now() }));
+    } catch (_) { /* sessionStorage can be unavailable in private mode */ }
+}
+
+function clearPendingPlan(boxId) {
+    if (!boxId) return;
+    try { window.sessionStorage?.removeItem(_pendingPlanKey(boxId)); } catch (_) { /* ignore */ }
+}
+
+// ── Success-popup replay guard (module-level) ───────────────────────
+// The "Plan Upgraded" popup must appear exactly ONCE per completed
+// payment/order. A useRef guard resets if the component fully remounts
+// (observed on slower phones), and sessionStorage is unavailable in some
+// embedded webviews / private mode. A module-level Set survives component
+// remounts for the life of the SPA session, so it is the durable in-memory
+// guard that the per-instance ref and sessionStorage back up.
+const _shownSuccessPopupKeys = new Set();
+
+function markSuccessPopupShown(key) {
+    if (!key) return;
+    _shownSuccessPopupKeys.add(key);
+    try { window.sessionStorage?.setItem(`fofi_success_popup_${key}`, 'shown'); } catch (_) { /* ignore */ }
+}
+
+function wasSuccessPopupShown(key) {
+    if (!key) return false;
+    if (_shownSuccessPopupKeys.has(key)) return true;
+    try { return window.sessionStorage?.getItem(`fofi_success_popup_${key}`) === 'shown'; } catch (_) { return false; }
+}
 
 // Shared derivation of FoFi overview state from a getUserAssignedItems
 // response. Used for both initial cache hydration (so first paint shows
@@ -44,39 +121,8 @@ const OVERVIEW_TTL = 2 * 60 * 1000;
 // CRITICAL: Some backends put the FoFi box under different servkey buckets
 // (multi, voip, internet) depending on user classification. We scan ALL
 // buckets to find the box, not just body.fofi.
-const _BBNL_BOX_RE = /^(bbnl[-_]andbox[-_]|BBNL[-_]ANDBOX[-_])/i;
-const _FOFI_BOX_RE = /\b(fofi|fo-fi|smart\s*box|smartbox|fofibox|fofi[_-]?box|fta)\b/i;
-
-function extractBoxFromItem(item) {
-    if (!item || typeof item !== 'object') return null;
-
-    // Primary box ID fields
-    const candidates = [
-        item.fofiboxid, item.fofi_box_id, item.boxid, item.box_id,
-        item.stbid, item.stb_id, item.device_id, item.itemid,
-        item.product_name, item.boxId, item.fofiBoxId,
-    ].map(v => (v == null ? '' : String(v).trim())).filter(Boolean);
-
-    // Look for BBNL/FOFI formatted box IDs first
-    let bbnlMatch = candidates.find(v => _BBNL_BOX_RE.test(v));
-    if (bbnlMatch) return { boxId: bbnlMatch, source: 'bbnl-pattern', item };
-
-    // Look for values that explicitly indicate FoFi/SmartBox identity.
-    let fofiMatch = candidates.find(v => _FOFI_BOX_RE.test(v) && v.length > 3);
-    if (fofiMatch) return { boxId: fofiMatch, source: 'fofi-pattern', item };
-
-    // Deep scan: check all string values in the item for BBNL pattern
-    for (const [key, val] of Object.entries(item)) {
-        if (typeof val === 'string') {
-            const trimmed = val.trim();
-            if (_BBNL_BOX_RE.test(trimmed)) {
-                return { boxId: trimmed, source: `deep-scan:${key}`, item };
-            }
-        }
-    }
-
-    return null;
-}
+// extractBoxFromItem + _BBNL_BOX_RE/_FOFI_BOX_RE moved to utils/boxId.js
+// (single source of truth — imported at the top of this file).
 
 function deriveFofiOverviewFromAssigned(assignedItemsResponse) {
     const body = assignedItemsResponse?.body;
@@ -105,11 +151,26 @@ function deriveFofiOverviewFromAssigned(assignedItemsResponse) {
 
     const fi = foundBox.item;
     const boxId = foundBox.boxId;
+    const deviceType = foundBox.tvType?.label || null; // e.g. 'Android TV', 'Samsung TV', 'LG TV'
 
-    console.log(`🔍 [FoFi] Box found in bucket '${sourceBucket}':`, boxId, `(source: ${foundBox.source})`);
+    console.log(`🔍 [FoFi] Box found in bucket '${sourceBucket}':`, boxId, `(source: ${foundBox.source})`, deviceType ? `[${deviceType}]` : '');
 
     const mac = fi.mac || fi.macid || fi.mac_addr || fi.macAddress || fi.mac_address || fi.fofimac || '';
     const serial = fi.fserialno || fi.serial_number || fi.serialno || fi.fofiserailnumber || '';
+
+    // Pull plan name / expiry straight from the assigned-items row when
+    // the backend already includes them. This is what makes the service
+    // card render reliably (QA 4.9 — "details sometimes show, sometimes
+    // don't"): previously these were hard-coded to 'Loading…', so the
+    // card stayed *unconfirmed* until the separate getMyPlanDetails
+    // enrichment landed. When that call transiently failed it fell back
+    // to 'N/A', isConfirmedFofiServiceDetails returned false, and the
+    // whole service vanished into the "not opted" CTA. Seeding a
+    // meaningful expiry/plan here keeps the card confirmed even if the
+    // enrichment never resolves; the enrichment still overwrites these
+    // with the authoritative values when it succeeds.
+    const itemPlanName = firstTrimmedValue(fi.planname, fi.plan_name, fi.serv_name);
+    const itemExpiry = firstTrimmedValue(fi.expirydate, fi.expiry_date, fi.expdate);
 
     return {
         hasFofi: true,
@@ -117,8 +178,9 @@ function deriveFofiOverviewFromAssigned(assignedItemsResponse) {
         boxId,
         serviceDetails: {
             boxId,
-            planName: 'Loading…',
-            expiryDate: 'Loading…',
+            deviceType,
+            planName: isMeaningfulFoFiValue(itemPlanName) ? itemPlanName : 'Loading…',
+            expiryDate: isMeaningfulFoFiValue(itemExpiry) ? itemExpiry : 'Loading…',
             macAddress: mac,
             serialNumber: serial,
             ottPlanId: null,
@@ -126,6 +188,144 @@ function deriveFofiOverviewFromAssigned(assignedItemsResponse) {
             _rawFofiItem: fi,
         },
     };
+}
+
+// Returns all FoFi boxes found across ALL assigned-item buckets,
+// deduped by boxId. Used to build the multi-box dropdown when one
+// user has more than one linked box.
+function extractAllBoxesFromAssigned(assignedItemsResponse) {
+    const body = assignedItemsResponse?.body;
+    const buckets = ['fofi', 'multi', 'voip', 'internet'];
+    const results = [];
+    const seenBoxIds = new Set();
+
+    for (const bucket of buckets) {
+        const items = Array.isArray(body?.[bucket]) ? body[bucket] : [];
+        for (const fi of items) {
+            const extracted = extractBoxFromItem(fi);
+            if (!extracted) continue;
+            const { boxId } = extracted;
+            if (seenBoxIds.has(boxId.toLowerCase())) continue;
+            seenBoxIds.add(boxId.toLowerCase());
+
+            const deviceType = extracted.tvType?.label || null;
+            const mac = fi.mac || fi.macid || fi.mac_addr || fi.macAddress || fi.mac_address || fi.fofimac || '';
+            const serial = fi.fserialno || fi.serial_number || fi.serialno || fi.fofiserailnumber || '';
+            const itemPlanName = firstTrimmedValue(fi.planname, fi.plan_name, fi.serv_name);
+            const itemExpiry = firstTrimmedValue(fi.expirydate, fi.expiry_date, fi.expdate);
+
+            results.push({
+                boxId,
+                serviceDetails: {
+                    boxId,
+                    deviceType,
+                    planName: isMeaningfulFoFiValue(itemPlanName) ? itemPlanName : 'Loading…',
+                    expiryDate: isMeaningfulFoFiValue(itemExpiry) ? itemExpiry : 'Loading…',
+                    macAddress: mac,
+                    serialNumber: serial,
+                    ottPlanId: null,
+                    status: fi.primarybox === 'yes' ? 'Active' : (fi.status || 'Active'),
+                    _rawFofiItem: fi,
+                },
+            });
+        }
+    }
+    return results;
+}
+
+// ── Cable-TV fallback extraction ────────────────────────────────────
+// A cabletv-only customer's STB/smartcard row carries no BBNL/FoFi
+// marker, so utils/boxId.js (correctly) rejects it as a FoFi box and
+// the page used to collapse into the bare "not opted" screen. The
+// native app instead shows that cable box + its (FTA/cable) plan with
+// an UPGRADE PLAN button. These rows are collected here for that
+// fallback card ONLY — they never mark the customer as having a FoFi
+// service; FoFi box identity remains solely utils/boxId.js's decision.
+const CABLE_ROW_HINT_RE = /\b(cable\s*tv|cabletv|cable|iptv|catv|dpo|fta|stb|set\s*top|smart\s*card|smartcard)\b/i;
+
+function extractCableTvBoxesFromAssigned(assignedItemsResponse) {
+    const body = assignedItemsResponse?.body;
+    const buckets = ['fofi', 'multi', 'voip', 'internet'];
+    const results = [];
+    const seen = new Set();
+
+    for (const bucket of buckets) {
+        const items = Array.isArray(body?.[bucket]) ? body[bucket] : [];
+        for (const fi of items) {
+            if (!fi || typeof fi !== 'object') continue;
+            if (extractBoxFromItem(fi)) continue; // real FoFi box / linked TV — not a cable fallback row
+            const id = firstTrimmedValue(getLinkedTvIdentifier(fi), fi.product_name);
+            if (!id) continue;
+            const searchable = [
+                fi.servkey, fi.serv_name, fi.service_name, fi.servicename,
+                fi.planname, fi.plan_name, fi.itemname, fi.item_name,
+                fi.product_name, fi.type, fi.category,
+            ].map((v) => (v == null ? '' : String(v))).join(' ');
+            const cableHinted = CABLE_ROW_HINT_RE.test(searchable);
+            // Internet-bucket rows are usually the customer's internet CPE
+            // (ONU serial etc.) — accept them only with an explicit cable marker.
+            if (bucket === 'internet' && !cableHinted) continue;
+            if (seen.has(id.toLowerCase())) continue;
+            seen.add(id.toLowerCase());
+            const planName = firstTrimmedValue(fi.planname, fi.plan_name);
+            const expiryDate = firstTrimmedValue(fi.expirydate, fi.expiry_date, fi.expdate);
+            results.push({
+                boxId: id,
+                cableHinted,
+                serviceName: firstTrimmedValue(fi.serv_name, fi.service_name, fi.servkey) || 'fofi',
+                planName: isMeaningfulFoFiValue(planName) ? planName : 'Loading…',
+                expiryDate: isMeaningfulFoFiValue(expiryDate) ? expiryDate : 'Loading…',
+                _rawItem: fi,
+            });
+        }
+    }
+    // Explicitly cable-marked rows first so the default selection is the
+    // most likely genuine cable box.
+    results.sort((a, b) => (b.cableHinted ? 1 : 0) - (a.cableHinted ? 1 : 0));
+    return results;
+}
+
+// Resolve the cable-TV fallback boxes for the UPGRADE PLAN card. This is the
+// SINGLE decision point for "does this customer get the cable-TV upgrade card
+// instead of the bare 'not opted' screen". A customer qualifies when the
+// customer record says they have cable TV (cblCustDet.multplatforms.cabletv)
+// OR an assigned row is explicitly cable-marked.
+//
+// Box-ID resolution is deliberately layered because a cable-only box often
+// isn't returned in the linked-device fields of getUserAssignedItems (the
+// same "backend data sync gap" IPTVService logs). In priority order:
+//   1. rows extractCableTvBoxesFromAssigned recognised (cable STB rows)
+//   2. extractBoxIdFromAssigned (the boxId.js extractor IPTVService uses)
+//   3. cabletv_boxid_<userid> that IPTVService cached on a prior visit
+//   4. no id at all — still show the card (UPGRADE PLAN runs the add-FoFi-box
+//      flow, which does NOT need the cable box id), with a blank Box ID row.
+// The plan-enrichment effect fills Plan Name / Expiry / real Box ID from
+// getMyPlanDetails afterwards.
+function resolveCableTvBoxes(assignedItemsResponse, cableDetailsResponse, userid) {
+    const hasCablePerRecord = !!cableDetailsResponse?.body?.multplatforms?.cabletv;
+
+    const rows = extractCableTvBoxesFromAssigned(assignedItemsResponse)
+        .filter(b => hasCablePerRecord || b.cableHinted);
+    if (rows.length) return rows;
+
+    // From here on we only synthesise a card for customers the record
+    // confirms are on cable TV — never guess for anyone else.
+    if (!hasCablePerRecord) return [];
+
+    let boxId = extractBoxIdFromAssigned(assignedItemsResponse, userid) || '';
+    if (!boxId && userid) {
+        // IPTVService persists the resolved cable box id for a year; reuse it.
+        try { boxId = lsGet(`cabletv_boxid_${userid}`, 365 * 24 * 60 * 60 * 1000) || ''; } catch (_) { /* ignore */ }
+    }
+
+    return [{
+        boxId,
+        cableHinted: true,
+        serviceName: 'fofi',
+        planName: 'Loading…',
+        expiryDate: 'Loading…',
+        _rawItem: null,
+    }];
 }
 
 function mergeFoFiAssignedResponses(results) {
@@ -151,6 +351,63 @@ function findFoFiSubscribedService(planResponse) {
 
 const FOFI_MAC_RE = /[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}/;
 const FOFI_BOX_ID_RE = /\b(bbnl[-_][A-Za-z0-9_-]+|BBNL[-_][A-Za-z0-9_-]+)\b/i;
+const FOFI_SERIAL_RE = /\bFOFI[0-9]{6,}\b/i;
+
+// Robustly extract the MAC + serial from a scanned "Scan From TV" QR.
+//
+// The native FoFi box QR is base64-encoded JSON ({emacid, serialno}),
+// but the Android TV / Smart-TV apps present the SAME data in other
+// shapes: plain JSON, URL-encoded JSON, or a raw string that simply
+// contains the MAC (and sometimes the serial). The previous code
+// assumed base64+JSON only AND required both MAC and serial, so a
+// TV-app QR in any other shape failed with "Invalid QR code format"
+// and the TV MAC never appeared. We now try, in order:
+//   1. base64 -> JSON   (native FoFi box contract)
+//   2. plain / URL-encoded JSON  (Smart-TV apps)
+//   3. raw text         (regex-extract MAC + serial)
+// and only require the MAC (serial is optional for TV devices).
+function parseFofiQrPayload(qrData) {
+    const raw = String(qrData ?? '').trim();
+    const tryJson = (s) => {
+        try { const v = JSON.parse(s); return (v && typeof v === 'object') ? v : null; }
+        catch (_) { return null; }
+    };
+
+    let obj = null;
+    let decodedText = '';
+
+    // 1. base64-wrapped (native FoFi box contract)
+    try {
+        const decoded = atob(raw);
+        if (decoded) { decodedText = decoded; obj = tryJson(decoded); }
+    } catch (_) { /* not valid base64 — fall through */ }
+
+    // 2. plain JSON, then URL-encoded JSON
+    if (!obj) obj = tryJson(raw);
+    if (!obj) { try { obj = tryJson(decodeURIComponent(raw)); } catch (_) { /* ignore */ } }
+
+    const pick = (o, keys) => {
+        if (!o) return '';
+        const lowerKeys = keys.map((k) => k.toLowerCase());
+        for (const realKey of Object.keys(o)) {
+            if (lowerKeys.includes(realKey.toLowerCase())) {
+                const val = o[realKey];
+                if (val != null && String(val).trim()) return String(val).trim();
+            }
+        }
+        return '';
+    };
+
+    let mac = pick(obj, ['emacid', 'macid', 'mac', 'mac_addr', 'mac_address', 'macaddress']);
+    let serial = pick(obj, ['serialno', 'serial', 'serial_number', 'serialnumber', 'fserialno']);
+
+    // 3. regex fallback over raw + decoded text (handles raw-string QRs)
+    const haystack = `${raw} ${decodedText}`;
+    if (!mac) { const m = haystack.match(FOFI_MAC_RE); if (m) mac = m[0]; }
+    if (!serial) { const s = haystack.match(FOFI_SERIAL_RE); if (s) serial = s[0]; }
+
+    return { mac, serial };
+}
 
 function firstTrimmedValue(...values) {
     for (const value of values) {
@@ -167,6 +424,90 @@ function isMeaningfulFoFiValue(value) {
     const normalized = text.toLowerCase();
     return !['n/a', 'na', 'null', 'undefined', '-', '--'].includes(normalized)
         && !normalized.startsWith('loading');
+}
+
+// LINKED_TV_TYPES + detectLinkedTvType moved to utils/boxId.js (imported above).
+
+function getLinkedTvRowsFromResponse(response, source) {
+    const body = response?.body || {};
+    const rows = [];
+    const pushRows = (value, bucket) => {
+        if (Array.isArray(value)) {
+            value.forEach((item) => {
+                if (item && typeof item === 'object') rows.push({ ...item, _source: source, _bucket: bucket });
+            });
+        } else if (value && typeof value === 'object') {
+            rows.push({ ...value, _source: source, _bucket: bucket });
+        }
+    };
+
+    ['fofi', 'multi', 'voip', 'internet'].forEach((bucket) => pushRows(body?.[bucket], bucket));
+    [
+        'devices',
+        'device',
+        'tvdevices',
+        'tv_devices',
+        'linked_devices',
+        'linkeddevices',
+        'assigned_devices',
+        'assigneddevices',
+        'smart_tv',
+        'smarttv',
+        'androidtv',
+        'samsungtv',
+        'lgtv',
+        'android_tv',
+        'samsung_tv',
+        'lg_tv',
+    ].forEach((key) => pushRows(body?.[key], key));
+
+    return rows;
+}
+
+// getLinkedTvIdentifier moved to utils/boxId.js (imported above).
+
+function deriveLinkedTvDevices(assignedItemsResponse, planDetailsResponse) {
+    const rows = [
+        ...getLinkedTvRowsFromResponse(assignedItemsResponse, 'assigned-items'),
+        ...getLinkedTvRowsFromResponse(planDetailsResponse, 'plan-details'),
+    ];
+    const seen = new Set();
+
+    return rows.reduce((devices, row, index) => {
+        const tvType = detectLinkedTvType(row);
+        if (!tvType) return devices;
+
+        const identifier = getLinkedTvIdentifier(row);
+        const mac = firstTrimmedValue(row?.mac, row?.macid, row?.mac_addr, row?.macAddress, row?.mac_address);
+        const serial = firstTrimmedValue(row?.serialno, row?.serial_no, row?.serial_number, row?.fserialno, row?.fofiserailnumber);
+        const model = firstTrimmedValue(row?.model, row?.device_model, row?.deviceModel, row?.product_name, row?.itemname, row?.item_name);
+        const status = firstTrimmedValue(row?.status, row?.devicestatus, row?.device_status, row?.validity_status, row?.primarybox);
+        const key = [
+            tvType.key,
+            identifier,
+            mac,
+            serial,
+            model,
+            row?._bucket,
+            row?._source,
+            index,
+        ].filter(Boolean).join('|');
+        const dedupeKey = [tvType.key, identifier || mac || serial || model || key].join('|');
+        if (seen.has(dedupeKey)) return devices;
+        seen.add(dedupeKey);
+
+        devices.push({
+            type: tvType.label,
+            identifier,
+            mac,
+            serial,
+            model,
+            status,
+            source: row?._source,
+            bucket: row?._bucket,
+        });
+        return devices;
+    }, []);
 }
 
 function isConfirmedFofiServiceDetails(details) {
@@ -339,6 +680,251 @@ function resolveFoFiPlanSelection(plan) {
     return { planid, priceid, planrate: rate, servid };
 }
 
+function resolveInternetLinkPlanSelection(plan) {
+    const servRates = plan?.serv_rates || {};
+    const planid = firstTrimmedValue(
+        plan?.servid,
+        plan?.srvid,
+        plan?.internet_planid,
+        plan?.internet_plan_id,
+        plan?.planid,
+        plan?.plan_id,
+        plan?.id,
+        servRates.servid,
+        servRates.srvid,
+        servRates.serviceid,
+        servRates.service_id,
+        servRates.planid,
+        servRates.plan_id
+    );
+    const priceid = firstTrimmedValue(
+        plan?.priceid,
+        plan?.price_id,
+        servRates.priceid,
+        servRates.price_id,
+        '99'
+    );
+    const rate = firstTrimmedValue(
+        plan?.planrate,
+        plan?.price,
+        plan?.amount,
+        plan?.rate,
+        Array.isArray(servRates.prices) ? servRates.prices[0] : '',
+        0
+    );
+    const servid = firstTrimmedValue(
+        plan?.service_id,
+        plan?.serviceid,
+        plan?.serv_id,
+        servRates.service_id,
+        servRates.serviceid,
+        servRates.serv_id,
+        planid,
+        '3'
+    );
+
+    return { planid, priceid, planrate: rate, servid };
+}
+
+function getPlanSelectId(plan, index = '') {
+    return firstTrimmedValue(
+        plan?._selectId,
+        plan?.planid,
+        plan?.srvid,
+        plan?.servid,
+        plan?.id,
+        index
+    );
+}
+
+function getInternetOriginPlanRows(response) {
+    const body = response?.body || {};
+    // Live specialInternetPlans (verified 2026-07-09 against netmontest)
+    // returns body as a BARE ARRAY of {srvid, serv_name} rows — not an
+    // object with an internet_plans key. Only checking object keys made
+    // this always return [] and the Link FoFi Box dropdown permanently
+    // showed "No IPTV / Combo plans are available".
+    if (Array.isArray(body)) return body;
+    const primary = Array.isArray(body.internet_plans) ? body.internet_plans : null;
+    if (primary) return primary;
+
+    const fallbackKeys = [
+        'iptv_combo_plans',
+        'iptv_plans',
+        'combo_plans',
+        'internet_combo_plans',
+        'plans',
+    ];
+    for (const key of fallbackKeys) {
+        if (Array.isArray(body[key])) return body[key];
+    }
+    return [];
+}
+
+function mapInternetOriginPlan(plan, idx) {
+    const selection = resolveInternetLinkPlanSelection(plan);
+    const planName = firstTrimmedValue(plan?.serv_name, plan?.planname, plan?.plan_name, plan?.name, `Plan ${idx + 1}`);
+    return {
+        ...plan,
+        _source: 'internet-link',
+        _selectId: `internet_${selection.planid || idx}`,
+        _uniqueKey: `internet_${selection.planid || idx}_${planName}`,
+    };
+}
+
+function normalizeFoFiPlanName(value) {
+    return firstTrimmedValue(value)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+}
+
+function getFoFiAssignedItemsList(assignedItemsResponse) {
+    const body = assignedItemsResponse?.body || {};
+    return ['fofi', 'multi', 'voip', 'internet']
+        .flatMap(bucket => Array.isArray(body?.[bucket]) ? body[bucket] : [])
+        .filter(Boolean);
+}
+
+function pickFoFiPlanIdsFromRecord(record, { strict = false } = {}) {
+    if (!record || typeof record !== 'object') return null;
+    const servRates = record?.serv_rates || {};
+    // True plan-id fields — these identify a *purchasable* plan that the
+    // FoFi payment API (`service/paymentinfo/fofi`) accepts. The loose
+    // fields below (srvid/servid/serviceid/id) are subscription / record
+    // identifiers, NOT plan ids; sending one to paymentinfo makes the
+    // backend reply "Invalid Plan, choose valid Plan". `strict` mode
+    // (used when resolving the current plan from an expired subscription)
+    // therefore excludes the loose identifiers.
+    const planIdFields = [
+        record.planid,
+        record.plan_id,
+        record.fofiplanid,
+        record.fofi_planid,
+        record.internet_planid,
+        record.ottservplanid,
+        record.ott_servplanid,
+        record.ottplanid,
+        record.ott_planid,
+        record.ott_plan_id,
+        servRates.planid,
+        servRates.plan_id,
+        servRates.fofiplanid,
+        servRates.fofi_planid,
+        servRates.ottservplanid,
+        servRates.ott_servplanid,
+        servRates.ottplanid,
+        servRates.ott_planid,
+        servRates.ott_plan_id,
+    ];
+    const looseIdFields = [
+        record.srvid,
+        record.servid,
+        record.serviceid,
+        record.service_id,
+        record.id,
+        servRates.servid,
+        servRates.srvid,
+        servRates.serviceid,
+        servRates.service_id,
+    ];
+    const planid = strict
+        ? firstTrimmedValue(...planIdFields)
+        : firstTrimmedValue(...planIdFields, ...looseIdFields);
+    if (!planid) return null;
+
+    return {
+        planid,
+        priceid: firstTrimmedValue(record.priceid, record.price_id, servRates.priceid, servRates.price_id, '99'),
+        servid: firstTrimmedValue(record.servid, record.serv_id, record.serviceid, record.service_id, servRates.servid, servRates.serv_id, servRates.serviceid, servRates.service_id, '3'),
+        planrate: firstTrimmedValue(record.planrate, record.price, record.amount, record.rate, Array.isArray(servRates.prices) ? servRates.prices[0] : ''),
+        planName: firstTrimmedValue(record.planname, record.plan_name, record.serv_name, record.title, record.name),
+    };
+}
+
+function flattenFoFiPlanCatalog(plansResponse) {
+    const body = plansResponse?.body || {};
+    return [
+        ...(Array.isArray(body.fofi_plans) ? body.fofi_plans : []),
+        ...(Array.isArray(body.ott_plans) ? body.ott_plans : []),
+        ...(Array.isArray(body.plans) ? body.plans : []),
+        ...(Array.isArray(body.cable_plans) ? body.cable_plans : []),
+        ...(Array.isArray(body.internet_plans) ? body.internet_plans : []),
+    ];
+}
+
+// Match the current plan NAME against the purchasable-plan catalog
+// (registrationNecessities → fofi/ott/internet plans). Because the
+// catalog only lists plans that can actually be paid for, a name match
+// here is guaranteed to yield a plan id the FoFi payment API accepts —
+// even when the customer's subscription is EXPIRED and its own record
+// carries no usable plan-id field. Exact (normalized) match is preferred
+// over a fuzzy substring match to avoid picking an adjacent plan.
+function matchFoFiCatalogByName(planCatalog, planName) {
+    const target = normalizeFoFiPlanName(planName);
+    if (!target) return null;
+    const catalog = Array.isArray(planCatalog) ? planCatalog : [];
+    const findBy = (predicate) => {
+        const plan = catalog.find(p => {
+            const name = normalizeFoFiPlanName(p?.planname || p?.plan_name || p?.serv_name || p?.title || p?.name);
+            return name && predicate(name);
+        });
+        return pickFoFiPlanIdsFromRecord(plan);
+    };
+    return findBy(name => name === target)
+        || findBy(name => name.includes(target) || target.includes(name));
+}
+
+function resolvePayBillPlanIds({ planDetails, serviceDetails, assignedItems, planCatalog } = {}) {
+    const fofiSvc = findFoFiSubscribedService(planDetails);
+    const targetPlanName = normalizeFoFiPlanName(
+        fofiSvc?.planname ||
+        fofiSvc?.plan_name ||
+        serviceDetails?.planName ||
+        serviceDetails?._rawFofiSvc?.planname ||
+        serviceDetails?._rawFofiItem?.planname
+    );
+    const fallbackPlanName = firstTrimmedValue(
+        fofiSvc?.planname,
+        fofiSvc?.plan_name,
+        serviceDetails?.planName
+    );
+
+    const directCandidates = [
+        fofiSvc,
+        serviceDetails?._rawFofiSvc,
+        serviceDetails?._rawFofiItem,
+        { planid: serviceDetails?.ottPlanId, planname: serviceDetails?.planName },
+        ...getFoFiAssignedItemsList(assignedItems),
+    ];
+
+    // 1) Resolve the current plan name to a VALID purchasable plan id via
+    //    the catalog. This is the primary source for PAY BILL: it works
+    //    identically for active and expired subscriptions and never sends
+    //    a stale subscription/record id that the backend would reject with
+    //    "Invalid Plan, choose valid Plan".
+    const catalogMatch = matchFoFiCatalogByName(planCatalog, fallbackPlanName);
+    if (catalogMatch?.planid) {
+        return { ...catalogMatch, planName: catalogMatch.planName || fallbackPlanName, source: 'plan-catalog-name-match' };
+    }
+
+    // 2) A true plan-id field carried on the current subscription / asset
+    //    record (strict — excludes srvid/servid/serviceid/id).
+    for (const candidate of directCandidates) {
+        const ids = pickFoFiPlanIdsFromRecord(candidate, { strict: true });
+        if (ids?.planid) return { ...ids, planName: ids.planName || fallbackPlanName, source: 'current-service' };
+    }
+
+    // 3) Loose record identifiers — absolute last resort so an otherwise
+    //    unresolvable plan still has a chance rather than hard-blocking.
+    for (const candidate of directCandidates) {
+        const ids = pickFoFiPlanIdsFromRecord(candidate);
+        if (ids?.planid) return { ...ids, planName: ids.planName || fallbackPlanName, source: 'current-service-loose' };
+    }
+
+    return { planid: '', priceid: '99', servid: '3', planrate: '', planName: firstTrimmedValue(serviceDetails?.planName), source: 'missing' };
+}
+
 function normalizeStringArray(value) {
     const values = Array.isArray(value) ? value : (value ? [value] : []);
     return values
@@ -368,30 +954,77 @@ function resolveFoFiRegistrationFields(plan) {
     };
 }
 
-function resolveFoFiAmountDeductable(paymentBody) {
-    const deductionRaw = paymentBody?.deduction?.totalamount;
-    if (deductionRaw !== undefined && deductionRaw !== null && deductionRaw !== '') {
-        const deductionAmount = parseFloat(deductionRaw);
-        if (Number.isFinite(deductionAmount)) return deductionAmount;
-    }
+function parseFoFiCurrency(value) {
+    if (value === undefined || value === null || value === '') return null;
+    const amount = parseFloat(String(value).replace(/,/g, ''));
+    return Number.isFinite(amount) ? amount : null;
+}
 
-    const explicitAmount = parseFloat(
+function compactFoFiPlanName(value) {
+    return firstTrimmedValue(value).toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function isFoFiFtaOnlyPlan(planName) {
+    return compactFoFiPlanName(planName).includes('ftaonly');
+}
+
+function isFoFiDhamakaOfferPlan(planName) {
+    const compact = compactFoFiPlanName(planName);
+    return compact.includes('dhamakaoffer') || compact.includes('dhamaka');
+}
+
+function resolveFoFiAmountDeductable(paymentBody, fallbackPlanName = '') {
+    const planName = firstTrimmedValue(
+        paymentBody?.planname,
+        paymentBody?.plan_name,
+        paymentBody?.serv_name,
+        fallbackPlanName
+    );
+
+    if (isFoFiFtaOnlyPlan(planName)) return 0;
+
+    const explicitAmount = parseFoFiCurrency(
+        paymentBody?.deduction?.totalamount ??
         paymentBody?.amount_deductable ??
         paymentBody?.amountdeductable ??
         paymentBody?.fofi_wallet_deduction ??
         paymentBody?.wallet_deduction
     );
-    if (Number.isFinite(explicitAmount)) return explicitAmount;
+    if (explicitAmount !== null && explicitAmount > 0) return explicitAmount;
 
-    const fofiShare = parseFloat(paymentBody?.fofishare);
-    if (Number.isFinite(fofiShare) && fofiShare > 0) return fofiShare;
+    const fofiShare = parseFoFiCurrency(paymentBody?.fofishare);
+    if (fofiShare !== null && fofiShare > 0) return fofiShare;
 
-    const fofiSplit = parseFloat(
+    const fofiSplit = parseFoFiCurrency(
         paymentBody?.final_split_data?.FOFI?.amount ??
         paymentBody?.final_split_data?.fofi?.amount
     );
-    return Number.isFinite(fofiSplit) && fofiSplit > 0 ? fofiSplit : 0;
+    if (fofiSplit !== null && fofiSplit > 0) return fofiSplit;
+
+    if (isFoFiDhamakaOfferPlan(planName)) return 35.40;
+
+    const totalAmount = parseFoFiCurrency(
+        paymentBody?.total_amt ??
+        paymentBody?.totalamount ??
+        paymentBody?.grandtotal ??
+        paymentBody?.paidamount
+    );
+    if (totalAmount !== null && totalAmount > 0) return totalAmount;
+
+    return explicitAmount !== null ? explicitAmount : 0;
 }
+
+// "Last-known-good" store for the Link-FoFi "Select Plan" dropdown.
+// The backend plan list (registrationNecessities / specialInternetPlans)
+// is sometimes slow or transiently returns an empty list, which left the
+// dropdown stuck on "Loading…" or "No plans". We persist the last
+// successful, NON-EMPTY real list per customer + entry path and fall back
+// to it on an empty/failed load. These rows carry the real plan ids, so
+// they stay payable — unlike the static mock list, which cannot be
+// resolved to a valid plan id at checkout.
+const LINK_PLANS_LKG_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+const linkPlansLkgKey = (userid, internetOrigin) =>
+    `fofilkp_${userid}_${internetOrigin ? 'int' : 'fofi'}`;
 
 function FoFiSmartBox() {
     const location = useLocation();
@@ -414,6 +1047,12 @@ function FoFiSmartBox() {
     const internetId = location.state?.internetId;
     const refreshData = location.state?.refreshData; // Flag to force refresh after payment
     const paymentSuccess = location.state?.paymentSuccess; // Flag to show success message
+    const paymentSuccessOrderId = firstTrimmedValue(
+        location.state?.paymentSuccessOrderId,
+        location.state?.transactionid,
+        location.state?.orderid,
+        location.state?._t
+    );
     const isNewRegistration = location.state?.isNewRegistration; // Flag to indicate new registration vs upgrade
     // Optimistic state passed from FofiPayment — applied on mount so the
     // Current Plan card and wallet update immediately, before the
@@ -437,6 +1076,13 @@ function FoFiSmartBox() {
     // don't flash the "not opted" view on first paint while the network
     // revalidation is still in flight.
     const _cachedOverview = _cachedAI?.data ? deriveFofiOverviewFromAssigned(_cachedAI.data) : null;
+    const _cachedAllBoxes = _cachedAI?.data ? extractAllBoxesFromAssigned(_cachedAI.data) : [];
+    // Cable-TV fallback hydration — cabletv-only customers render the
+    // cable box + UPGRADE PLAN card on first paint instead of flashing
+    // the "not opted" CTA while the network revalidates.
+    const _cachedCableBoxes = (_cachedOverview && !_cachedOverview.hasFofi && (_cachedAI?.data || _cachedCD?.data))
+        ? resolveCableTvBoxes(_cachedAI?.data, _cachedCD?.data, _userid)
+        : [];
 
     // State management
     const [showServiceModal, setShowServiceModal] = useState(false);
@@ -460,9 +1106,25 @@ function FoFiSmartBox() {
     // phones had to scroll down to discover why the link failed.
     const validationErrorRef = useRef(null);
     const [deviceInfo, setDeviceInfo] = useState(null);
-    const [fofiPlans, setFofiPlans] = useState(mockFofiPlans); // Initialize with mock data
+    const [fofiPlans, setFofiPlans] = useState(fromInternet ? [] : mockFofiPlans); // Initialize with mock data except Internet-origin link flow
+    const [linkPlansLoading, setLinkPlansLoading] = useState(false);
+    const [linkPlansError, setLinkPlansError] = useState('');
+    // Bumped by the "Retry" button to force a fresh plan load (bypassing the
+    // 10-min cache) when the Select Plan list fails or comes back empty.
+    const [linkPlansRetryKey, setLinkPlansRetryKey] = useState(0);
+    // Guards against the load effect re-firing in a loop: setFofiPlans([]) on
+    // an empty result used to change `fofiPlans` and re-trigger the effect,
+    // which kept the dropdown stuck on "Loading plans…".
+    const linkPlansAttemptRef = useRef(null);
     const [isLoading, setIsLoading] = useState(false);
+    // Dedicated loading flag for the "Upload Document" button. Kept
+    // separate from the shared `isLoading` so the button doesn't show
+    // "Loading…" during the initial overview data fetch (which also
+    // toggles `isLoading`). It should only spin while the operator is
+    // actually fetching the KYC preview after tapping the button.
+    const [isUploadingDocument, setIsUploadingDocument] = useState(false);
     const [isOverviewLoading, setIsOverviewLoading] = useState(!_hasCached); // Skip spinner if cache hit
+    const [overviewRetryKey, setOverviewRetryKey] = useState(0);
     const [paymentOrderId, setPaymentOrderId] = useState(null);
     const [showQRScanner, setShowQRScanner] = useState(false);
     // Flag to prevent sub-view popstate listener from resetting view when
@@ -477,7 +1139,29 @@ function FoFiSmartBox() {
     // briefly flashing the "not opted" CTA before the network resolves.
     const [hasFofiService, setHasFofiService] = useState(_cachedOverview?.hasFofi ?? false);
     const [fofiServiceDetails, setFofiServiceDetails] = useState(_cachedOverview?.serviceDetails ?? null);
+    // A device that is LINKED to the customer (e.g. an Android TV that
+    // just logged into the ATV app) but has NO active FoFi plan yet. It
+    // is intentionally NOT a "confirmed" FoFi service (no plan/expiry),
+    // so it must not drive the upgrade/pay flows — but we keep its
+    // identity (Box ID + MAC + device type) so the overview can SHOW the
+    // TV MAC the operator needs to subscribe a package, and so the
+    // package-subscription (link) step can pre-fill it instead of a
+    // bare "not opted" screen with no device info.
+    const [linkedDeviceNoPlan, setLinkedDeviceNoPlan] = useState(null);
     const [fofiAssignedItems, setFofiAssignedItems] = useState(_cachedAI?.data || null); // FoFi assigned items from API
+    // Multi-box support: all boxes linked to this user; selectedBoxIdx is
+    // the index of the currently-displayed box in allFofiBoxes.
+    const [allFofiBoxes, setAllFofiBoxes] = useState(_cachedAllBoxes);
+    const [selectedBoxIdx, setSelectedBoxIdx] = useState(0);
+    // Cable-TV fallback boxes (customer has cable TV but NO FoFi box).
+    // Drives the box-id + plan card with UPGRADE PLAN in the not-opted
+    // branch. Never feeds hasFofiService / the upgrade payment flows —
+    // UPGRADE PLAN there runs the same new-user (add-FoFi-box) path.
+    const [cableTvBoxes, setCableTvBoxes] = useState(_cachedCableBoxes);
+    const [selectedCableBoxIdx, setSelectedCableBoxIdx] = useState(0);
+    // One enrichment attempt per (customer, box) — the patch below
+    // changes cableTvBoxes, which re-runs the effect.
+    const cableEnrichAttemptedRef = useRef(new Set());
     // Raw planDetails response — needed for the PAY BILL button's
     // disabled state, which mirrors the Internet Service pattern of
     // gating on body.other_service_renewal.btn_status.
@@ -493,37 +1177,181 @@ function FoFiSmartBox() {
     const [showZeroPricePopup, setShowZeroPricePopup] = useState(false); // Popup for ₹0 plans
     
     // Toast/Snackbar for payment success
-    const [showSuccessToast, setShowSuccessToast] = useState(!!paymentSuccess);
-    const [successMessage, setSuccessMessage] = useState(paymentSuccess ? successMessageFromState : '');
+    const [showSuccessToast, setShowSuccessToast] = useState(false);
+    const [successMessage, setSuccessMessage] = useState('');
 
-    // ── Success Alert Helper ──
-    const SuccessAlert = () => (
+    // ── Success Alert ──
+    // Rendered as a stable element (NOT a `<SuccessAlert/>` component whose
+    // function identity changes every render — that remounts the Alert and
+    // re-plays its enter animation on each parent re-render, which is what
+    // made the "Plan Upgraded" popup appear again and again on some phones
+    // while background refetches/optimistic updates re-rendered the page).
+    // Using a plain element keeps the Alert's type stable so React
+    // reconciles it in place. autoClose lets it dismiss itself after a few
+    // seconds; closeSuccessToast is stable so it never reopens.
+    const closeSuccessToast = useCallback(() => setShowSuccessToast(false), []);
+    const successAlert = (
+        // Stable `key` so React reconciles this element in place even when
+        // conditional siblings (loading banners, etc.) shift around it during
+        // the post-payment staged refetch. Without it, the Alert remounted on
+        // slower phones — replaying its entrance animation (looked like the
+        // popup "appearing again") and resetting its internal auto-close timer
+        // (so it never closed). Auto-close is additionally driven by a
+        // page-level timer below, which survives any remount.
         <Alert
+            key="fofi-success-alert"
             isOpen={showSuccessToast}
-            onClose={() => setShowSuccessToast(false)}
+            onClose={closeSuccessToast}
             type="success"
             title={isNewRegistration ? 'Registration Successful' : 'Plan Upgraded'}
             message={successMessage}
-            autoClose={false}
+            autoClose
+            autoCloseMs={5000}
         />
     );
 
-    const loadFoFiLinkPlans = async (userid, logUname) => {
+    // Page-level auto-close. The Alert has its own autoClose, but that timer
+    // lives inside the Alert element and resets every time the element
+    // remounts. This timer lives on the persistent page component instance,
+    // so it fires exactly 5s after the popup opens regardless of how often the
+    // Alert (or the view) re-renders/remounts — guaranteeing the popup closes.
+    useEffect(() => {
+        if (!showSuccessToast) return undefined;
+        const t = setTimeout(() => setShowSuccessToast(false), 5000);
+        return () => clearTimeout(t);
+    }, [showSuccessToast]);
+
+    // ── Cable-TV fallback plan enrichment ──
+    // The backend files an FTA/cable customer's current plan under the
+    // fofi servicekey when getMyPlanDetails is queried with the CABLE
+    // box id (native-app behaviour: "Service Name: fofi / Plan Name:
+    // FOFI-Box + FTA ONLY"). Enrich the selected fallback box with those
+    // authoritative values; on failure fall back to whatever the
+    // assigned-items row seeded, else N/A — never leave "Loading…".
+    useEffect(() => {
+        if (hasFofiService) return undefined;
+        const box = cableTvBoxes[selectedCableBoxIdx];
+        if (!box || !_userid) return undefined;
+        const boxIdToEnrich = box.boxId || '';
+        // Only attempt each box once (empty-id boxes keyed by index so a
+        // later real box id can still be enriched).
+        const attemptKey = boxIdToEnrich
+            ? `${_userid}:${boxIdToEnrich}`
+            : `${_userid}:#${selectedCableBoxIdx}`;
+        if (cableEnrichAttemptedRef.current.has(attemptKey)) return undefined;
+        cableEnrichAttemptedRef.current.add(attemptKey);
+
+        // No box id resolvable — we can't query the plan (getMyPlanDetails
+        // requires the box id). Don't leave the card on "Loading…"; the
+        // UPGRADE PLAN button still works without plan details.
+        if (!boxIdToEnrich) {
+            setCableTvBoxes(prev => prev.map((b, i) => i === selectedCableBoxIdx ? {
+                ...b,
+                planName: isMeaningfulFoFiValue(b.planName) ? b.planName : 'N/A',
+                expiryDate: isMeaningfulFoFiValue(b.expiryDate) ? b.expiryDate : 'N/A',
+            } : b));
+            return undefined;
+        }
+
+        let cancelled = false;
+        (async () => {
+            let svc = null;
+            try {
+                const planResp = await getMyPlanDetails(
+                    { servicekey: 'fofi', userid: _userid, fofiboxid: boxIdToEnrich, voipnumber: '' },
+                    true
+                );
+                const services = Array.isArray(planResp?.body?.subscribed_services)
+                    ? planResp.body.subscribed_services : [];
+                svc = findFoFiSubscribedService(planResp)
+                    || services.find(s => isMeaningfulFoFiValue(firstTrimmedValue(s?.planname, s?.plan_name)))
+                    || null;
+            } catch (e) {
+                if (e?.message?.includes('navigated away')) {
+                    cableEnrichAttemptedRef.current.delete(attemptKey);
+                    return;
+                }
+                console.warn('⚠️ [FoFi] cable-TV fallback plan enrichment failed (non-fatal):', e?.message);
+            }
+            if (cancelled) return;
+            setCableTvBoxes(prev => prev.map(b => {
+                if (b.boxId !== boxIdToEnrich) return b;
+                const planName = firstTrimmedValue(svc?.planname, svc?.plan_name, b.planName);
+                const expiryDate = firstTrimmedValue(svc?.expirydate, svc?.expiry_date, b.expiryDate);
+                const serviceName = firstTrimmedValue(svc?.serv_name, svc?.servicekey, b.serviceName, 'fofi');
+                return {
+                    ...b,
+                    serviceName,
+                    planName: isMeaningfulFoFiValue(planName) ? planName : 'N/A',
+                    expiryDate: isMeaningfulFoFiValue(expiryDate) ? expiryDate : 'N/A',
+                };
+            }));
+        })();
+        return () => { cancelled = true; };
+    }, [cableTvBoxes, selectedCableBoxIdx, hasFofiService, _userid]);
+
+    // Fall back to the last-known-good real list when a fresh load comes
+    // back empty/failed, so the dropdown keeps showing payable options
+    // instead of "No plans". Returns true if a fallback was applied.
+    const applyLinkPlansFallback = (lkgKey) => {
+        const lkg = lsGetStale(lkgKey, LINK_PLANS_LKG_TTL);
+        if (Array.isArray(lkg?.data) && lkg.data.length > 0) {
+            setFofiPlans(lkg.data);
+            return lkg.data;
+        }
+        return null;
+    };
+
+    const loadFoFiLinkPlans = async (userid, logUname, { internetOrigin = false, skipCache = false } = {}) => {
+        const lkgKey = linkPlansLkgKey(userid, internetOrigin);
+
+        if (internetOrigin) {
+            const plansResponse = await getSpecialInternetPlans({ logUname, isKiranastore: "no" }, { skipCache });
+            // An explicit backend error must surface as an error state (with
+            // retry), not a silent empty list that the caller can't tell apart
+            // from "no plans" — that ambiguity is what left the dropdown stuck.
+            const errCode = plansResponse?.status?.err_code;
+            if (errCode !== undefined && errCode !== 0) {
+                // Prefer a still-valid cached list over hard-failing the dropdown.
+                const fallback = applyLinkPlansFallback(lkgKey);
+                if (fallback) return fallback;
+                throw new Error(plansResponse?.status?.err_msg || 'Could not load Internet-side IPTV/Combo plans.');
+            }
+            const linkPlans = getInternetOriginPlanRows(plansResponse);
+            const mappedPlans = linkPlans.map(mapInternetOriginPlan);
+            if (mappedPlans.length > 0) {
+                lsSet(lkgKey, mappedPlans); // remember the last good list
+                setFofiPlans(mappedPlans);
+                return mappedPlans;
+            }
+            const fallback = applyLinkPlansFallback(lkgKey);
+            if (fallback) return fallback;
+            setFofiPlans([]);
+            return [];
+        }
+
         const plansResponse = await getFofiUpgradePlans({
             logUname,
             moduletype: "upgradation",
             userid,
         });
-        const linkPlans = plansResponse?.body?.fofi_plans || plansResponse?.body?.ott_plans || [];
+        const linkPlans = plansResponse?.body?.fofi_plans
+            || plansResponse?.body?.ott_plans
+            || plansResponse?.body?.plans
+            || plansResponse?.body?.cable_plans
+            || [];
         if (plansResponse?.status?.err_code === 0 && linkPlans.length > 0) {
             const mappedPlans = linkPlans.map((plan, idx) => ({
                 ...plan,
                 _source: 'fofi',
                 _uniqueKey: `fofi_${plan.planid ?? plan.srvid ?? plan.servid ?? plan.id ?? idx}_${plan.planname || plan.serv_name || plan.plan_name || ''}`,
             }));
+            lsSet(lkgKey, mappedPlans); // remember the last good list
             setFofiPlans(mappedPlans);
             return mappedPlans;
         }
+        const fallback = applyLinkPlansFallback(lkgKey);
+        if (fallback) return fallback;
         setFofiPlans([]);
         return [];
     };
@@ -537,11 +1365,11 @@ function FoFiSmartBox() {
 
     // Show success toast if coming back from successful payment.
     //
-    // Anti-replay: a page refresh on this route preserves the
-    // location.state we navigated in with, so the popup was firing
-    // again on every refresh after a successful upgrade. We track
-    // a window-key per upgrade (using the _t timestamp passed by
-    // FofiPayment.jsx) and only show the popup once per key.
+    // Anti-replay: a page refresh/remount on this route can preserve
+    // the location.state we navigated in with, so the popup must be
+    // opened only from this guarded effect. Prefer the backend
+    // transaction id passed by FofiPayment.jsx; _t is kept only as a
+    // compatibility fallback for older navigation state.
     // ALSO clear the location state right after — so a user who
     // navigates away and comes back via deep link doesn't see a
     // stale "Plan Upgraded" popup.
@@ -554,38 +1382,33 @@ function FoFiSmartBox() {
             setView('overview');
             try { subViewDepthRef.current = 0; } catch (_) {}
         }
-        const key = location.state?._t || 'no-key';
-        if (popupShownRef.current.has(key)) return;
+        const key = paymentSuccessOrderId || 'no-key';
+        // Durable, multi-layer replay guard: module-level Set (survives
+        // remounts) backed by sessionStorage, plus the per-instance ref.
+        if (popupShownRef.current.has(key) || wasSuccessPopupShown(key)) return;
         popupShownRef.current.add(key);
+        markSuccessPopupShown(key);
 
         setSuccessMessage(successMessageFromState);
         setShowSuccessToast(true);
 
-        // Strip the success flag from history state so a page refresh
-        // doesn't re-trigger the popup. Keep the `customer` key (page
-        // needs it) and the `_t` cache-buster.
-        //
-        // CRITICAL: React Router v6 stores location.state under
-        // window.history.state.usr — overwriting window.history.state
-        // directly with user-state fields (customer, paymentSuccess,…)
-        // wipes Router's `usr` wrapper AND its `key` / `idx`
-        // bookkeeping. After that, location.state becomes empty, the
-        // back button to the previous overview entry lands in a
-        // confused state, and the operator sees "No customer data
-        // available" on a same-URL re-render. Spread the existing
-        // window.history.state and update ONLY the `usr` slot.
-        const cleaned = {
-            ...(location.state || {}),
-            paymentSuccess: false,
-        };
-        try {
-            window.history.replaceState(
-                { ...(window.history.state || {}), usr: cleaned },
-                document.title,
-                window.location.pathname + window.location.search
-            );
-        } catch (_) { /* defensive — replaceState can throw on iOS quota */ }
-    }, [paymentSuccess, successMessageFromState, location.state, view]);
+        // Clear the success flag from React Router state so the popup can
+        // never replay. The old code used window.history.replaceState,
+        // which rewrites the browser history entry but does NOT update
+        // React Router's in-memory location — so useLocation() still read
+        // paymentSuccess=true for the life of this mount. Any re-render
+        // (this effect depends on `view` and itself calls setView, plus
+        // the page re-renders on every staged refetch) re-qualified the
+        // effect, and on phones where sessionStorage is unavailable or the
+        // component remounts the in-memory guard reset and the popup fired
+        // again. navigate(replace) actually flips paymentSuccess to false
+        // in Router state (next render early-returns) while preserving
+        // Router's own key/idx bookkeeping — the durable anti-replay.
+        navigate(location.pathname + location.search, {
+            replace: true,
+            state: { ...(location.state || {}), paymentSuccess: false },
+        });
+    }, [paymentSuccess, paymentSuccessOrderId, successMessageFromState, view, navigate, location.pathname, location.search]);
 
     // Optimistic plan-name update — apply once fofiServiceDetails has
     // been hydrated by the initial fetch (so we have boxId / expiryDate
@@ -606,6 +1429,10 @@ function FoFiSmartBox() {
         if (!optimisticPlan) return;
         if (optimisticAppliedRef.current) return;
         if (!fofiServiceDetails) return; // Wait for hydration first
+        // Persist the just-purchased plan per box so it survives the
+        // backend-propagation window AND a leave/revisit of this page.
+        const boxForPending = fofiServiceDetails.boxId || optimisticFofiBoxId || '';
+        if (boxForPending) writePendingPlan(boxForPending, optimisticPlan);
         if (fofiServiceDetails.planName === optimisticPlan) {
             optimisticAppliedRef.current = true;
             originalPlanRef.current = optimisticPlan;
@@ -616,7 +1443,30 @@ function FoFiSmartBox() {
         originalPlanRef.current = fofiServiceDetails.planName || null;
         optimisticAppliedRef.current = true;
         setFofiServiceDetails(prev => prev ? { ...prev, planName: optimisticPlan } : prev);
-    }, [optimisticPlan, fofiServiceDetails]);
+    }, [optimisticPlan, optimisticFofiBoxId, fofiServiceDetails]);
+
+    // Decide which plan name to commit when a backend response lands.
+    //
+    // While an upgrade is pending for this box (sessionStorage record, or
+    // the in-memory optimistic value), the backend often still echoes the
+    // OLD plan. In that window we keep showing the just-purchased plan and
+    // only accept the backend value once it matches it — at which point the
+    // upgrade is confirmed and the pending record is cleared. When there is
+    // no pending upgrade this is a transparent pass-through of the backend
+    // value, so normal navigation is unaffected.
+    const commitPlanName = useCallback((backendPlanName, prevPlanName, boxId) => {
+        const pending = readPendingPlan(boxId)
+            || ((optimisticPlan && optimisticAppliedRef.current) ? optimisticPlan : null);
+        if (!pending) {
+            return isMeaningfulFoFiValue(backendPlanName) ? backendPlanName : prevPlanName;
+        }
+        if (isMeaningfulFoFiValue(backendPlanName) && plansEquivalent(backendPlanName, pending)) {
+            clearPendingPlan(boxId);   // backend has propagated the new plan
+            return backendPlanName;
+        }
+        // Backend still stale (or echoing the old plan) → keep the new plan.
+        return pending;
+    }, [optimisticPlan]);
 
     useEffect(() => {
         if (!refreshData || !optimisticFofiBoxId || fofiServiceDetails) return;
@@ -794,6 +1644,31 @@ function FoFiSmartBox() {
 
                 if (assignedItemsResponse) setFofiAssignedItems(assignedItemsResponse);
 
+                // Build the full list of linked boxes so the multi-box
+                // dropdown has all candidates. Reset selectedBoxIdx to 0
+                // so a refreshed response always starts on box 0.
+                const allBoxes = extractAllBoxesFromAssigned(assignedItemsResponse);
+                if (allBoxes.length > 0) {
+                    setAllFofiBoxes(allBoxes);
+                    setSelectedBoxIdx(0);
+                }
+
+                // Cable-TV fallback: resolve the customer's cable box(es) up
+                // front, regardless of the FoFi branch below. This is set
+                // unconditionally so the UPGRADE PLAN card is available in
+                // EVERY "no confirmed FoFi service" outcome — the plain
+                // no-box case AND the case where a row is initially taken for
+                // a FoFi box but then fails plan confirmation and is cleared.
+                // The render only surfaces it when !hasConfirmedFofiService,
+                // so a genuine FoFi customer never sees it.
+                const cableBoxes = resolveCableTvBoxes(assignedItemsResponse, cableDetailsResponse, userid);
+                console.log('🟣 [FoFi] cable-TV fallback:', {
+                    hasCablePerRecord: !!cableDetailsResponse?.body?.multplatforms?.cabletv,
+                    boxes: cableBoxes.map(b => b.boxId || '(no id)'),
+                });
+                setCableTvBoxes(cableBoxes);
+                setSelectedCableBoxIdx(0);
+
                 if (hasFofi) {
                     // STEP 1: render the overview IMMEDIATELY with what
                     // we have from getUserAssignedItems. Plan name and
@@ -805,6 +1680,7 @@ function FoFiSmartBox() {
                     // shape was already in initial state.)
                     setHasFofiService(true);
                     setError(""); // Clear any previous errors
+                    setLinkedDeviceNoPlan(null); // a box is present; not the no-plan placeholder case
                     setFofiServiceDetails(prev => {
                         // Preserve any plan name/expiry already enriched
                         // from a prior render so we don't reset them to
@@ -813,7 +1689,14 @@ function FoFiSmartBox() {
                             prev.planName && prev.planName !== 'Loading…') {
                             return { ...prev, ...derived.serviceDetails, planName: prev.planName, expiryDate: prev.expiryDate, ottPlanId: prev.ottPlanId };
                         }
-                        return derived.serviceDetails;
+                        // On a fresh mount (incl. revisit before the backend
+                        // has propagated an upgrade), keep showing the pending
+                        // just-purchased plan instead of the stale one from
+                        // assigned-items.
+                        return {
+                            ...derived.serviceDetails,
+                            planName: commitPlanName(derived.serviceDetails.planName, derived.serviceDetails.planName, derived.serviceDetails.boxId || boxIdFromAi),
+                        };
                     });
 
                     // STEP 2: enrich plan name + expiry in the
@@ -826,6 +1709,20 @@ function FoFiSmartBox() {
                     ).then(planResp => {
                         console.log('🟣 [FoFi] getMyPlanDetails(fofi) body:', planResp?.body);
                         const clearUnconfirmedFoFiService = () => {
+                            // The device is linked but has no active plan. Keep its
+                            // identity (Box ID + MAC + device type) so the overview
+                            // can show the TV MAC for package subscription instead of
+                            // discarding it into a bare "not opted" screen. This does
+                            // NOT mark it as a confirmed service.
+                            const sd = derived?.serviceDetails;
+                            if (sd && isMeaningfulFoFiValue(sd.boxId || sd.macAddress)) {
+                                setLinkedDeviceNoPlan({
+                                    boxId: sd.boxId || '',
+                                    macAddress: sd.macAddress || '',
+                                    deviceType: sd.deviceType || null,
+                                    serialNumber: sd.serialNumber || '',
+                                });
+                            }
                             setHasFofiService(false);
                             setFofiServiceDetails(null);
                             setFofiPlanDetailsRaw(planResp || null);
@@ -845,8 +1742,17 @@ function FoFiSmartBox() {
                             }
                             // Plan call failed — drop the loading
                             // placeholders so the operator doesn't
-                            // stare at "Loading…" forever.
-                            setFofiServiceDetails(prev => prev ? { ...prev, planName: 'N/A', expiryDate: 'N/A' } : prev);
+                            // stare at "Loading…" forever. But keep any
+                            // plan/expiry we already seeded from the
+                            // assigned-items row (QA 4.9): downgrading a
+                            // real expiry to 'N/A' here would fail
+                            // isConfirmedFofiServiceDetails and hide the
+                            // whole service on a transient plan-call error.
+                            setFofiServiceDetails(prev => prev ? {
+                                ...prev,
+                                planName: isMeaningfulFoFiValue(prev.planName) ? prev.planName : 'N/A',
+                                expiryDate: isMeaningfulFoFiValue(prev.expiryDate) ? prev.expiryDate : 'N/A',
+                            } : prev);
                             return;
                         }
                         setFofiPlanDetailsRaw(planResp);
@@ -859,18 +1765,31 @@ function FoFiSmartBox() {
                             clearUnconfirmedFoFiService();
                             return;
                         }
-                        setFofiServiceDetails(prev => prev ? {
-                            ...prev,
-                            planName: planName || 'N/A',
-                            expiryDate: expiryDate || 'N/A',
-                            ottPlanId: ottPlanIdFromPlan,
-                            _rawFofiSvc: fofiSvc,
-                        } : prev);
+                        setFofiServiceDetails(prev => {
+                            if (!prev) return prev;
+                            // Never let a post-upgrade backend response that
+                            // still shows the OLD plan clobber the new one.
+                            const nextPlanName = commitPlanName(planName, prev.planName, prev.boxId || boxIdFromAi) || 'N/A';
+                            return {
+                                ...prev,
+                                planName: nextPlanName,
+                                expiryDate: expiryDate || 'N/A',
+                                ottPlanId: ottPlanIdFromPlan,
+                                _rawFofiSvc: fofiSvc,
+                            };
+                        });
                     }).catch(e => {
                         if (e?.message?.includes('navigated away')) return;
                         console.warn('⚠️ [FoFi] getMyPlanDetails enrichment failed (non-fatal):', e?.message);
                         if (refreshData) return;
-                        setFofiServiceDetails(prev => prev ? { ...prev, planName: 'N/A', expiryDate: 'N/A' } : prev);
+                        // Preserve any plan/expiry seeded from assigned-items
+                        // so a transient enrichment failure doesn't hide the
+                        // service (QA 4.9).
+                        setFofiServiceDetails(prev => prev ? {
+                            ...prev,
+                            planName: isMeaningfulFoFiValue(prev.planName) ? prev.planName : 'N/A',
+                            expiryDate: isMeaningfulFoFiValue(prev.expiryDate) ? prev.expiryDate : 'N/A',
+                        } : prev);
                     });
                 } else {
                     // Check if all API calls failed - if so, show error instead of "not opted"
@@ -896,11 +1815,28 @@ function FoFiSmartBox() {
                     // doesn't have FoFi service.
                     setHasFofiService(false);
                     setFofiServiceDetails(null);
+                    setLinkedDeviceNoPlan(null); // no device linked at all
+                    // cableTvBoxes already set above (unconditional cable-TV
+                    // fallback) so the UPGRADE PLAN card shows for cable-only
+                    // customers instead of the bare "not opted" screen.
+
+                    // Warm the ADD FO-FI BOX eligibility gate now, while the
+                    // operator is still reading the overview. This endpoint
+                    // is the slowest call in the whole flow (6-8s server-side,
+                    // measured 2026-07-09) and used to be fetched cold —
+                    // with skipCache — only after the button tap, which is
+                    // why ADD FO-FI BOX "kept loading for a very long time".
+                    // It caches success for 5 min; handleUpgradeClick reads
+                    // that cache, so the tap becomes near-instant.
+                    if (!allServkeyFailed) {
+                        validateBeforeFofiBoxReg({ username: userid, loginuname: logUname }).catch(() => {});
+                    }
                 }
             } catch (error) {
                 // Ignore errors from navigation cancellation (user navigated away)
                 if (error?.message?.includes('navigated away')) return;
                 console.error('❌ [FoFi SmartBox] Error fetching data:', error);
+                setError('Failed to load linked-device details. Please check your connection and retry.');
                 setIsLoading(false);
             } finally {
                 setIsOverviewLoading(false);
@@ -913,7 +1849,7 @@ function FoFiSmartBox() {
         // window.history.back() would re-derive location with a new/undefined
         // state, re-fire this effect, and refreshServiceController() would abort
         // the in-flight validateFoFiAsset with "Request cancelled — navigated away."
-    }, [_userid, refreshData]);
+    }, [_userid, refreshData, overviewRetryKey]);
 
     // Auto-hide device validation success message after 3 seconds
     useEffect(() => {
@@ -936,23 +1872,63 @@ function FoFiSmartBox() {
     // compatible). We never use internet_plans here — those are a
     // different flow, different payment endpoint.
     useEffect(() => {
-        if (view !== 'link-fofi') return;
+        // Prefetch on the overview too (not only once the user taps "Link"),
+        // so the "Select Plan" list is already warm — and instant — by the
+        // time the link-fofi dropdown mounts. Other views (payment, etc.)
+        // don't need it.
+        if (view !== 'link-fofi' && view !== 'overview') return;
+        if (isUpgradeLinkContinuation) return; // dropdown hidden in that mode
+        // Real plans already loaded — nothing to do.
         if (Array.isArray(fofiPlans) && fofiPlans !== mockFofiPlans && fofiPlans.length > 0) return;
         const userid = customerData?.username || customerData?.customer_id;
         if (!userid) return;
+
+        // Fetch at most once per (customer + retry). Without this guard, the
+        // empty-result setFofiPlans([]) re-triggered the effect (it depends on
+        // fofiPlans) and looped "Loading plans…" forever. Retry bumps
+        // linkPlansRetryKey, which changes attemptKey and allows one more try.
+        const attemptKey = `${userid}:${linkPlansRetryKey}`;
+        if (linkPlansAttemptRef.current === attemptKey) return;
+        linkPlansAttemptRef.current = attemptKey;
+
         const user = getUser();
         const logUname = user?.username || 'superadmin';
         let cancelled = false;
-        loadFoFiLinkPlans(userid, logUname)
-            .then(() => {
+        setLinkPlansLoading(true);
+        setLinkPlansError('');
+
+        // Hard safety net: the API itself is timeout-bounded, but if anything
+        // stalls, never leave the operator stuck on "Loading plans…".
+        const safety = setTimeout(() => {
+            if (cancelled) return;
+            cancelled = true; // ignore any late resolve
+            setLinkPlansLoading(false);
+            setLinkPlansError('Loading plans is taking too long. Please retry.');
+        }, 35000);
+
+        loadFoFiLinkPlans(userid, logUname, {
+            internetOrigin: !!fromInternet,
+            skipCache: linkPlansRetryKey > 0, // retry pulls a fresh list
+        })
+            .then((plans) => {
                 if (cancelled) return;
+                clearTimeout(safety);
+                setLinkPlansLoading(false);
+                if (!Array.isArray(plans) || plans.length === 0) {
+                    setLinkPlansError(fromInternet
+                        ? 'No IPTV / Combo plans are available for this customer right now.'
+                        : 'No plans are available right now.');
+                }
             })
-            .catch(() => {
+            .catch((err) => {
                 if (cancelled) return;
+                clearTimeout(safety);
                 setFofiPlans([]);
+                setLinkPlansError(err?.message || 'Failed to load plans. Please retry.');
+                setLinkPlansLoading(false);
             });
-        return () => { cancelled = true; };
-    }, [view, fofiPlans, customerData]);
+        return () => { cancelled = true; clearTimeout(safety); };
+    }, [view, fofiPlans, customerData, fromInternet, isUpgradeLinkContinuation, linkPlansRetryKey]);
 
     // After a payment/upgrade, the backend can take several seconds to
     // propagate the new box + plan + expiry across the assigned-items
@@ -1027,31 +2003,22 @@ function FoFiSmartBox() {
                     _fi?.planname || null;
 
                 if (planDetails) setFofiPlanDetailsRaw(planDetails);
-                if (fofiSvc && (newExpiry || newPlanName)) {
-                    // Anti-flap: if the backend response is still echoing
-                    // the pre-optimistic plan name, don't overwrite the
-                    // optimistic plan name back to the old value. We
-                    // still update expiryDate (it's an independent field
-                    // and can update earlier than planName). When the
-                    // backend finally propagates and returns the new
-                    // plan name, the next refetch will accept it and
-                    // the early-stop will fire.
-                    const optimisticActive = !!optimisticPlan && optimisticAppliedRef.current;
-                    const backendStillShowingOld =
-                        optimisticActive &&
-                        newPlanName &&
-                        originalPlanRef.current &&
-                        newPlanName === originalPlanRef.current &&
-                        newPlanName !== optimisticPlan;
+                // Resolve the pending (just-purchased) plan for this box so we
+                // can both display it and decide when the backend has caught up.
+                const pendingNow = readPendingPlan(fofiBoxId)
+                    || ((optimisticPlan && optimisticAppliedRef.current) ? optimisticPlan : null);
+                const backendMatchesNew = pendingNow ? plansEquivalent(newPlanName, pendingNow) : false;
 
+                if (fofiSvc && (newExpiry || newPlanName)) {
+                    // commitPlanName keeps the new plan on screen while the
+                    // backend still echoes the old one, and accepts (and clears)
+                    // it once the backend confirms the upgrade. expiryDate is an
+                    // independent field and can update earlier than planName.
                     setFofiServiceDetails(prev => {
                         if (!prev) return prev;
-                        const nextPlanName = backendStillShowingOld
-                            ? prev.planName // keep optimistic
-                            : (newPlanName || prev.planName);
                         return {
                             ...prev,
-                            planName: nextPlanName,
+                            planName: commitPlanName(newPlanName, prev.planName, fofiBoxId) || prev.planName,
                             expiryDate: newExpiry || prev.expiryDate,
                             ottPlanId: fofiSvc?.internet_planid || fofiSvc?.srvid || fofiSvc?.planid || prev.ottPlanId,
                             _rawFofiSvc: fofiSvc,
@@ -1059,10 +2026,7 @@ function FoFiSmartBox() {
                         };
                     });
                 }
-                // Stop early when the backend has clearly propagated:
-                //   - expiry visibly changed, OR
-                //   - plan name visibly changed (and not because the
-                //     backend just echoed our pre-optimistic value).
+                // Stop polling once the backend has clearly propagated.
                 const expiryChanged = newExpiry && initialExpiry && newExpiry !== initialExpiry;
                 const planChanged =
                     newPlanName &&
@@ -1070,9 +2034,16 @@ function FoFiSmartBox() {
                     newPlanName !== initialPlanName &&
                     newPlanName !== originalPlanRef.current;
                 const detailsReady = fofiBoxId && (isMeaningfulFoFiValue(newPlanName) || isMeaningfulFoFiValue(newExpiry));
-                if (detailsReady || expiryChanged || planChanged) {
+                // When an upgrade is pending, keep polling until the backend
+                // actually returns the new plan (or the expiry visibly moves) so
+                // we don't stop early while it still shows the old plan. Without
+                // a pending upgrade, the original "any details ready" stop holds.
+                const shouldStop = pendingNow
+                    ? (backendMatchesNew || expiryChanged)
+                    : (detailsReady || expiryChanged || planChanged);
+                if (shouldStop) {
                     stopped = true;
-                    console.log(`[FoFi refetch] propagated on attempt ${attempt + 1} → plan=${newPlanName}, expiry=${newExpiry}`);
+                    console.log(`[FoFi refetch] propagated on attempt ${attempt + 1} → plan=${newPlanName}, expiry=${newExpiry}, matchedNew=${backendMatchesNew}`);
                 }
             } catch (_) { /* best effort */ }
         };
@@ -1118,6 +2089,42 @@ function FoFiSmartBox() {
         }
     };
 
+    // Switch the active FoFi box when the operator picks a different
+    // box from the multi-box dropdown. Immediately updates fofiServiceDetails
+    // to the new box's item-derived data (plan shows "Loading…"), then
+    // enriches plan name/expiry via getMyPlanDetails in the background.
+    const handleBoxSelect = useCallback(async (idx) => {
+        const box = allFofiBoxes[idx];
+        if (!box) return;
+        setSelectedBoxIdx(idx);
+        setFofiServiceDetails(box.serviceDetails);
+        const userid = customerData?.username || customerData?.customer_id;
+        if (!userid) return;
+        getMyPlanDetails(
+            { servicekey: 'fofi', userid, fofiboxid: box.boxId, voipnumber: '' },
+            true
+        ).then(planResp => {
+            if (planResp?.status?.err_code !== 0 || !planResp?.body) return;
+            const fofiSvc = findFoFiSubscribedService(planResp);
+            if (!fofiSvc) return;
+            const planName = firstTrimmedValue(fofiSvc?.planname, fofiSvc?.plan_name);
+            const expiryDate = firstTrimmedValue(fofiSvc?.expirydate, fofiSvc?.expiry_date);
+            setFofiServiceDetails(prev =>
+                prev?.boxId === box.boxId ? {
+                    ...prev,
+                    planName: commitPlanName(planName, prev.planName, box.boxId) || 'N/A',
+                    expiryDate: expiryDate || 'N/A',
+                    ottPlanId: fofiSvc?.internet_planid || fofiSvc?.srvid || fofiSvc?.planid || null,
+                    _rawFofiSvc: fofiSvc,
+                } : prev
+            );
+            setFofiPlanDetailsRaw(planResp);
+        }).catch(e => {
+            if (!e?.message?.includes('navigated away'))
+                console.warn('[FoFi] box-select plan fetch failed:', e?.message);
+        });
+    }, [allFofiBoxes, customerData, commitPlanName]);
+
     // Handle Order History button click
     const handleOrderHistory = () => {
         navigate('/payment-history', {
@@ -1137,7 +2144,7 @@ function FoFiSmartBox() {
         if (uploadRequestInFlightRef.current) return;
         uploadRequestInFlightRef.current = true;
         try {
-            setIsLoading(true);
+            setIsUploadingDocument(true);
             const cid = customerData?.customer_id || customerData?.username;
             const response = await loadKycWithRetry({ cid, reqtype: 'update' });
 
@@ -1155,7 +2162,7 @@ function FoFiSmartBox() {
             console.error('Error loading document preview:', err);
             toast.add('Failed to load documents. Please try again.', { type: 'error' });
         } finally {
-            setIsLoading(false);
+            setIsUploadingDocument(false);
             uploadRequestInFlightRef.current = false;
         }
     };
@@ -1167,38 +2174,218 @@ function FoFiSmartBox() {
     // which previously made every expired customer look active.
     const isFofiExpired = isExpiredDate(fofiServiceDetails?.expiryDate);
     const hasConfirmedFofiService = hasFofiService && isConfirmedFofiServiceDetails(fofiServiceDetails);
+    // Cable-TV fallback card (customer has cable TV, no FoFi box).
+    const selectedCableBox = !hasConfirmedFofiService
+        ? (cableTvBoxes[selectedCableBoxIdx] || cableTvBoxes[0] || null)
+        : null;
     const isCheckingFofiService = hasFofiService && !hasConfirmedFofiService && (
         String(fofiServiceDetails?.planName || '').toLowerCase().startsWith('loading') ||
         String(fofiServiceDetails?.expiryDate || '').toLowerCase().startsWith('loading')
     );
 
-    // Pay Bill — mirrors the Internet Service Pay Bill payload exactly
-    // (the working reference). servicekey=fofi tells Paynow.jsx which
-    // service to load; planDetails/cableDetails are the raw API
-    // responses Paynow uses for billing display. fofiboxid is FoFi-
-    // specific extra and unused by Internet, but Paynow reads it from
-    // state when servicekey='fofi'.
-    const handlePayBill = () => {
-        const userid = customerData?.username || customerData?.customer_id;
-        const fofiBoxId =
-            fofiServiceDetails?.fofiboxid ||
-            fofiServiceDetails?.boxId ||
-            fofiAssignedItems?.body?.fofi?.[0]?.fofiboxid ||
-            '';
-        // op_id resolution mirrors Internet: cableDetails.body.op_id
-        // first, fallback to customerData.op_id.
-        const op_id = customerDetails?.body?.op_id || customerData?.op_id || primaryCustomerDetails?.op_id || '';
-        navigate('/payment', {
-            state: {
-                customer: customerData,
-                servicekey: 'fofi',
+    // Pay Bill — fetches FoFi payment info then navigates to the FoFi
+    // payment review page (same path as the upgrade flow).
+    const handlePayBill = async () => {
+        try {
+            setIsLoading(true);
+            const userid = customerData?.username || customerData?.customer_id;
+            const user = getUser();
+            const loginuname = user?.username || '';
+            const assignedDerived = deriveFofiOverviewFromAssigned(fofiAssignedItems);
+            let assignedSnapshot = fofiAssignedItems;
+            let planDetailsSnapshot = fofiPlanDetailsRaw;
+            let fofiBoxId = firstTrimmedValue(
+                fofiServiceDetails?.fofiboxid,
+                fofiServiceDetails?.boxId,
+                assignedDerived?.boxId,
+                fofiAssignedItems?.body?.fofi?.[0]?.fofiboxid
+            );
+
+            if (!fofiBoxId || !planDetailsSnapshot?.body) {
+                const assignedResults = await Promise.allSettled([
+                    getUserAssignedItems('fofi', userid, true).catch(() => null),
+                    getUserAssignedItems('multi', userid, true).catch(() => null),
+                    getUserAssignedItems('voip', userid, true).catch(() => null),
+                    getUserAssignedItems('internet', userid, true).catch(() => null),
+                ]);
+                assignedSnapshot = mergeFoFiAssignedResponses(assignedResults);
+                const freshDerived = deriveFofiOverviewFromAssigned(assignedSnapshot);
+                if (assignedSnapshot) setFofiAssignedItems(assignedSnapshot);
+                fofiBoxId = firstTrimmedValue(fofiBoxId, freshDerived?.boxId);
+                if (freshDerived?.hasFofi && freshDerived?.serviceDetails) {
+                    setHasFofiService(true);
+                    setFofiServiceDetails(prev => ({
+                        ...(prev || {}),
+                        ...freshDerived.serviceDetails,
+                        planName: isMeaningfulFoFiValue(prev?.planName) ? prev.planName : freshDerived.serviceDetails.planName,
+                        expiryDate: isMeaningfulFoFiValue(prev?.expiryDate) ? prev.expiryDate : freshDerived.serviceDetails.expiryDate,
+                        ottPlanId: prev?.ottPlanId || freshDerived.serviceDetails.ottPlanId,
+                    }));
+                }
+            }
+
+            if (fofiBoxId) {
+                const freshPlanDetails = await getMyPlanDetails(
+                    { servicekey: 'fofi', userid, fofiboxid: fofiBoxId, voipnumber: '' },
+                    true
+                ).catch(() => null);
+                if (freshPlanDetails?.body) {
+                    planDetailsSnapshot = freshPlanDetails;
+                    setFofiPlanDetailsRaw(freshPlanDetails);
+                    const fofiSvc = findFoFiSubscribedService(freshPlanDetails);
+                    if (fofiSvc) {
+                        setFofiServiceDetails(prev => prev ? {
+                            ...prev,
+                            planName: firstTrimmedValue(fofiSvc.planname, fofiSvc.plan_name, prev.planName),
+                            expiryDate: firstTrimmedValue(fofiSvc.expirydate, fofiSvc.expiry_date, fofiSvc.expdate, prev.expiryDate),
+                            ottPlanId: firstTrimmedValue(fofiSvc.internet_planid, fofiSvc.srvid, fofiSvc.planid, prev.ottPlanId),
+                            _rawFofiSvc: fofiSvc,
+                        } : prev);
+                    }
+                }
+            }
+
+            // Load the purchasable-plan catalog UP FRONT (not just as a
+            // fallback). For an expired subscription the current plan must
+            // be resolved to a valid plan id BEFORE opening payment, and
+            // the catalog name-match is the reliable source for that.
+            let planCatalog = (upgradePlans && upgradePlans.length > 0) ? upgradePlans : [];
+            if (planCatalog.length === 0) {
+                const plansResponse = await getFofiUpgradePlans({
+                    logUname: loginuname,
+                    moduletype: "upgradation",
+                    userid,
+                }).catch(() => null);
+                const catalog = flattenFoFiPlanCatalog(plansResponse);
+                if (catalog.length > 0) {
+                    const mappedCatalog = catalog.map((plan, idx) => ({
+                        ...plan,
+                        _source: 'fofi',
+                        _uniqueKey: `paybill_${plan.planid ?? plan.srvid ?? plan.servid ?? plan.id ?? idx}_${plan.planname || plan.serv_name || plan.plan_name || ''}`,
+                    }));
+                    planCatalog = mappedCatalog;
+                    setUpgradePlans(prev => prev.length > 0 ? prev : mappedCatalog);
+                }
+            }
+
+            let resolvedPlan = resolvePayBillPlanIds({
+                planDetails: planDetailsSnapshot,
+                serviceDetails: fofiServiceDetails,
+                assignedItems: assignedSnapshot,
+                planCatalog,
+            });
+
+            let planId = resolvedPlan.planid;
+            let priceId = resolvedPlan.priceid || '99';
+            let servId = resolvedPlan.servid || '3';
+
+            if (!fofiBoxId) {
+                toast.add('Could not determine FoFi Box ID for PAY BILL. Please refresh and try again.', { type: 'error' });
+                return;
+            }
+
+            if (!planId) {
+                toast.add('Could not determine current FoFi plan for PAY BILL. Please refresh and try again.', { type: 'error' });
+                return;
+            }
+
+            const requestPaymentInfo = (pid, prid, svid) => getFofiPaymentInfo({
+                fofi_box_id: fofiBoxId,
+                planid: pid,
+                priceid: prid,
+                servapptype: 'crmapp',
+                servid: svid,
                 userid: userid,
-                op_id: op_id,
-                planDetails: fofiPlanDetailsRaw,
-                cableDetails: customerDetails,
-                fofiboxid: fofiBoxId,
-            },
-        });
+                username: loginuname,
+                voipnumber: '',
+            });
+
+            const isInvalidPlanError = (resp) => {
+                const msg = String(resp?.status?.err_msg || '').toLowerCase();
+                return msg.includes('invalid plan')
+                    || msg.includes('choose valid')
+                    || msg.includes('plan id')
+                    || msg.includes('planid');
+            };
+
+            let payInfoResponse = await requestPaymentInfo(planId, priceId, servId);
+
+            // Safety net: if the backend still rejects the plan (e.g. a
+            // stale id was the only thing we could resolve from an expired
+            // subscription), re-resolve strictly from the catalog by the
+            // current plan name and retry ONCE before surfacing the error.
+            if (payInfoResponse?.status?.err_code !== 0
+                && isInvalidPlanError(payInfoResponse)
+                && resolvedPlan.source !== 'plan-catalog-name-match') {
+                const catalogPlan = matchFoFiCatalogByName(planCatalog, resolvedPlan.planName || fofiServiceDetails?.planName);
+                if (catalogPlan?.planid && catalogPlan.planid !== planId) {
+                    resolvedPlan = { ...catalogPlan, planName: catalogPlan.planName || resolvedPlan.planName, source: 'plan-catalog-name-match' };
+                    planId = resolvedPlan.planid;
+                    priceId = resolvedPlan.priceid || '99';
+                    servId = resolvedPlan.servid || '3';
+                    payInfoResponse = await requestPaymentInfo(planId, priceId, servId);
+                }
+            }
+
+            if (payInfoResponse?.status?.err_code !== 0) {
+                toast.add(payInfoResponse?.status?.err_msg || 'Failed to get payment info', { type: 'error' });
+                return;
+            }
+
+            const paymentBody = Array.isArray(payInfoResponse?.body)
+                ? (payInfoResponse.body[0] || {})
+                : (payInfoResponse?.body || {});
+
+            const taxDetails = paymentBody?.tax_details || [];
+            const cgstObj = taxDetails.find(t => t.title?.toUpperCase() === 'CGST');
+            const sgstObj = taxDetails.find(t => t.title?.toUpperCase() === 'SGST');
+            const cgst = cgstObj?.amt || 0;
+            const sgst = sgstObj?.amt || 0;
+            const extractedPlanRate = parseFloat(paymentBody?.planrate) || 0;
+            const extractedTotal = paymentBody?.total_amt || 0;
+            const otherCharges = paymentBody?.other_amt || 0;
+            const balanceAmount = paymentBody?.balance_amt || 0;
+            const operatorShare = paymentBody?.oprtrshare || 0;
+            const amountDeductable = resolveFoFiAmountDeductable(paymentBody, resolvedPlan.planName || fofiServiceDetails?.planName);
+
+            navigate('/fofi-payment', {
+                state: {
+                    userid: userid,
+                    fofiboxid: fofiBoxId,
+                    planid: planId,
+                    priceid: priceId,
+                    servid: servId,
+                    loginuname: loginuname,
+                    paytype: 'upgrade',
+                    transactionid: paymentBody?.transactionid || '',
+                    walletBalance: 0,
+                    paymentDetails: {
+                        "Plan Name": paymentBody?.planname || resolvedPlan.planName || fofiServiceDetails?.planName || "N/A",
+                        "Plan Rate": extractedPlanRate,
+                        "CGST": cgst,
+                        "SGST": sgst,
+                        "Other Charges": otherCharges,
+                        "Balance Amount": balanceAmount,
+                        "Total Amount": extractedTotal,
+                    },
+                    moreDetails: {
+                        "Operator Share": operatorShare,
+                        "Amount Deductable": amountDeductable,
+                    },
+                    noofmonth: 1,
+                    amountDeductable,
+                    customer: customerData,
+                    planName: paymentBody?.planname || resolvedPlan.planName || fofiServiceDetails?.planName || "N/A",
+                    planRate: extractedPlanRate,
+                    totalAmount: extractedTotal,
+                    operatorShare,
+                },
+            });
+        } catch (error) {
+            toast.add('Failed to get payment info: ' + (error?.message || 'Unknown error'), { type: 'error' });
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     // =====================================================
@@ -1215,21 +2402,72 @@ function FoFiSmartBox() {
                 msg.includes('not a valid user to register') ||
                 msg.includes('device not belongs op');
         };
+        // A single transient fetch failure ("Failed to fetch", timeout) used to
+        // bubble straight up as a fatal network error with NO retry — the cause
+        // of "ADD FO-FI BOX shows Loading… then network error on a good
+        // connection". Mobile radios drop the odd request even on healthy wifi,
+        // and the ~6-per-origin connection pool (see navigationController.js)
+        // gets saturated by the parallel detail fetches. Retry a couple of
+        // times before giving up. Genuine navigation cancels are re-thrown so
+        // they aren't mistaken for a recoverable blip.
+        const withNetworkRetry = async (fn, attempts = 3, delayMs = 1200) => {
+            let lastErr;
+            for (let i = 1; i <= attempts; i += 1) {
+                try {
+                    return await fn();
+                } catch (err) {
+                    if (err?.message?.includes('navigated away')) throw err;
+                    lastErr = err;
+                    if (i === attempts) break;
+                    await new Promise(resolve => setTimeout(resolve, delayMs));
+                }
+            }
+            throw lastErr;
+        };
         const validateNewUserUpgradeEligibility = async () => {
             let lastValidation = null;
             let lastCable = null;
             let lastPrimary = null;
+            let lastError = null;
 
             for (let attempt = 1; attempt <= 3; attempt += 1) {
-                const [validateResponse, cableDetailsResponse, primaryDetailsResponse] = await Promise.all([
-                    validateBeforeFofiBoxReg({ username: userid, loginuname: logUname }, { skipCache: true }),
-                    getCableCustomerDetails(userid, true).catch(() => null),
-                    getPrimaryCustomerDetails(userid, true).catch(() => null),
-                ]);
-
-                lastValidation = validateResponse;
-                lastCable = cableDetailsResponse || lastCable;
-                lastPrimary = primaryDetailsResponse || lastPrimary;
+                let validateResponse;
+                try {
+                    // validate is the eligibility gate. The cable/primary detail
+                    // fetches are best-effort context (they already swallow their
+                    // own errors) and must never make the gate fail. A thrown
+                    // error here is the validate call itself failing the network.
+                    const [v, cableDetailsResponse, primaryDetailsResponse] = await Promise.all([
+                        // Use the 5-min validate cache (warmed by the overview
+                        // when it renders the not-opted state, and by
+                        // prefetch.js on service selection). Only successful
+                        // validations are cached, so a cached hit can never
+                        // mask an "Operator is disabled" error — and skipping
+                        // the fresh 6-8s call is what makes ADD FO-FI BOX
+                        // open the plan list quickly.
+                        validateBeforeFofiBoxReg({ username: userid, loginuname: logUname }),
+                        // Reuse the overview's cached customer details (the page
+                        // fetched these seconds ago) instead of forcing a network
+                        // refetch. These are best-effort display context, not the
+                        // eligibility gate, so a few-minutes-stale value is fine —
+                        // and skipping the refetch frees connections in the ~6-per-
+                        // origin pool for the validate + plans calls that matter.
+                        getCableCustomerDetails(userid).catch(() => null),
+                        getPrimaryCustomerDetails(userid).catch(() => null),
+                    ]);
+                    validateResponse = v;
+                    lastValidation = v;
+                    lastError = null;
+                    lastCable = cableDetailsResponse || lastCable;
+                    lastPrimary = primaryDetailsResponse || lastPrimary;
+                } catch (err) {
+                    if (err?.message?.includes('navigated away')) throw err;
+                    // Transient network blip — retry instead of hard-failing.
+                    lastError = err;
+                    if (attempt === 3) throw err;
+                    await new Promise(resolve => setTimeout(resolve, 1200));
+                    continue;
+                }
 
                 if (validateResponse?.status?.err_code === 0) {
                     return { validateResponse, cableDetailsResponse: lastCable, primaryDetailsResponse: lastPrimary };
@@ -1240,6 +2478,7 @@ function FoFiSmartBox() {
                 await new Promise(resolve => setTimeout(resolve, 2500));
             }
 
+            if (lastError) throw lastError;
             return { validateResponse: lastValidation, cableDetailsResponse: lastCable, primaryDetailsResponse: lastPrimary };
         };
 
@@ -1247,6 +2486,22 @@ function FoFiSmartBox() {
         console.log('🔵 [UPGRADE] User ID:', userid);
         console.log('🔵 [UPGRADE] Log Username:', logUname);
         console.log('🔵 [UPGRADE] hasFofiService:', hasFofiService);
+
+        // Kick the plans fetch off NOW so it runs IN PARALLEL with the
+        // not-opted eligibility validation below, instead of waiting for
+        // that whole stage to finish first. The plan list doesn't depend
+        // on the validate *response* (validate only gates whether we show
+        // the plans), so overlapping the two network stages roughly halves
+        // the happy-path wait. getFofiUpgradePlans caches on success, so
+        // awaiting this same promise at the existing-user stage below is
+        // free. The detached catch keeps a rejection from surfacing as an
+        // unhandled rejection if validation fails and we bail out early.
+        const plansPromise = withNetworkRetry(() => getFofiUpgradePlans({
+            logUname: logUname,
+            moduletype: "upgradation",
+            userid: userid,
+        }));
+        plansPromise.catch(() => {});
 
         // ── NEW USER (NOT OPTED) — eligibility gate ──
         // Earlier this branch jumped straight to enterSubView('link-fofi'),
@@ -1311,15 +2566,11 @@ function FoFiSmartBox() {
         setIsUpgradeLinkContinuation(false);
 
         try {
-            // Fire plans fetch (existing users)
-            const plansPromise = getFofiUpgradePlans({
-                logUname: logUname,
-                moduletype: "upgradation",
-                userid: userid
-            });
-
-            // Existing users: plans fetch only
-            console.log('🔵 [UPGRADE] Fetching plans...');
+            // Fire plans fetch (existing users). Wrapped in withNetworkRetry so a
+            // single transient fetch failure on this second network stage doesn't
+            // surface as a fatal network error — same blip class as the validate
+            // call above. getFofiUpgradePlans caches on success, so retries are cheap.
+            console.log('🔵 [UPGRADE] Awaiting plans (fired in parallel above)...');
             const plansResponse = await plansPromise;
             console.log('🟢 [UPGRADE] registrationNecessities Response:', plansResponse);
             
@@ -1543,7 +2794,18 @@ function FoFiSmartBox() {
             // Navigate to subscription confirmation view
             enterSubView('subscription-confirm');
         } else {
-            // NEW USER - Navigate to link-fofi view with selected plan
+            // NEW USER - Navigate to link-fofi view with selected plan.
+            // If the customer already has a device linked (e.g. an Android
+            // TV that logged into the ATV app), pre-fill the Box ID + TV
+            // MAC so the operator sees the MAC for the package subscription
+            // instead of an empty form. The submit path (handleLinkFoFiBox)
+            // still re-validates the device, so this is display/convenience
+            // only and cannot bypass backend checks.
+            if (linkedDeviceNoPlan && isMeaningfulFoFiValue(linkedDeviceNoPlan.boxId || linkedDeviceNoPlan.macAddress)) {
+                if (isMeaningfulFoFiValue(linkedDeviceNoPlan.boxId)) setBoxId(linkedDeviceNoPlan.boxId);
+                if (isMeaningfulFoFiValue(linkedDeviceNoPlan.macAddress)) setMacAddress(linkedDeviceNoPlan.macAddress);
+                if (isMeaningfulFoFiValue(linkedDeviceNoPlan.serialNumber)) setSerialNumber(linkedDeviceNoPlan.serialNumber);
+            }
             setIsUpgradeLinkContinuation(true);
             enterSubView('link-fofi');
         }
@@ -1631,6 +2893,7 @@ function FoFiSmartBox() {
             
             // Extract plan details
             const servRates = selectedPlan.serv_rates || {};
+            const registrationFields = resolveFoFiRegistrationFields(selectedPlan);
             const planName = selectedPlan.serv_name || selectedPlan.planname || selectedPlan.plan_name || '';
 
             // DEBUG: Log full plan object to find correct OTT plan ID field
@@ -1647,17 +2910,14 @@ function FoFiSmartBox() {
             // - internet_plans: use servid
             // Both are valid for the payment API
 
-            let planId = '';
-
             // Get plan ID - supports both planid (fofi_plans) and servid (internet_plans)
-            planId = String(
-                selectedPlan.planid ||
-                selectedPlan.servid ||
-                selectedPlan.srvid ||
-                selectedPlan.plan_id ||
-                selectedPlan.id ||
-                ''
-            );
+            const {
+                planid: resolvedPlanId,
+                priceid: resolvedPriceId,
+                planrate: resolvedPlanPrice,
+                servid: resolvedServId,
+            } = resolveFoFiPlanSelection(selectedPlan);
+            const planId = String(resolvedPlanId || '');
             console.log('🔵 [SUBSCRIPTION] Using plan ID:', planId, '(source:', selectedPlan._source || 'unknown', ')');
 
             // Validate we have a plan ID
@@ -1671,22 +2931,15 @@ function FoFiSmartBox() {
             // Extract price ID and plan price - supports both plan structures
             // fofi_plans: priceid, planrate
             // internet_plans: serv_rates.priceid, serv_rates.prices[0]
-            const priceId = String(
-                selectedPlan.priceid ||
-                selectedPlan.price_id ||
-                servRates.priceid ||
-                servRates.price_id ||
-                '99'
-            );
+            const priceId = String(resolvedPriceId || '99');
 
-            let planPrice = selectedPlan.planrate || selectedPlan.price || 0;
+            let planPrice = selectedPlan.planrate || selectedPlan.price || resolvedPlanPrice || 0;
             // For internet_plans, extract price from serv_rates
             if (!planPrice && servRates.prices?.length > 0) {
                 planPrice = servRates.prices[0];
             }
 
-            // Service ID for FoFi/OTT is ALWAYS '3' - this is the service type for FoFi payment API
-            const servId = '3';
+            const servId = String(resolvedServId || '3');
 
             console.log('🔵 [SUBSCRIPTION] Plan details - planId:', planId, 'priceId:', priceId, 'planPrice:', planPrice);
             console.log('🔵 [SUBSCRIPTION] Box details - boxId:', fofiBoxId, 'mac:', fofiMac, 'serial:', fofiSerial);
@@ -1699,7 +2952,13 @@ function FoFiSmartBox() {
                 fofimac: fofiMac,
                 fofiserailnumber: fofiSerial,
                 loginuname: loginuname,
-                services: ["ott"],
+                plan_id: planId,
+                planid: planId,
+                priceid: priceId,
+                servid: servId,
+                servapptype: "crmapp",
+                userid: username,
+                ...registrationFields,
                 username: username
             };
             
@@ -1728,14 +2987,19 @@ function FoFiSmartBox() {
                 voipnumber: ""
             };
 
-            console.log('🔵 [PARALLEL] Calling upgradeRegistration + paymentinfo...');
+            console.log('🔵 [PAYMENTINFO] Calling paymentinfo before deferred upgrade activation...');
 
             let upgradeResponse, paymentResponse;
             try {
-                [upgradeResponse, paymentResponse] = await Promise.all([
-                    upgradeRegistration(upgradePayload),
-                    getFofiPaymentInfo(paymentPayload)
-                ]);
+                upgradeResponse = await upgradeRegistration(upgradePayload);
+                if (upgradeResponse?.status?.err_code !== 0) {
+                    const errorMsg = upgradeResponse?.status?.err_msg || 'Failed to register upgrade';
+                    console.error('Upgrade registration failed:', errorMsg);
+                    toast.add('Failed to register upgrade: ' + errorMsg, { type: 'error' });
+                    setIsLoading(false);
+                    return;
+                }
+                paymentResponse = await getFofiPaymentInfo(paymentPayload);
             } catch (stepErr) {
                 console.error('❌ API network error:', stepErr);
                 toast.add('Request failed: ' + (stepErr?.message || 'Network error'), { type: 'error' });
@@ -1804,7 +3068,7 @@ function FoFiSmartBox() {
             const tds = paymentBody?.tds || 0;
             const fofiShare = paymentBody?.fofishare || 0;
             
-            const amountDeductable = resolveFoFiAmountDeductable(paymentBody);
+            const amountDeductable = resolveFoFiAmountDeductable(paymentBody, selectedPlan?.planname || selectedPlan?.serv_name || selectedPlan?.plan_name);
 
             const fofiPaymentData = {
                 // Customer & Plan identifiers (using fofi_plans structure)
@@ -2048,23 +3312,16 @@ function FoFiSmartBox() {
             //      clear MAC so the operator can't link a taken
             //      device.
             // ──────────────────────────────────────────────────────
-            let parsedQRData;
-            try {
-                const decodedData = atob(qrData);
-                parsedQRData = JSON.parse(decodedData);
-                console.log('🟢 Parsed QR data:', parsedQRData);
-            } catch (parseError) {
-                console.error('❌ Failed to parse QR data:', parseError);
-                setValidationError('Invalid QR code format. Please scan a valid FoFi device QR code.');
-                setIsLoading(false);
-                return;
-            }
+            // Robustly read MAC + serial from the QR — handles the native
+            // base64-JSON FoFi-box format AND the plain-JSON / raw-string
+            // shapes the Android TV / Smart-TV apps emit (see
+            // parseFofiQrPayload). Only the MAC is required; TV devices
+            // don't always carry a serial.
+            const { mac: qrMacAddress, serial: qrSerialNumber } = parseFofiQrPayload(qrData);
+            console.log('🟢 Parsed QR data:', { mac: qrMacAddress, serial: qrSerialNumber });
 
-            const qrMacAddress = parsedQRData.emacid || parsedQRData.macid || parsedQRData.mac || '';
-            const qrSerialNumber = parsedQRData.serialno || parsedQRData.serial || '';
-
-            if (!qrMacAddress || !qrSerialNumber) {
-                setValidationError('QR code is missing MAC or serial number. Please rescan.');
+            if (!qrMacAddress) {
+                setValidationError('Could not read the device MAC from this QR. Please rescan the code shown on the TV, or enter the FOFI Box ID manually and tap GET MAC ID.');
                 setIsLoading(false);
                 return;
             }
@@ -2605,7 +3862,10 @@ function FoFiSmartBox() {
             // For combo plans (IPTV_OTT_COMBO), the OTT plan ID is in ottservplanid field inside serv_rates
             // For registrationNecessities API: servid is the internet plan ID, but we need OTT plan ID
             const servRates = selectedPlan.serv_rates || {};
-            const { planid: planId, priceid: priceId, planrate: planPrice, servid: servId } = resolveFoFiPlanSelection(selectedPlan);
+            const selection = selectedPlan?._source === 'internet-link'
+                ? resolveInternetLinkPlanSelection(selectedPlan)
+                : resolveFoFiPlanSelection(selectedPlan);
+            const { planid: planId, priceid: priceId, planrate: planPrice, servid: servId } = selection;
             const registrationFields = resolveFoFiRegistrationFields(selectedPlan);
             if (!planId) {
                 setValidationError('Selected FoFi plan is missing a plan ID. Please select another plan.');
@@ -2664,15 +3924,7 @@ function FoFiSmartBox() {
                     username: username,
                 };
                 console.log('🔵 [LINK] Calling freeOTAService…', linkPayload);
-                let linkResp;
-                try {
-                    linkResp = await linkFoFiBox(linkPayload);
-                } catch (e) {
-                    if (e?.message?.includes('navigated away')) return;
-                    setValidationError(e?.message || 'Failed to link FoFi box. Please try again.');
-                    setIsLoading(false);
-                    return;
-                }
+                const linkResp = await linkFoFiBox(linkPayload);
                 console.log('🟢 [LINK] freeOTAService response:', linkResp);
                 if (linkResp?.status?.err_code !== 0) {
                     setValidationError(linkResp?.status?.err_msg || 'Failed to link FoFi box.');
@@ -2715,7 +3967,7 @@ function FoFiSmartBox() {
                 const bbnlShare = parseFloat(paymentBody?.bbnl_share) || 0;
                 const softCharge = paymentBody?.softwarecharges || 0;
                 const tds = paymentBody?.tds || 0;
-                const amountDeductable = resolveFoFiAmountDeductable(paymentBody);
+                const amountDeductable = resolveFoFiAmountDeductable(paymentBody, selectedPlan?.planname || selectedPlan?.serv_name || selectedPlan?.plan_name);
 
                 const fofiPaymentData = {
                     userid: username,
@@ -2780,7 +4032,13 @@ function FoFiSmartBox() {
                 fofimac: finalMacForSubmit,
                 fofiserailnumber: finalSerialForSubmit,
                 loginuname: loginuname,
-                services: registrationFields.services,
+                plan_id: planId,
+                planid: planId,
+                priceid: priceId,
+                servid: servId,
+                servapptype: "crmapp",
+                userid: username,
+                ...registrationFields,
                 username: username
             };
 
@@ -2880,7 +4138,7 @@ function FoFiSmartBox() {
                 const tds = paymentBody?.tds || 0;
                 const fofiShare = paymentBody?.fofishare || 0;
                 
-                const amountDeductable = resolveFoFiAmountDeductable(paymentBody);
+                const amountDeductable = resolveFoFiAmountDeductable(paymentBody, selectedPlan?.planname || selectedPlan?.plan_name);
 
                 // Prepare payment data for the review page
                 const fofiPaymentData = {
@@ -3135,7 +4393,7 @@ function FoFiSmartBox() {
 
         return (
             <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
-                <SuccessAlert />
+                {successAlert}
 
                 {/* Header - Matching Internet module exactly */}
                 <header className="sticky top-0 z-40 flex items-center px-4 pb-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
@@ -3178,10 +4436,10 @@ function FoFiSmartBox() {
                             <div className="flex gap-3">
                                 <button
                                     onClick={handleUploadDocument}
-                                    disabled={isLoading}
+                                    disabled={isUploadingDocument}
                                     className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 px-4 rounded-full text-sm transition-[background-color,box-shadow] duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    {isLoading ? 'Loading...' : 'Upload Document'}
+                                    {isUploadingDocument ? 'Loading...' : 'Upload Document'}
                                 </button>
                                 <button
                                     onClick={handleOrderHistory}
@@ -3217,7 +4475,10 @@ function FoFiSmartBox() {
                                     </div>
                                     <p className="text-red-600 dark:text-red-400 text-center text-sm mb-2">{error}</p>
                                     <button
-                                        onClick={() => window.location.reload()}
+                                        onClick={() => {
+                                            setError('');
+                                            setOverviewRetryKey((key) => key + 1);
+                                        }}
                                         className="mt-4 text-indigo-600 hover:text-indigo-700 text-sm font-medium underline"
                                     >
                                         Retry
@@ -3238,12 +4499,129 @@ function FoFiSmartBox() {
                                         Checking FoFi service status...
                                     </p>
                                 </div>
+                            ) : !hasConfirmedFofiService && selectedCableBox ? (
+                                // CABLE-TV CUSTOMER — has cable TV but no FoFi box.
+                                // Native-app parity: show the cable box id + its
+                                // current (FTA/cable) plan and an UPGRADE PLAN
+                                // button. The button runs the SAME eligibility-
+                                // gated add-FoFi-box flow as ADD FO-FI BOX
+                                // (hasConfirmedFofiService is false here, so
+                                // handleUpgradeClick takes the new-user path).
+                                <>
+                                    {(cableTvBoxes.length > 1 || selectedCableBox.boxId) && (
+                                    <div className="space-y-3">
+                                        <h3 className="text-indigo-600 font-semibold text-lg flex items-center gap-2">
+                                            <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
+                                            FoFi Box ID
+                                        </h3>
+                                        {cableTvBoxes.length > 1 ? (
+                                            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-gray-800 rounded-xl border border-indigo-200 dark:border-gray-700 overflow-hidden">
+                                                <select
+                                                    value={selectedCableBoxIdx}
+                                                    onChange={e => setSelectedCableBoxIdx(Number(e.target.value))}
+                                                    className="w-full px-4 py-3 bg-transparent text-indigo-600 dark:text-indigo-300 font-semibold text-base appearance-none cursor-pointer focus:outline-none"
+                                                    style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%234f46e5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E\")", backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: '36px' }}
+                                                >
+                                                    {cableTvBoxes.map((box, idx) => (
+                                                        <option key={box.boxId} value={idx}>{box.boxId}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        ) : (
+                                            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-gray-800 px-4 py-3 rounded-xl border border-indigo-200 dark:border-gray-700">
+                                                <p className="text-indigo-600 dark:text-indigo-300 font-semibold text-base break-all">{selectedCableBox.boxId}</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                    )}
+
+                                    <div className="space-y-3">
+                                        <h3 className="text-indigo-600 font-semibold text-lg flex items-center gap-2">
+                                            <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
+                                            Plan Details
+                                        </h3>
+                                        <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 border border-gray-100 dark:border-gray-700">
+                                            <div className="flex items-start gap-3">
+                                                <div className="flex-shrink-0">
+                                                    <svg className="w-12 h-12" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                        <circle cx="50" cy="50" r="50" fill="url(#fofiCableGradient)" />
+                                                        <path d="M25 48 Q50 22, 75 48" stroke="white" strokeWidth="5" strokeLinecap="round" fill="none" />
+                                                        <line x1="22" y1="55" x2="78" y2="55" stroke="white" strokeWidth="5" strokeLinecap="round" />
+                                                        <line x1="26" y1="66" x2="74" y2="66" stroke="white" strokeWidth="5" strokeLinecap="round" />
+                                                        <line x1="32" y1="77" x2="68" y2="77" stroke="white" strokeWidth="4" strokeLinecap="round" />
+                                                        <defs>
+                                                            <linearGradient id="fofiCableGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                                                <stop offset="0%" stopColor="#38BDF8" />
+                                                                <stop offset="100%" stopColor="#0284C7" />
+                                                            </linearGradient>
+                                                        </defs>
+                                                    </svg>
+                                                </div>
+                                                <div className="flex-1 min-w-0 space-y-2 text-sm">
+                                                    <div className="flex">
+                                                        <span className="w-24 shrink-0 text-gray-700 dark:text-gray-300">Service Name</span>
+                                                        <span className="min-w-0 break-words text-gray-700 dark:text-gray-300">: {selectedCableBox.serviceName || 'fofi'}</span>
+                                                    </div>
+                                                    <div className="flex">
+                                                        <span className="w-24 shrink-0 text-gray-700 dark:text-gray-300">Plan Name</span>
+                                                        <span className="min-w-0 break-words text-gray-700 dark:text-gray-300">: {selectedCableBox.planName || 'N/A'}</span>
+                                                    </div>
+                                                    <div className="flex">
+                                                        <span className="w-24 shrink-0 text-gray-700 dark:text-gray-300">Expiry Date</span>
+                                                        <span className="min-w-0 break-words text-gray-700 dark:text-gray-300">: {selectedCableBox.expiryDate || 'N/A'}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="mt-4">
+                                                <button
+                                                    onClick={handleUpgradeClick}
+                                                    disabled={upgradePlansLoading}
+                                                    className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-semibold py-3 px-4 rounded-lg text-sm uppercase tracking-wide transition-shadow duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                                                >
+                                                    {upgradePlansLoading ? 'Loading...' : 'UPGRADE PLAN'}
+                                                </button>
+                                                {upgradePlansError && (
+                                                    <p className="text-red-500 text-sm mt-3 text-center">{upgradePlansError}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </>
                             ) : !hasConfirmedFofiService ? (
-                                // NEW USER - Not opted for FoFi service
+                                // NEW USER - Not opted for a FoFi PLAN yet.
+                                // If a device is already LINKED (e.g. the customer
+                                // logged into the ATV app, which links the Android TV
+                                // and assigns it a MAC), show that device's Box ID +
+                                // TV MAC here so the operator can verify it and
+                                // subscribe a package — instead of a bare "not opted"
+                                // screen that hides the MAC.
                                 <div className="flex-1 flex flex-col items-center justify-center py-10">
-                                    <p className="text-gray-600 dark:text-gray-400 text-center text-sm mb-6">
-                                        Selected Customer have not opted<br />for this Service
-                                    </p>
+                                    {linkedDeviceNoPlan && isMeaningfulFoFiValue(linkedDeviceNoPlan.boxId || linkedDeviceNoPlan.macAddress) ? (
+                                        <div className="w-full max-w-md mb-6">
+                                            <h3 className="text-indigo-600 font-semibold text-lg flex items-center gap-2 mb-3">
+                                                <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
+                                                Linked TV Device
+                                            </h3>
+                                            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-gray-800 px-4 py-3 rounded-xl border border-indigo-200 dark:border-gray-700 space-y-1">
+                                                {linkedDeviceNoPlan.deviceType && (
+                                                    <p className="text-xs text-indigo-500 dark:text-indigo-400">{linkedDeviceNoPlan.deviceType}</p>
+                                                )}
+                                                {isMeaningfulFoFiValue(linkedDeviceNoPlan.boxId) && (
+                                                    <p className="text-indigo-600 dark:text-indigo-300 font-semibold text-base break-all">{linkedDeviceNoPlan.boxId}</p>
+                                                )}
+                                                {isMeaningfulFoFiValue(linkedDeviceNoPlan.macAddress) && (
+                                                    <p className="text-sm text-gray-700 dark:text-gray-300 font-mono break-all">MAC: {linkedDeviceNoPlan.macAddress}</p>
+                                                )}
+                                            </div>
+                                            <p className="text-gray-500 dark:text-gray-400 text-center text-xs mt-3">
+                                                This device is linked but has no active plan. Subscribe a package to activate it.
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <p className="text-gray-600 dark:text-gray-400 text-center text-sm mb-6">
+                                            Selected Customer have not opted<br />for this Service
+                                        </p>
+                                    )}
                                     <button
                                         onClick={handleUpgradeClick}
                                         disabled={upgradePlansLoading}
@@ -3264,9 +4642,29 @@ function FoFiSmartBox() {
                                             <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
                                             FoFi Box ID
                                         </h3>
-                                        <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-gray-800 px-4 py-3 rounded-xl border border-indigo-200 dark:border-gray-700">
-                                            <p className="text-indigo-600 font-semibold text-base">{fofiServiceDetails?.boxId || 'N/A'}</p>
-                                        </div>
+                                        {allFofiBoxes.length > 1 ? (
+                                            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-gray-800 rounded-xl border border-indigo-200 dark:border-gray-700 overflow-hidden">
+                                                <select
+                                                    value={selectedBoxIdx}
+                                                    onChange={e => handleBoxSelect(Number(e.target.value))}
+                                                    className="w-full px-4 py-3 bg-transparent text-indigo-600 dark:text-indigo-300 font-semibold text-base appearance-none cursor-pointer focus:outline-none"
+                                                    style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%234f46e5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E\")", backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: '36px' }}
+                                                >
+                                                    {allFofiBoxes.map((box, idx) => (
+                                                        <option key={box.boxId} value={idx}>
+                                                            {box.serviceDetails?.deviceType ? `[${box.serviceDetails.deviceType}] ` : ''}{box.boxId}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        ) : (
+                                            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-gray-800 px-4 py-3 rounded-xl border border-indigo-200 dark:border-gray-700">
+                                                <p className="text-indigo-600 dark:text-indigo-300 font-semibold text-base">{fofiServiceDetails?.boxId || 'N/A'}</p>
+                                                {fofiServiceDetails?.deviceType && (
+                                                    <p className="text-xs text-indigo-500 dark:text-indigo-400 mt-0.5">{fofiServiceDetails.deviceType}</p>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Current Plan (Read-Only) Section - Matching Internet style exactly */}
@@ -3344,6 +4742,7 @@ function FoFiSmartBox() {
                                             </div>
                                         </div>
                                     </div>
+
                                 </>
                             )}
                 </div>
@@ -3369,7 +4768,7 @@ function FoFiSmartBox() {
     if (view === 'upgrade-plans') {
         return (
             <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
-                <SuccessAlert />
+                {successAlert}
 
                 {/* Header - Blue/Indigo gradient matching app theme */}
                 <header className="sticky top-0 z-40 flex items-center px-4 pb-4 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top, 1rem))' }}>
@@ -3549,7 +4948,7 @@ function FoFiSmartBox() {
         
         return (
             <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
-                <SuccessAlert />
+                {successAlert}
 
                 {/* Header - Blue/Indigo gradient matching app theme */}
                 <header className="sticky top-0 z-40 flex items-center px-4 pb-4 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top, 1rem))' }}>
@@ -3789,21 +5188,34 @@ function FoFiSmartBox() {
                     freeOTAService submit payload. */}
                 {!isUpgradeLinkContinuation && (
                 <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+                    {linkPlansLoading && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Loading plans...</p>
+                    )}
+                    {linkPlansError && !linkPlansLoading && (
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                            <p className="text-xs text-red-600 dark:text-red-400">{linkPlansError}</p>
+                            <button
+                                type="button"
+                                onClick={() => { setLinkPlansError(''); setLinkPlansRetryKey((k) => k + 1); }}
+                                className="flex-shrink-0 text-xs font-semibold text-indigo-600 dark:text-indigo-400 border border-indigo-300 dark:border-indigo-600 rounded-md px-3 py-1 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors"
+                            >
+                                Retry
+                            </button>
+                        </div>
+                    )}
                     <select
-                        value={selectedPlan?.planid || selectedPlan?.srvid || selectedPlan?.servid || selectedPlan?.id || ''}
+                        value={selectedPlan ? getPlanSelectId(selectedPlan) : ''}
                         onChange={(e) => {
                             const v = e.target.value;
                             if (!v) { setSelectedPlan(null); return; }
-                            const match = (fofiPlans || []).find(p =>
-                                String(p.planid ?? p.srvid ?? p.servid ?? p.id ?? '') === String(v)
-                            );
+                            const match = (fofiPlans || []).find((p, idx) => String(getPlanSelectId(p, idx)) === String(v));
                             setSelectedPlan(match || null);
                         }}
                         className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     >
                         <option value="">Select a Plan</option>
                         {(fofiPlans || []).map((p, idx) => {
-                            const id = p.planid ?? p.srvid ?? p.servid ?? p.id ?? idx;
+                            const id = getPlanSelectId(p, idx);
                             const name = p.serv_name || p.planname || p.plan_name || p.name || `Plan ${idx + 1}`;
                             return (
                                 <option key={`${id}-${idx}`} value={String(id)}>

@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import Modal from './Modal';
 import { loadKycWithRetry } from '../../utils/kycRetry';
 import { useToast } from './Toast';
+import { getUser } from '../../services/safeStorage';
+import { prioritizeCustomerService } from '../../services/prefetch';
 
 export default function ServiceSelectionModal({ isOpen, onClose, onSelectService, customer, services: propServices, currentServiceKey, fofiboxid, cableDetails }) {
     const navigate = useNavigate();
@@ -111,6 +113,9 @@ export default function ServiceSelectionModal({ isOpen, onClose, onSelectService
             setComingSoonOpen(true);
             return;
         }
+        const userid = customer?.customer_id || customer?.username;
+        const logUname = getUser()?.username || '';
+        prioritizeCustomerService(userid, logUname, service.id);
         onSelectService(service);
         onClose();
     };

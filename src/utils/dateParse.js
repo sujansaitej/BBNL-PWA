@@ -20,9 +20,17 @@ export function parseBackendDate(raw) {
     const s = String(raw).trim();
     if (!s || s === 'N/A') return null;
 
-    // Fast path: ISO / RFC formats that `new Date` handles natively.
-    const native = Date.parse(s);
-    if (!Number.isNaN(native)) return native;
+    // Fast path: ISO / RFC formats that `new Date` handles natively —
+    // BUT only when the string is unambiguously ISO (starts with a
+    // 4-digit year, or carries a `T`/timezone marker). The backend's
+    // primary format is DD-MM-YYYY, and `Date.parse("03-07-2026")`
+    // silently reads it as MM-DD-YYYY (March 7), so a still-active
+    // subscription expiring 3rd July looked expired. Gating the fast
+    // path keeps DD-MM-YYYY out of the native (US-locale) parser.
+    if (/^\d{4}[-/.]/.test(s) || /[T ]\d{1,2}:\d{2}.*(Z|[+-]\d{2}:?\d{2})$/.test(s)) {
+        const native = Date.parse(s);
+        if (!Number.isNaN(native)) return native;
+    }
 
     // DD-MM-YYYY [HH:mm[:ss]] [am/pm]
     // Allow "-" "/" or "." as date separator to be lenient.

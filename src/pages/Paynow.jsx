@@ -89,31 +89,187 @@ export default function Subscribe() {
     noofmonth: 1,
   });
 
-  const toAmount = (value) => {
-    const num = Number(value);
-    return Number.isFinite(num) ? num : 0;
+  const parseAmount = (value) => {
+    if (value === null || typeof value === "undefined" || value === "") return null;
+    if (typeof value === "object") {
+      return firstAmount(value.amt, value.amount, value.value, value.total, value.tax_amount);
+    }
+    const cleaned = typeof value === "number"
+      ? String(value)
+      : String(value).replace(/[^\d.-]/g, "");
+    if (!cleaned || cleaned === "-" || cleaned === "." || cleaned === "-.") return null;
+    const num = Number(cleaned);
+    return Number.isFinite(num) ? num : null;
   };
+
+  const firstAmount = (...values) => {
+    for (const value of values) {
+      const parsed = parseAmount(value);
+      if (parsed !== null) return parsed;
+    }
+    return null;
+  };
+
+  const firstPositiveAmount = (...values) => {
+    for (const value of values) {
+      const parsed = parseAmount(value);
+      if (parsed !== null && parsed > 0) return parsed;
+    }
+    return null;
+  };
+
+  const toAmount = (value) => firstAmount(value) ?? 0;
 
   const roundCurrency = (value) => Math.round(toAmount(value) * 100) / 100;
 
+  const hasPendingBillingSignal = (raw = {}, det = {}) => {
+    const pendingFlag = String(raw?.ispending ?? det?.ispending ?? "").trim().toLowerCase();
+    if (["yes", "y", "true", "1", "pending"].includes(pendingFlag)) return true;
+
+    const payableSignal = firstPositiveAmount(
+      det?.shareinfo?.checkuserpayable,
+      raw?.shareinfo?.checkuserpayable,
+      det?.checkuserpayable,
+      raw?.checkuserpayable
+    );
+    const penaltySignal = firstPositiveAmount(
+      raw?.penalty?.total,
+      raw?.penalty?.amt,
+      det?.shareinfo?.penaltyamt,
+      raw?.shareinfo?.penaltyamt,
+      det?.penaltyamt,
+      raw?.penaltyamt
+    );
+
+    return payableSignal !== null || penaltySignal !== null;
+  };
+
+  const normalizeInternetBalanceAmount = (raw = {}, det = {}, fallback = {}) => {
+    const oldTotal = firstAmount(raw?.oldtotamt, det?.oldtotamt);
+    const oldPaid = firstAmount(raw?.oldpaidamt, det?.oldpaidamt);
+    const oldBalance =
+      oldTotal !== null && oldPaid !== null && oldTotal > oldPaid
+        ? oldTotal - oldPaid
+        : null;
+
+    const balance = firstPositiveAmount(
+      det?.shareinfo?.balamt,
+      raw?.shareinfo?.balamt,
+      det?.balamt,
+      raw?.balamt,
+      det?.balance_amt,
+      raw?.balance_amt,
+      det?.balanceamount,
+      raw?.balanceamount,
+      det?.balance_amount,
+      raw?.balance_amount,
+      det?.dueamount,
+      raw?.dueamount,
+      raw?.prevbalance,
+      det?.prevbalance,
+      oldBalance,
+      fallback.balanceAmount
+    );
+
+    if (balance === null) return 0;
+    if (hasPendingBillingSignal(raw, det)) return roundCurrency(balance);
+
+    // Preserve the earlier GST-rounding fix: tiny legacy residuals (Re.1
+    // and similar) are not a real customer due unless the API marks the
+    // account/payment as pending.
+    if (balance <= 5) return 0;
+
+    return roundCurrency(balance);
+  };
+
+  const readNestedTaxValue = (source, key) => {
+    if (!source) return undefined;
+    const taxSource = source?.taxdetails?.subtaxes ?? source?.subtaxes ?? source?.tax_details;
+    if (Array.isArray(taxSource)) {
+      const match = taxSource.find((tax) => String(tax?.key || tax?.name || tax?.taxname || tax?.title || tax?.label || "").toUpperCase() === key);
+      return match?.value ?? match?.amount ?? match?.tax_amount ?? match?.amt;
+    }
+    if (taxSource && typeof taxSource === "object") {
+      const direct = taxSource[key] ?? taxSource[key.toLowerCase()];
+      return direct?.value ?? direct?.amount ?? direct?.tax_amount ?? direct?.amt ?? direct;
+    }
+    return undefined;
+  };
+
+  // Read the percentage (rate) of a sub-tax (e.g. CGST "9") from the
+  // same nested taxdetails.subtaxes structure. Used to recompute the
+  // precise tax amount, because makepayment rounds the tax `value` to
+  // whole rupees while the actual invoice/receipt bills the precise
+  // decimal — see computeNestedTax() below.
+  const readNestedTaxPerc = (source, key) => {
+    if (!source) return undefined;
+    const taxSource = source?.taxdetails?.subtaxes ?? source?.subtaxes ?? source?.tax_details;
+    if (Array.isArray(taxSource)) {
+      const match = taxSource.find((tax) => String(tax?.key || tax?.name || tax?.taxname || tax?.title || tax?.label || "").toUpperCase() === key);
+      return match?.perc ?? match?.percent ?? match?.percentage ?? match?.rate;
+    }
+    if (taxSource && typeof taxSource === "object") {
+      const direct = taxSource[key] ?? taxSource[key.toLowerCase()];
+      return direct?.perc ?? direct?.percent ?? direct?.percentage ?? direct?.rate;
+    }
+    return undefined;
+  };
+
+  // Resolve a single GST sub-tax (CGST / SGST) to the PRECISE rupee
+  // amount that the backend invoice/receipt actually bills.
+  //
+  // Why this exists: apis/makepayment returns the tax `value` ROUNDED to
+  // whole rupees (e.g. a real ₹4.58 CGST comes back as 5.00), but
+  // internet/paymentinfo and the printed receipt bill the exact decimal
+  // (4.58). Trusting makepayment's rounded value inflates the displayed
+  // Total above the real invoice; the ~₹1 gap (2 × ₹0.42) is then
+  // recorded as a phantom "Balance Amount" that is not collected on the
+  // first payment and silently eats ₹1 from the operator wallet on every
+  // subsequent renewal, accumulating 1 → 2 → 3 … (QA report 1.3).
+  //
+  // Fix: when the sub-tax percentage and a taxable base are available,
+  // recompute amount = round(base × perc / 100, 2) so Payment Details
+  // matches the receipt exactly. Fall back to the rounded value only when
+  // we cannot recompute (missing perc / base).
+  const computeNestedTax = (det, raw, key, base, fallbackValue) => {
+    const perc = toAmount(readNestedTaxPerc(det, key) ?? readNestedTaxPerc(raw, key));
+    const rawValue = readNestedTaxValue(det, key) ?? readNestedTaxValue(raw, key) ?? fallbackValue;
+    if (perc > 0 && base > 0) {
+      return roundCurrency(base * perc / 100);
+    }
+    return roundCurrency(toAmount(rawValue));
+  };
+
   const deriveInternetSettlement = (details = {}) => {
     const totalAmount = roundCurrency(details?.["Total Amount"]);
-    const balanceAmount = roundCurrency(details?.["Balance Amount"]);
     const planRate = roundCurrency(details?.["Plan Rate"]);
     const cgst = roundCurrency(details?.["CGST"]);
     const sgst = roundCurrency(details?.["SGST"]);
     const otherCharges = roundCurrency(details?.["Other Charges"]);
-    const computedRenewalAmount = roundCurrency(planRate + cgst + sgst + otherCharges);
-    const renewalAmount = roundCurrency(
-      computedRenewalAmount > 0
-        ? computedRenewalAmount
-        : Math.max(0, totalAmount - Math.min(balanceAmount, totalAmount))
-    );
+    const balanceAmount = roundCurrency(details?.["Balance Amount"]);
+    const computedTotal = roundCurrency(planRate + cgst + sgst + otherCharges + balanceAmount);
+
+    // An Internet renewal bills exactly one cycle: plan rate + taxes +
+    // other charges. NEVER fold a prior "Balance Amount" residual into
+    // the new payable. That residual is the share-settlement phantom
+    // (customer total − operator wallet debit) that the backend echoes
+    // back via prevbalance/oldbalance fields; adding it here is what
+    // makes the receipt grow 20 → 40 → 60 across renewals. Force it to
+    // zero so the customer total == the amount they pay this cycle.
+    // Updated behavior: a real normalized balance is part of paidamount.
+    const payableAmount = roundCurrency(Math.max(computedTotal, totalAmount));
+
+    // cashpaid = operator wallet debit (totbbnlshare). paidamount =
+    // customer-facing receipt total (the full cycle bill). These are
+    // intentionally distinct ledgers, but the RECEIPT must be fully
+    // paid: paidamount == total => the backend records BalanceAmount 0.
+    const walletDebit = roundCurrency(payNowInp?.cashpaid || payableAmount);
 
     return {
-      totalAmount,
+      totalAmount: payableAmount,
       balanceAmount,
-      renewalAmount: renewalAmount > 0 ? renewalAmount : totalAmount,
+      payableAmount: payableAmount > 0 ? payableAmount : totalAmount,
+      walletDebit,
     };
   };
 
@@ -145,33 +301,78 @@ export default function Subscribe() {
       det?.rate ??
       fallback.planRate
     );
-    const cgst = toAmount(
-      det?.taxdetails?.subtaxes?.CGST?.value ??
-      raw?.cgst ??
-      det?.cgst ??
-      fallback.cgst
+
+    // GST is charged on the post-discount taxable base. The backend
+    // exposes it as `subtotal` (falls back to planamt / plan rate when a
+    // breakdown isn't present). We recompute each sub-tax precisely from
+    // its percentage against this base — makepayment rounds the raw tax
+    // `value` to whole rupees, which is what creates the phantom ₹1
+    // balance on renewals (QA report 1.3, see computeNestedTax()).
+    const taxBase = toAmount(
+      det?.subtotal ??
+      det?.planamt ??
+      planRate
     );
-    const sgst = toAmount(
-      det?.taxdetails?.subtaxes?.SGST?.value ??
-      raw?.sgst ??
-      det?.sgst ??
-      fallback.sgst
-    );
-    const otherCharges = toAmount(
-      raw?.othcharge?.amt ??
-      det?.othcharge?.amt ??
+    const cgst = computeNestedTax(det, raw, "CGST", taxBase, raw?.cgst ?? det?.cgst ?? fallback.cgst);
+    const sgst = computeNestedTax(det, raw, "SGST", taxBase, raw?.sgst ?? det?.sgst ?? fallback.sgst);
+    const otherCharges = toAmount(firstPositiveAmount(
+      raw?.othcharge?.amt,
+      det?.othcharge?.amt,
+      raw?.other_charges,
+      det?.other_charges,
+      raw?.othercharges,
+      det?.othercharges,
+      raw?.other_amt,
+      det?.other_amt,
+      raw?.othamt,
+      det?.othamt,
+      raw?.shareinfo?.othamt,
+      det?.shareinfo?.othamt,
       fallback.otherCharges
-    );
+    ) ?? firstAmount(
+      raw?.othcharge?.amt,
+      det?.othcharge?.amt,
+      raw?.other_charges,
+      det?.other_charges,
+      raw?.othercharges,
+      det?.othercharges,
+      raw?.other_amt,
+      det?.other_amt,
+      raw?.othamt,
+      det?.othamt,
+      raw?.shareinfo?.othamt,
+      det?.shareinfo?.othamt,
+      fallback.otherCharges
+    ));
+    const balanceAmount = normalizeInternetBalanceAmount(raw, det, fallback);
     const computedTotal = roundCurrency(planRate + cgst + sgst + otherCharges);
     const candidateTotal = toAmount(
       explicitMonthOne
         ? (det?.total ?? det?.totalamt)
         : 0
     );
+    const backendPayable = firstPositiveAmount(
+      det?.shareinfo?.checkuserpayable,
+      raw?.shareinfo?.checkuserpayable,
+      det?.checkuserpayable,
+      raw?.checkuserpayable,
+      det?.payable_amt,
+      raw?.payable_amt,
+      det?.payableamount,
+      raw?.payableamount,
+      det?.grandtotal,
+      raw?.grandtotal
+    );
+    const baseTotal = roundCurrency(
+      computedTotal ||
+      (candidateTotal > 0 ? candidateTotal : fallback.totalAmount)
+    );
     const totalAmount = roundCurrency(
-      candidateTotal > 0 && candidateTotal <= computedTotal + 0.01
-        ? candidateTotal
-        : (computedTotal || fallback.totalAmount)
+      backendPayable && backendPayable > 0
+        ? backendPayable
+        : balanceAmount > 0 && baseTotal < roundCurrency(computedTotal + balanceAmount)
+          ? roundCurrency(baseTotal + balanceAmount)
+          : baseTotal
     );
 
     const candidateOperatorDebit = toAmount(
@@ -190,48 +391,17 @@ export default function Subscribe() {
         )
     );
 
-    const explicitHistoricalBalance = (() => {
-      const oldTotalAmount = toAmount(raw?.oldtotamt);
-      const oldPaidAmount = toAmount(raw?.oldpaidamt);
-      if (oldTotalAmount > 0) {
-        return roundCurrency(Math.max(0, oldTotalAmount - oldPaidAmount));
-      }
-
-      const rootPrevBalance = raw?.prevbalance;
-      const rootBalanceAmount = raw?.balanceamount ?? raw?.balanceamt ?? raw?.balance;
-      if (rootPrevBalance !== undefined && rootPrevBalance !== null && rootPrevBalance !== "") {
-        return roundCurrency(rootPrevBalance);
-      }
-      if (rootBalanceAmount !== undefined && rootBalanceAmount !== null && rootBalanceAmount !== "") {
-        return roundCurrency(rootBalanceAmount);
-      }
-      return null;
-    })();
-
-    const sharedBalanceAmount = roundCurrency(
-      raw?.balamt ??
-      det?.balamt ??
-      det?.shareinfo?.balamt
-    );
-    const settlementDelta = roundCurrency(Math.max(0, operatorDebit - totalAmount));
-    const fallbackBalanceAmount = roundCurrency(fallback.balanceAmount);
-
-    // `shareinfo.balamt` can be an internal settlement delta between
-    // the displayed customer total and the operator wallet deduction.
-    // Example observed in production: total=59, totbbnlshare=60,
-    // shareinfo.balamt=1. Showing that as the customer's "Balance Amount"
-    // is misleading because the wallet deduction is already correct.
-    const displayBalanceAmount = explicitHistoricalBalance !== null
-      ? explicitHistoricalBalance
-      : (
-        sharedBalanceAmount > 0 && Math.abs(sharedBalanceAmount - settlementDelta) <= 0.01
-          ? 0
-          : (
-            sharedBalanceAmount > 0
-              ? sharedBalanceAmount
-              : fallbackBalanceAmount
-          )
-      );
+    // Internet renewals never display a carry-forward balance. Every
+    // backend balance signal here — oldtotamt/oldpaidamt difference,
+    // prevbalance, balanceamount, or shareinfo.balamt — is a
+    // share-settlement residual (customer total − operator wallet
+    // debit), NOT a real customer due. Surfacing it as "Balance Amount"
+    // is exactly what made the receipt accumulate 20 → 40 → 60 on each
+    // renewal. The customer pays the full cycle bill, so the displayed
+    // balance is always zero.
+    // Updated behavior: normalized backend balances are displayed; only
+    // tiny non-pending rounding residuals are suppressed upstream.
+    const displayBalanceAmount = balanceAmount;
 
     return {
       planName: raw?.planname || det?.planname || fallback.planName || "N/A",
@@ -502,7 +672,7 @@ export default function Subscribe() {
           // Second fallback: seed from selectedPlan in localStorage if backend returned
           // nothing useful. selectedPlan came from Plans.jsx and has
           // serv_name + serv_rates.prices[0] populated.
-          const localPlan = !hasPlanRates && (!data?.result?.planname && !data?.result?.total) ? safeGetJSON('selectedPlan', null) : null;
+          const localPlan = safeGetJSON('selectedPlan', null);
 
           const planRate = parseFloat(passedInternetService?.planrate || passedInternetService?.serv_rates?.prices?.[0] || localPlan?.serv_rates?.prices?.[0]) || 0;
           const planName = passedInternetService?.planname || passedInternetService?.plan_name || localPlan?.serv_name || '';
@@ -525,6 +695,13 @@ export default function Subscribe() {
             "Other Charges": strict.otherCharges,
             "Balance Amount": strict.balanceAmount,
             "Total Amount": strict.totalAmount,
+          });
+          setSharedet({
+            "Operator Share": strict.operatorShare,
+            "BBNL Share": strict.bbnlShare,
+            "Software Charges": strict.softwareCharges,
+            "TDS": strict.tds,
+            "Amount Deductable": strict.operatorDebit,
           });
           setPayNowInp(prev => ({ ...prev, cashpaid, noofmonth }));
           if (passedInternetService || localPlan) {
@@ -550,6 +727,13 @@ export default function Subscribe() {
             "Balance Amount": 0,
             "Total Amount": planRate,
           });
+          setSharedet({
+            "Operator Share": 0,
+            "BBNL Share": 0,
+            "Software Charges": 0,
+            "TDS": 0,
+            "Amount Deductable": planRate,
+          });
           setPayNowInp(prev => ({ ...prev, cashpaid: planRate, noofmonth: 1 }));
           console.warn("⚠️ Using planDetails from navigation state — getPayDets returned no result. PROCEED TO PAY may still work if the backend has the plan associated.");
         } else {
@@ -565,6 +749,13 @@ export default function Subscribe() {
               "Other Charges": 0,
               "Balance Amount": 0,
               "Total Amount": planRate,
+            });
+            setSharedet({
+              "Operator Share": 0,
+              "BBNL Share": 0,
+              "Software Charges": 0,
+              "TDS": 0,
+              "Amount Deductable": planRate,
             });
             setPayNowInp(prev => ({ ...prev, cashpaid: planRate, noofmonth: 1 }));
             console.warn("⚠️ Seeded Paynow display from localStorage selectedPlan only — getPayDets returned no result. PROCEED TO PAY may still fail if the backend hasn't associated the plan yet.");
@@ -691,41 +882,42 @@ export default function Subscribe() {
       }
       const settlement = deriveInternetSettlement(paydet);
       const displayedTotal = settlement.totalAmount;
-      const renewalPaidAmount = settlement.renewalAmount;
+      const receiptPaidAmount = settlement.payableAmount;
+      const walletDebit = settlement.walletDebit;
       const forcedNoofMonth = 1;
 
-      // Native Internet flow shape:
-      //   1. savePaymentApi with the 1-month renewal amount
-      //   2. paymentinfo with that same renewal amount
-      // Earlier PWA builds inverted that flow and also pushed the
-      // settled total into savePaymentApi, which can make the backend
-      // extend the expiry by multiple periods.
+      // Keep the mutating call to savePaymentApi as the single live
+      // renewal call, but preserve the native amount semantics:
+      // cashpaid = operator wallet debit, paidamount = customer receipt
+      // total. Collapsing these into one value creates phantom balances.
       console.log("🔴 savePaymentApi REQUEST:", JSON.stringify({
         endpoint: "apis/savePaymentApi",
         authMode: import.meta.env.VITE_API_APP_USER_TYPE || "employee",
         payload: {
           ...payNowInp,
-          cashpaid: renewalPaidAmount,
+          cashpaid: walletDebit,
+          paidamount: receiptPaidAmount,
           paydoneby: freshPayDoneBy,
           payreceivedby: freshPayDoneBy,
           noofmonth: forcedNoofMonth,
-          omitPaidAmount: true,
           derivedSettlement: {
             totalAmount: displayedTotal,
             balanceAmount: settlement.balanceAmount,
-            renewalPaidAmount,
+            receiptPaidAmount,
+            walletDebit,
           },
         },
       }, null, 2));
       const data = await payNow({ 
         ...payNowInp, 
-        // savePaymentApi drives the renewal period on Internet.
-        // Keep this strictly on the 1-month amount.
-        cashpaid: renewalPaidAmount,
+        // cashpaid is the operator wallet debit. paidamount is the
+        // customer-facing receipt total. Sending both prevents Netmon
+        // from closing a correct wallet debit with a phantom balance.
+        cashpaid: walletDebit,
+        paidamount: receiptPaidAmount,
         paydoneby: freshPayDoneBy,
         payreceivedby: freshPayDoneBy,
         noofmonth: forcedNoofMonth,
-        omitPaidAmount: true,
       });
       console.log("🔴 savePaymentApi RESPONSE:", JSON.stringify(data, null, 2));
 
@@ -735,7 +927,8 @@ export default function Subscribe() {
           request: {
             apiuserid: userid,
             apiopid: customer_op_id,
-            cashpaid: renewalPaidAmount,
+            cashpaid: walletDebit,
+            paidamount: receiptPaidAmount,
             noofmonth: forcedNoofMonth,
           },
           response: data,

@@ -1,13 +1,23 @@
+import { useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CheckCircleIcon, XCircleIcon, ExclamationTriangleIcon, InformationCircleIcon, XMarkIcon } from "@heroicons/react/24/outline";
 
-const Alert = ({ isOpen, onClose, type = "success", title, message, autoClose = true }) => {
-    // Auto close after 3 seconds if autoClose is true
-    if (autoClose && isOpen) {
-        setTimeout(() => {
-            onClose();
-        }, 5000);
-    }
+const Alert = ({ isOpen, onClose, type = "success", title, message, autoClose = true, autoCloseMs = 5000 }) => {
+    // Auto-close via a single guarded timer. This MUST live in an effect,
+    // not the render body â€” the old version called setTimeout(onClose) on
+    // every render while open, scheduling a fresh uncleared timer each
+    // time. On a parent that re-renders often (e.g. the FoFi page during
+    // its staged refetches) that fired onClose repeatedly and made the
+    // popup flicker/replay. We also read onClose through a ref so a new
+    // inline onClose identity each render doesn't keep resetting the
+    // timer â€” the popup auto-closes exactly once per open.
+    const onCloseRef = useRef(onClose);
+    onCloseRef.current = onClose;
+    useEffect(() => {
+        if (!autoClose || !isOpen) return undefined;
+        const timer = setTimeout(() => onCloseRef.current?.(), autoCloseMs);
+        return () => clearTimeout(timer);
+    }, [autoClose, isOpen, autoCloseMs]);
 
     const icons = {
         success: <CheckCircleIcon className="h-16 w-16 text-purple-500" />,

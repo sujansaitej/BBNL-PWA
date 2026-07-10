@@ -25,6 +25,10 @@ function isChunkError(error) {
  */
 async function purgeAllCaches() {
   try {
+    document.cookie = "SERVERUSED=; Max-Age=0; path=/";
+    document.cookie = "SERVERUSED=; Max-Age=0; path=/smartphone/crm/";
+  } catch (_) {}
+  try {
     if ("caches" in window) {
       const names = await caches.keys();
       await Promise.allSettled(names.map((n) => caches.delete(n)));

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { loadKycWithRetry } from "../../utils/kycRetry";
-import { isExpiredDate } from "../../utils/dateParse";
+import { isExpiredDate, parseBackendDate } from "../../utils/dateParse";
 import BottomNav from "../../components/BottomNav";
 import { ServiceSelectionModal, Loader, Modal } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
@@ -30,6 +30,7 @@ import { formatCustomerId } from "../../services/helpers";
 import { lsGet, lsSet, lsRemove, lsGetStale } from "../../services/lsCache";
 import { canonicalServiceKey } from "../../constants/services";
 import { getUser } from "../../services/safeStorage";
+import { extractBoxIdFromAssigned } from "../../utils/boxId";
 
 const getPackageId = (pkg, fallback = "") => String(pkg?.pkgid ?? pkg?.packageid ?? pkg?.id ?? fallback);
 const getPackageCode = (pkg) => String(pkg?.pkgcode ?? pkg?.pkgid ?? pkg?.packageid ?? "");
@@ -77,6 +78,60 @@ function getDaysRange(response) {
         min: Number(r?.min) > 0 ? Number(r.min) : 1,
         max: Number(r?.max) > 0 ? Number(r.max) : 365,
     };
+}
+
+function parsePositiveInteger(value) {
+    if (value === undefined || value === null || value === "") return null;
+    const n = Number(String(value).replace(/[^\d.-]/g, ""));
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return Math.floor(n);
+}
+
+function getRemainingDaysFromSubscription(...sources) {
+    const remainingKeys = [
+        "remainingdays",
+        "remaining_days",
+        "remain_days",
+        "remaindays",
+        "remdays",
+        "validitydays",
+        "validity_days",
+        "noofdays",
+        "no_of_days",
+    ];
+    for (const source of sources) {
+        if (!source || typeof source !== "object") continue;
+        for (const key of remainingKeys) {
+            const direct = parsePositiveInteger(source[key]);
+            if (direct !== null) return direct;
+        }
+    }
+
+    for (const source of sources) {
+        if (!source || typeof source !== "object") continue;
+        const expiry = source.expirydate || source.expiry_date || source.expdate;
+        const expiryTime = parseBackendDate(expiry);
+        if (expiryTime == null) continue;
+        const remaining = Math.floor((expiryTime - Date.now()) / (24 * 60 * 60 * 1000));
+        return remaining > 0 ? remaining : 1;
+    }
+    return null;
+}
+
+function pickCableSubscribedService(planDetails) {
+    const cableServices = (planDetails?.body?.subscribed_services || []).filter(
+        s => canonicalServiceKey(s?.servicekey) === 'cabletv'
+    );
+
+    if (cableServices.length <= 1) return cableServices[0];
+
+    return cableServices.reduce((best, cur) => {
+        const bestT = parseBackendDate(best?.expirydate);
+        const curT = parseBackendDate(cur?.expirydate);
+        if (curT == null) return best;
+        if (bestT == null) return cur;
+        return curT > bestT ? cur : best;
+    });
 }
 
 function makeCheckoutKey({ userid, fofiBoxId, period, pkgIds, pkgCodes, chIds }) {
@@ -345,16 +400,17 @@ export default function IPTVService() {
     //      (definitive "not opted" — no need to wait for plan).
     // Otherwise the plan section is genuinely loading and the
     // operator should see a spinner, not a misleading message.
-    const _cachedSubscribed = _cachedPlan?.data?.body?.subscribed_services;
-    const _cachedHasPlan = Array.isArray(_cachedSubscribed)
-        && _cachedSubscribed.some(s => canonicalServiceKey(s?.servicekey) === 'cabletv');
+    const _cachedSubscribedService = pickCableSubscribedService(_cachedPlan?.data);
+    const _cachedHasPlan = !!_cachedSubscribedService;
+    const _cachedPlanLooksExpired = _cachedHasPlan && isExpiredDate(_cachedSubscribedService?.expirydate);
+    const _cachedPlanDataForRender = _cachedPlanLooksExpired ? null : _cachedPlan?.data;
     const _cachedCblCustBody = _cachedCblCust?.data?.body;
     const _cachedDefinitelyNotOpted = !!_cachedCblCustBody
         && !_cachedCblCustBody?.multplatforms?.cabletv;
-    const _hasCachedPlanRender = _cachedHasPlan || _cachedDefinitelyNotOpted;
+    const _hasCachedPlanRender = (!!_cachedPlanDataForRender && _cachedHasPlan) || _cachedDefinitelyNotOpted;
 
     // API states — overview
-    const [planDetails, setPlanDetails] = useState(_cachedPlan?.data || null);
+    const [planDetails, setPlanDetails] = useState(_cachedPlanDataForRender || null);
     const [fofiPlanDetails, setFofiPlanDetails] = useState(_cachedFofiPlan?.data || null);
     const [assignedItems, setAssignedItems] = useState(null);
     const [lastSubscribedInfo, setLastSubscribedInfo] = useState(_cachedLastSub?.data || null);
@@ -437,7 +493,22 @@ export default function IPTVService() {
     const payInFlightRef = useRef(false);
     const [checkoutPreview, setCheckoutPreview] = useState(restoredCheckout?.checkoutPreview || null);
     const checkoutPreviewSeqRef = useRef(0);
+    const checkoutAliveRef = useRef(true);
+    const paymentDetailsInFlightRef = useRef(new Map());
+    const manualCalcInFlightKeyRef = useRef("");
+    const lastManualCalcToastRef = useRef({ key: "", ts: 0 });
     const [successOrder, setSuccessOrder] = useState(null);
+
+    useEffect(() => {
+        checkoutAliveRef.current = true;
+        return () => {
+            checkoutAliveRef.current = false;
+            checkoutPreviewSeqRef.current += 1;
+            paymentDetailsInFlightRef.current.clear();
+            manualCalcInFlightKeyRef.current = "";
+            lastManualCalcToastRef.current = { key: "", ts: 0 };
+        };
+    }, []);
 
     // ── Fetch Cable TV data — single parallel batch ──
     //
@@ -480,7 +551,7 @@ export default function IPTVService() {
             // loading to true would cause a useless flash from data-back-
             // to-spinner-back-to-data on every revisit.
             if (!_cachedBoxId && !_cachedDefinitelyNotOpted) setLoading(true);
-            if (!_hasCachedPlanRender) setPlanSectionLoading(true);
+            if (!_hasCachedPlanRender || _cachedPlanLooksExpired) setPlanSectionLoading(true);
             setError("");
 
             const navCancelled = (r) => r.status === "rejected" && r.reason?.message?.includes('navigated away');
@@ -491,6 +562,33 @@ export default function IPTVService() {
             const cachedBoxIdEntry = lsGet(`cabletv_boxid_${userid}`, 365 * 24 * 60 * 60 * 1000);
             const cachedBoxId = cachedBoxIdEntry || '';
             console.log('🟣 [IPTV] cached boxId:', cachedBoxId || '(none)');
+
+            // Fire the cached-box-ID plan calls as standalone promises so
+            // they can PAINT as soon as they land. getMyPlanDetails answers
+            // in well under a second while the getUserAssignedItems batch
+            // takes 6-8s server-side (measured 2026-07-09); leaving the
+            // plan result buried in the same allSettled made the plan card
+            // spin for the whole assigned-items wait even on a warm cache.
+            // If the freshly-resolved box ID disagrees with the cache, the
+            // reconciliation below refires and the card self-corrects.
+            const planPromiseMaybe = cachedBoxId
+                ? getMyPlanDetails({ servicekey: "cabletv", userid, fofiboxid: cachedBoxId, voipnumber: "" }, true)
+                : Promise.resolve(null);
+            const lastSubPromiseMaybe = cachedBoxId
+                ? getIptvLastSubscribedInfo({ userid, itemid: cachedBoxId })
+                : Promise.resolve(null);
+            const fofiPlanPromiseMaybe = cachedBoxId
+                ? getMyPlanDetails({ servicekey: "fofi", userid, fofiboxid: cachedBoxId, voipnumber: "" }, true)
+                : Promise.resolve(null);
+            if (cachedBoxId) {
+                planPromiseMaybe.then(d => {
+                    if (cancelled || !d) return;
+                    setPlanDetails(d);
+                    setPlanSectionLoading(false);
+                }).catch(() => {});
+                lastSubPromiseMaybe.then(d => { if (!cancelled && d) setLastSubscribedInfo(d); }).catch(() => {});
+                fofiPlanPromiseMaybe.then(d => { if (!cancelled && d) setFofiPlanDetails(d); }).catch(() => {});
+            }
 
             const [
                 assignedFofiResult,
@@ -513,15 +611,9 @@ export default function IPTVService() {
                 getUserAssignedItems("internet", userid).catch(() => null),
                 getCableCustomerDetails(userid),
                 Promise.resolve(null),
-                cachedBoxId
-                    ? getMyPlanDetails({ servicekey: "cabletv", userid, fofiboxid: cachedBoxId, voipnumber: "" }, true)
-                    : Promise.resolve(null),
-                cachedBoxId
-                    ? getIptvLastSubscribedInfo({ userid, itemid: cachedBoxId })
-                    : Promise.resolve(null),
-                cachedBoxId
-                    ? getMyPlanDetails({ servicekey: "fofi", userid, fofiboxid: cachedBoxId, voipnumber: "" }, true)
-                    : Promise.resolve(null),
+                planPromiseMaybe,
+                lastSubPromiseMaybe,
+                fofiPlanPromiseMaybe,
             ]);
 
             if (cancelled) return;
@@ -532,38 +624,12 @@ export default function IPTVService() {
             // and pick the first BBNL-/FOFI-/TV-shaped product_name we find. Different
             // user-state classifications on the backend put the same box under different
             // servkeys; trying all means we don't silently miss the box ID.
-            const _BBNL_BOX_RE = /^(bbnl[-_]andbox[-_]|BBNL[-_]ANDBOX[-_])/i;
-            const _FOFI_RE = /\b(fofi|smart\s*box|smartbox|fofibox|fta|cabletv|iptv|stb|box)\b/i;
-
+            // Box-ID extraction is shared with prefetch.js via
+            // utils/boxId.js so the prefetch warm-up and this page resolve
+            // the SAME box and never cache conflicting values.
             const extractBoxId = (result) => {
                 if (result?.status !== "fulfilled" || !result.value) return "";
-                const body = result.value?.body || {};
-                // Walk every service-key bucket — some backends nest the
-                // box under fofi, others under voip/internet/multi.
-                for (const bucket of [body.fofi, body.multi, body.voip, body.internet]) {
-                    const items = Array.isArray(bucket) ? bucket : [];
-                    for (const fi of items) {
-                        // Check all possible box ID fields
-                        const candidates = [
-                            fi?.product_name, fi?.fofiboxid, fi?.fofi_box_id,
-                            fi?.boxid, fi?.stbid, fi?.device_id, fi?.itemid,
-                            fi?.boxId, fi?.fofiBoxId, fi?.stb_id, fi?.box_id
-                        ].map(v => (v == null ? '' : String(v).trim())).filter(Boolean);
-
-                        // Prefer BBNL-formatted IDs first
-                        const bbnlMatch = candidates.find(v => _BBNL_BOX_RE.test(v));
-                        if (bbnlMatch && bbnlMatch !== userid) return bbnlMatch;
-
-                        // Then prefer FoFi/IPTV/STB related names
-                        const fofiMatch = candidates.find(v => _FOFI_RE.test(v) && v.length > 3);
-                        if (fofiMatch && fofiMatch !== userid) return fofiMatch;
-
-                        // Fallback: any non-username candidate
-                        const fallback = candidates.find(v => v !== userid && v.length > 3);
-                        if (fallback) return fallback;
-                    }
-                }
-                return "";
+                return extractBoxIdFromAssigned(result.value, userid);
             };
 
             let boxId = extractBoxId(assignedFofiResult) ||
@@ -743,10 +809,19 @@ export default function IPTVService() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [view]);
 
-    // Extract plan data from API response
-    const subscribedService = planDetails?.body?.subscribed_services?.find(
-        s => canonicalServiceKey(s?.servicekey) === 'cabletv'
-    );
+    // Extract plan data from API response.
+    //
+    // QA (04 Jun 2026 — IPTV 6.x): the page showed "Renew Plan" for
+    // customers who DID have an active subscription, blocking the
+    // package/channel checks. Root cause: when the backend returns more
+    // than one `cabletv` entry in subscribed_services (a stale/expired
+    // record alongside the current active one), a plain `.find()` picks
+    // whichever comes first — often the expired record — and the whole
+    // page treats the customer as expired. We instead pick the entry
+    // with the FURTHEST-FUTURE expiry (the active/most-recent
+    // subscription). With a single entry this is identical to the old
+    // behaviour; entries with no parseable expiry sort last.
+    const subscribedService = pickCableSubscribedService(planDetails);
     const looksLikeFofiSmartService = (s) =>
         canonicalServiceKey(s?.servicekey) === 'fofi'
         || /\bfofi\b|smart\s*box|smartbox|fofibox|\bfta\b|\bcabletv\b|\biptv\b/i.test(
@@ -763,6 +838,13 @@ export default function IPTVService() {
     // versions used `new Date()` which returned NaN on DD-MM-YYYY
     // and silently treated every expired customer as active.
     const isCableTvExpired = isExpiredDate(expiryDate);
+    const remainingSubscriptionDays = !isCableTvExpired
+        ? getRemainingDaysFromSubscription(subscribedService, lastSubscribedInfo?.body)
+        : null;
+    const isExistingSubscriberCheckout = !isCableTvExpired && remainingSubscriptionDays !== null;
+    const effectiveCheckoutPeriod = isExistingSubscriberCheckout
+        ? String(remainingSubscriptionDays)
+        : String(selectedPeriod || "30");
 
     const buildCheckoutParts = (periodOverride = "") => {
         const selectedPackageIds = new Set(selectedPackages.map(String));
@@ -779,7 +861,7 @@ export default function IPTVService() {
         const pkgIds = selectedPkgs.map(pkg => getPackageId(pkg)).filter(Boolean);
         const pkgCodes = selectedPkgs.map(getPackageCode).filter(Boolean);
         const chIds = selectedChannels.map(String).filter(Boolean);
-        const period = String(periodOverride || selectedPeriod || "30");
+        const period = String(periodOverride || effectiveCheckoutPeriod || "30");
 
         return {
             selectedPkgs,
@@ -874,7 +956,7 @@ export default function IPTVService() {
             return;
         }
 
-        const parts = buildCheckoutParts(selectedPeriod || "30");
+        const parts = buildCheckoutParts();
         if (parts.pkgIds.length === 0 && parts.chIds.length === 0) return;
 
         const selectedPackageItems = parts.selectedPkgs.length > 0
@@ -886,7 +968,7 @@ export default function IPTVService() {
                 view: 'checkout',
                 selectedPackages: selectedPackages.map(String),
                 selectedChannels: selectedChannels.map(String),
-                selectedPeriod: parts.period,
+                selectedPeriod: isExistingSubscriberCheckout ? "" : parts.period,
                 selectedPackageItems,
                 checkoutPreview,
                 finalPaymentInfo,
@@ -916,6 +998,17 @@ export default function IPTVService() {
     // Navigation cancels are NOT retried: the operator left the page,
     // re-firing would saturate the connection pool for the next page.
     const requestCablePaymentDetails = async (parts) => {
+        const requestKey = parts?.key || makeCheckoutKey({
+            userid,
+            fofiBoxId,
+            period: parts?.period,
+            pkgIds: parts?.pkgIds || [],
+            pkgCodes: parts?.pkgCodes || [],
+            chIds: parts?.chIds || [],
+        });
+        const inFlight = paymentDetailsInFlightRef.current.get(requestKey);
+        if (inFlight) return inFlight;
+
         const params = {
             cblextenperiod: parts.period,
             channelid: parts.chIds,
@@ -931,17 +1024,27 @@ export default function IPTVService() {
             username: logUname,
             voipnumber: "",
         };
-        let lastErr;
-        for (let attempt = 0; attempt < 2; attempt++) {
-            try {
-                return await getCableTvPaymentDetails(params);
-            } catch (err) {
-                lastErr = err;
-                if (/cancelled|navigated away/i.test(err?.message || '')) throw err;
-                if (attempt === 0) await new Promise(r => setTimeout(r, 700));
+
+        const promise = (async () => {
+            let lastErr;
+            for (let attempt = 0; attempt < 2; attempt++) {
+                try {
+                    return await getCableTvPaymentDetails(params);
+                } catch (err) {
+                    lastErr = err;
+                    if (/cancelled|navigated away/i.test(err?.message || '')) throw err;
+                    if (attempt === 0) await new Promise(r => setTimeout(r, 700));
+                }
             }
-        }
-        throw lastErr;
+            throw lastErr;
+        })().finally(() => {
+            if (paymentDetailsInFlightRef.current.get(requestKey) === promise) {
+                paymentDetailsInFlightRef.current.delete(requestKey);
+            }
+        });
+
+        paymentDetailsInFlightRef.current.set(requestKey, promise);
+        return promise;
     };
     // ── Load packages — matches client flow on "Select Packages" click ──
     // 1. pkgCategories + iptvLastSubscribedinfo (parallel; lastSub
@@ -1136,6 +1239,9 @@ export default function IPTVService() {
             state: {
                 customer: customerData,
                 serviceType: 'cabletv',
+                // Box id scopes the dedicated cabletv/orderhistory (servid=1)
+                // fetch so older Cable TV records are returned and shown.
+                cableboxid: fofiBoxId || '',
             },
         });
     };
@@ -1410,6 +1516,7 @@ export default function IPTVService() {
             lsRemove(`plandets_cabletv_${userid}_`);
             lsRemove(`plandets_fofi_${userid}_${fofiBoxId}`);
             lsRemove(`plandets_fofi_${userid}_`);
+            lsRemove(`iptvLastSub_${userid}_${fofiBoxId}`);
             lsRemove(`uai_fofi_${userid}`);
             lsRemove(`uai_cabletv_${userid}`);
             lsRemove(`cblcust_${userid}`);
@@ -1487,8 +1594,9 @@ export default function IPTVService() {
             getPrimaryCustomerDetails(userid, true).catch(() => null),
         ]).catch(() => {});
 
-        const extensionPeriodsPromise = getPlanExtensionPeriods({ userid, servkey: "cabletv", itemid: fofiBoxId })
-            .then(async (periodsResp) => {
+        const extensionPeriodsPromise = isExistingSubscriberCheckout
+            ? Promise.resolve()
+            : getPlanExtensionPeriods({ userid, servkey: "cabletv", itemid: fofiBoxId }).then(async (periodsResp) => {
                 if (periodsResp?.status?.err_code !== 0) return;
                 setDaysRange(getDaysRange(periodsResp));
                 const periodsArr = getPeriodsArray(periodsResp);
@@ -1535,17 +1643,32 @@ export default function IPTVService() {
 
     // Fetch final payment details after selecting extension period
     async function handleFetchFinalPayment(period) {
+        const parts = buildCheckoutParts(period);
+        if (manualCalcInFlightKeyRef.current === parts.key) return;
+
         setSelectedPeriod(period);
+        manualCalcInFlightKeyRef.current = parts.key;
         try {
-            const parts = buildCheckoutParts(period);
             const cachedPreview = checkoutPreview?.key === parts.key ? checkoutPreview : null;
             const result = cachedPreview?.paymentInfo || await requestCablePaymentDetails(parts);
 
+            if (!checkoutAliveRef.current || manualCalcInFlightKeyRef.current !== parts.key) return;
             setFinalPaymentInfo(result);
             setCheckoutPreview({ key: parts.key, paymentInfo: result, period: parts.period });
+            lastManualCalcToastRef.current = { key: "", ts: 0 };
         } catch (err) {
             console.error("Error fetching final payment:", err);
-            toast.add("Failed to calculate payment. Please try again.", { type: "error" });
+            if (!checkoutAliveRef.current || manualCalcInFlightKeyRef.current !== parts.key) return;
+            const now = Date.now();
+            const lastToast = lastManualCalcToastRef.current;
+            if (lastToast.key !== parts.key || now - lastToast.ts > 5000) {
+                toast.add("Failed to calculate payment. Please try again.", { type: "error" });
+                lastManualCalcToastRef.current = { key: parts.key, ts: now };
+            }
+        } finally {
+            if (manualCalcInFlightKeyRef.current === parts.key) {
+                manualCalcInFlightKeyRef.current = "";
+            }
         }
     }
 
@@ -1555,7 +1678,7 @@ export default function IPTVService() {
         // cblextenperiod with "Please choose some days". Default
         // state is "30" but defend against the user manually
         // clearing the custom input then tapping Pay.
-        const periodForPay = String(selectedPeriod || "").trim() || "30";
+        const periodForPay = String(effectiveCheckoutPeriod || selectedPeriod || "").trim() || "30";
         const { pkgIds, pkgCodes, chIds } = buildCheckoutParts(periodForPay);
 
         // Get paid amount and transaction ID from service/paymentinfo/cabletv response
@@ -1897,7 +2020,7 @@ export default function IPTVService() {
     // CRITICAL TOP-LEVEL GUARD — must run BEFORE any view-specific
     useEffect(() => {
         if (!["channels", "checkout"].includes(view) || !userid || !fofiBoxId) return;
-        const parts = buildCheckoutParts(selectedPeriod || "30");
+        const parts = buildCheckoutParts();
         if (parts.pkgIds.length === 0 && parts.chIds.length === 0) {
             setCheckoutPreview(null);
             return;
@@ -1921,7 +2044,7 @@ export default function IPTVService() {
 
             requestCablePaymentDetails(parts)
                 .then((paymentInfo) => {
-                    if (checkoutPreviewSeqRef.current !== seq) return;
+                    if (!checkoutAliveRef.current || checkoutPreviewSeqRef.current !== seq) return;
                     setCheckoutPreview({ key: parts.key, paymentInfo, period: parts.period });
                     if (view === "checkout") {
                         setFinalPaymentInfo(paymentInfo);
@@ -1930,9 +2053,14 @@ export default function IPTVService() {
                 .catch(() => {});
         }, 120);
 
-        return () => clearTimeout(timer);
+        return () => {
+            clearTimeout(timer);
+            if (checkoutPreviewSeqRef.current === seq) {
+                checkoutPreviewSeqRef.current += 1;
+            }
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [view, selectedPackages, selectedChannels, packagesByCategory, selectedPeriod, userid, fofiBoxId]);
+    }, [view, selectedPackages, selectedChannels, packagesByCategory, selectedPeriod, userid, fofiBoxId, effectiveCheckoutPeriod]);
 
     // ── Success Modal Component ──
     const SuccessOrderModal = () => {
@@ -2020,7 +2148,7 @@ export default function IPTVService() {
     // empty-state here is the recovery path.
     if (!customerData) {
         return (
-            <div className="min-h-screen flex flex-col bg-gray-50">
+            <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
                 <header className="sticky top-0 z-40 flex items-center px-4 pb-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
                     <button onClick={() => navigate(-1)} className="p-1 mr-3">
                         <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2057,7 +2185,7 @@ export default function IPTVService() {
         const taxDetails = Array.isArray(pay.tax_details) ? pay.tax_details : [];
 
         return (
-            <div className="min-h-screen flex flex-col bg-gray-50">
+            <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
                 <SuccessOrderModal />
                 {/* Header */}
 
@@ -2100,7 +2228,7 @@ export default function IPTVService() {
                                     <div className="w-1 h-5 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
                                     <h3 className="text-indigo-600 font-semibold text-sm">Selected Packages</h3>
                                 </div>
-                                <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
+                                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700">
                                     {(Object.values(packagesByCategory).flat().length > 0
                                         ? Object.values(packagesByCategory).flat()
                                         : restoredCheckoutPackages
@@ -2108,8 +2236,8 @@ export default function IPTVService() {
                                         .filter(pkg => selectedPackages.includes(getPackageId(pkg)) && !isPackageSubscribed(pkg))
                                         .map((pkg, i) => (
                                             <div key={pkg.pkgid || i} className="flex items-center justify-between px-4 py-3 text-sm">
-                                                <span className="text-gray-700">{pkg.pkgname || pkg.packagename}</span>
-                                                <span className="font-medium text-gray-800">₹ {Number(pkg.pkgprice || 0).toFixed(2)}</span>
+                                                <span className="text-gray-700 dark:text-gray-300">{pkg.pkgname || pkg.packagename}</span>
+                                                <span className="font-medium text-gray-800 dark:text-gray-100">₹ {Number(pkg.pkgprice || 0).toFixed(2)}</span>
                                             </div>
                                         ))
                                     }
@@ -2123,26 +2251,26 @@ export default function IPTVService() {
                                         <div className="w-1 h-5 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
                                         <h3 className="text-indigo-600 font-semibold text-sm">Price Summary</h3>
                                     </div>
-                                    <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-2 text-sm">
+                                    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-2 text-sm">
                                         {/* Content breakdown */}
                                         {displayContents.map((c, i) => (
                                             <div key={i} className="flex justify-between">
-                                                <span className="text-gray-500">{c.title} ({c.quantity})</span>
-                                                <span className="text-gray-800">₹ {Number(c.price || 0).toFixed(2)}</span>
+                                                <span className="text-gray-500 dark:text-gray-400">{c.title} ({c.quantity})</span>
+                                                <span className="text-gray-800 dark:text-gray-100">₹ {Number(c.price || 0).toFixed(2)}</span>
                                             </div>
                                         ))}
 
                                         {/* NCF */}
                                         {pay.ncf_display === "yes" && (
                                             <div className="flex justify-between">
-                                                <span className="text-gray-500">NCF</span>
-                                                <span className="text-gray-800">₹ {Number(pay.ncf || 0).toFixed(2)}</span>
+                                                <span className="text-gray-500 dark:text-gray-400">NCF</span>
+                                                <span className="text-gray-800 dark:text-gray-100">₹ {Number(pay.ncf || 0).toFixed(2)}</span>
                                             </div>
                                         )}
 
                                         {/* Tax details */}
                                         {taxDetails.map((t, i) => (
-                                            <div key={i} className="flex justify-between text-gray-500">
+                                            <div key={i} className="flex justify-between text-gray-500 dark:text-gray-400">
                                                 <span>{t.title} ({t.percent})</span>
                                                 <span>₹ {Number(t.amt || 0).toFixed(2)}</span>
                                             </div>
@@ -2157,9 +2285,9 @@ export default function IPTVService() {
                                         )}
 
                                         {/* Grand Total */}
-                                        <div className="flex justify-between border-t border-gray-200 pt-2 mt-2">
-                                            <span className="text-gray-800 font-bold">Total Amount</span>
-                                            <span className="font-bold text-indigo-600 text-base">₹ {Number(pay.total_amt || 0).toFixed(2)}</span>
+                                        <div className="flex justify-between border-t border-gray-200 dark:border-gray-600 pt-2 mt-2">
+                                            <span className="text-gray-800 dark:text-gray-100 font-bold">Total Amount</span>
+                                            <span className="font-bold text-indigo-600 dark:text-indigo-400 text-base">₹ {Number(pay.total_amt || 0).toFixed(2)}</span>
                                         </div>
 
                                     </div>
@@ -2174,29 +2302,37 @@ export default function IPTVService() {
                                     <div className="w-1 h-5 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
                                     <h3 className="text-indigo-600 font-semibold text-sm">No of subscription days</h3>
                                 </div>
-                                <div className="grid grid-cols-3 gap-2">
-                                    {(extensionPeriods.length > 0
-                                        ? extensionPeriods
-                                        : [{period:30,label:"30 Days"},{period:90,label:"90 Days"},{period:180,label:"180 Days"},{period:365,label:"365 Days"}]
-                                    ).map((period, i) => {
-                                        const periodVal = getPeriodValue(period);
-                                        const periodLabel = period?.label || period?.name || period?.title || `${periodVal} days`;
-                                        const isSelected = String(selectedPeriod) === String(periodVal);
-                                        return (
-                                            <button
-                                                key={`${periodVal}-${i}`}
-                                                onClick={() => { setCustomDaysInput(""); handleFetchFinalPayment(periodVal); }}
-                                                className={`px-3 py-2.5 rounded-lg text-xs font-semibold border transition-colors ${
-                                                    isSelected
-                                                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                                                        : 'bg-white text-gray-700 border-gray-200 hover:border-indigo-300'
-                                                }`}
-                                            >
-                                                {periodLabel}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
+                                {isExistingSubscriberCheckout ? (
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <div className="px-3 py-2.5 rounded-lg text-xs font-semibold border bg-indigo-600 text-white border-indigo-600 shadow-sm text-center">
+                                            {remainingSubscriptionDays} Days
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {(extensionPeriods.length > 0
+                                            ? extensionPeriods
+                                            : [{period:30,label:"30 Days"},{period:90,label:"90 Days"},{period:180,label:"180 Days"},{period:365,label:"365 Days"}]
+                                        ).map((period, i) => {
+                                            const periodVal = getPeriodValue(period);
+                                            const periodLabel = period?.label || period?.name || period?.title || `${periodVal} days`;
+                                            const isSelected = String(selectedPeriod) === String(periodVal);
+                                            return (
+                                                <button
+                                                    key={`${periodVal}-${i}`}
+                                                    onClick={() => { setCustomDaysInput(""); handleFetchFinalPayment(periodVal); }}
+                                                    className={`px-3 py-2.5 rounded-lg text-xs font-semibold border transition-colors ${
+                                                        isSelected
+                                                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                                                            : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:border-indigo-300'
+                                                    }`}
+                                                >
+                                                    {periodLabel}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
                             </div>
                         </>
                     )}
@@ -2249,7 +2385,7 @@ export default function IPTVService() {
             .map(x => x.ch);
 
         return (
-            <div className="min-h-screen flex flex-col bg-gray-50">
+            <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
                 <SuccessOrderModal />
                 {/* Teal/Indigo header — matches native screenshot */}
 
@@ -2283,7 +2419,7 @@ export default function IPTVService() {
                 </div>
 
                 {/* Search bar */}
-                <div className="px-4 py-3 bg-white">
+                <div className="px-4 py-3 bg-white dark:bg-gray-800">
                     <div className="relative">
                         <svg className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -2299,7 +2435,7 @@ export default function IPTVService() {
                 </div>
 
                 {/* Channel grid (3 columns) */}
-                <div className="flex-1 px-3 pt-2 pb-36 overflow-y-auto bg-white">
+                <div className="flex-1 px-3 pt-2 pb-36 overflow-y-auto bg-white dark:bg-gray-900">
                     {channelsLoading ? (
                         <div className="flex items-center justify-center py-10">
                             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600" />
@@ -2343,10 +2479,10 @@ export default function IPTVService() {
                                                 setSelectedChannels(prev => prev.includes(chId) ? prev : [...prev, chId]);
                                             }
                                         }}
-                                        className={`bg-gray-50 rounded-lg overflow-hidden border ${isSelected ? 'border-indigo-600 ring-2 ring-indigo-300' : 'border-gray-200'} ${isSubscribed ? 'cursor-default' : 'cursor-pointer hover:border-indigo-400'} text-left min-h-[152px]`}
+                                        className={`bg-gray-50 dark:bg-gray-800 rounded-lg overflow-hidden border ${isSelected ? 'border-indigo-600 ring-2 ring-indigo-300' : 'border-gray-200 dark:border-gray-700'} ${isSubscribed ? 'cursor-default' : 'cursor-pointer hover:border-indigo-400'} text-left min-h-[152px]`}
                                     >
                                         {/* Logo / placeholder */}
-                                        <div className="relative aspect-square w-full bg-gray-100 flex items-center justify-center overflow-hidden p-1.5">
+                                        <div className="relative aspect-square w-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center overflow-hidden p-1.5">
                                             {hasLogo ? (
                                                 <img
                                                     src={proxyImageUrl(chLogo)}
@@ -2389,8 +2525,8 @@ export default function IPTVService() {
 
                                         {/* Name + price */}
                                         <div className="p-2 text-center">
-                                            <p className="text-[11px] text-gray-700 truncate font-medium" title={displayName}>{displayName}</p>
-                                            <p className="text-[11px] text-gray-500">{(parseFloat(chPrice) || 0).toFixed(2)}</p>
+                                            <p className="text-[11px] text-gray-700 dark:text-gray-200 truncate font-medium" title={displayName}>{displayName}</p>
+                                            <p className="text-[11px] text-gray-500 dark:text-gray-400">{(parseFloat(chPrice) || 0).toFixed(2)}</p>
                                         </div>
                                     </button>
                                 );
@@ -2400,7 +2536,7 @@ export default function IPTVService() {
                 </div>
 
                 {/* Footer — Packages(N) / Channels(N) summary + Checkout */}
-                <div className="fixed bottom-16 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-30 px-3 pt-3 pb-3 space-y-2">
+                <div className="fixed bottom-16 left-0 right-0 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg z-30 px-3 pt-3 pb-3 space-y-2">
                     <div className="flex gap-2">
                         <button
                             type="button"
@@ -2409,7 +2545,7 @@ export default function IPTVService() {
                                 enterSubView('packages');
                                 loadPackages();
                             }}
-                            className="flex-1 border border-indigo-500 text-indigo-600 text-sm font-medium py-2 rounded-md text-center"
+                            className="flex-1 border border-indigo-500 text-indigo-600 dark:text-indigo-400 text-sm font-medium py-2 rounded-md text-center"
                         >
                             Packages({selectedPackages.length})
                         </button>
@@ -2470,7 +2606,7 @@ export default function IPTVService() {
             : validPackages;
 
         return (
-            <div className="min-h-screen flex flex-col bg-gray-50">
+            <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
                 <SuccessOrderModal />
                 {/* Blue Gradient Header */}
 
@@ -2527,7 +2663,7 @@ export default function IPTVService() {
                     </div>
                 </div>
 
-                <div className="flex-1 px-4 py-4 space-y-3 pb-36 bg-white overflow-y-auto">
+                <div className="flex-1 px-4 py-4 space-y-3 pb-36 bg-white dark:bg-gray-900 overflow-y-auto">
                     {/* Search */}
                     <div className="relative">
                         <svg className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2568,7 +2704,7 @@ export default function IPTVService() {
                                 const displayName = totalChannels ? `${pkgName}(${totalChannels})` : pkgName;
 
                                 return (
-                                    <div key={pkgId} className="bg-white rounded-lg p-3 flex items-center gap-3 border border-gray-200">
+                                    <div key={pkgId} className="bg-white dark:bg-gray-800 rounded-lg p-3 flex items-center gap-3 border border-gray-200 dark:border-gray-700">
                                         <input
                                             type="checkbox"
                                             className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 flex-shrink-0"
@@ -2598,7 +2734,7 @@ export default function IPTVService() {
                                             }}
                                         />
                                         <div className="flex-1 min-w-0">
-                                            <h4 className="text-gray-800 text-sm font-medium leading-tight break-words">{displayName}</h4>
+                                            <h4 className="text-gray-800 dark:text-gray-100 text-sm font-medium leading-tight break-words">{displayName}</h4>
                                             {/* Subscribed flag ribbon — matches the native
                                                 UI (green flag with white "Subscribed" label
                                                 and a chevron tail). Renders below the
@@ -2620,7 +2756,7 @@ export default function IPTVService() {
                                             )}
                                         </div>
                                         <div className="text-right flex-shrink-0">
-                                            <p className="text-sm font-medium text-gray-800 mb-1">₹ {Number(pkgPrice).toFixed(2)}</p>
+                                            <p className="text-sm font-medium text-gray-800 dark:text-gray-100 mb-1">₹ {Number(pkgPrice).toFixed(2)}</p>
                                             <button onClick={() => handleOpenDetail(pkg)} className="text-xs text-orange-500 font-semibold inline-flex items-center gap-0.5">
                                                 Details
                                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" /></svg>
@@ -2743,7 +2879,7 @@ export default function IPTVService() {
                     actual Checkout button lives at the bottom of the
                     Channels view. This matches the native flow:
                     Packages → Continue → Channels → Checkout. */}
-                <div className="fixed bottom-16 left-0 right-0 p-3 bg-white border-t">
+                <div className="fixed bottom-16 left-0 right-0 p-3 bg-white dark:bg-gray-900 border-t dark:border-gray-700">
                     <button
                         onClick={() => {
                             setPackagesSearchTerm('');
@@ -2767,7 +2903,7 @@ export default function IPTVService() {
 
     // ── Overview View ──
     return (
-        <div className="min-h-screen flex flex-col bg-gray-50">
+        <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
             <ServiceSelectionModal
                 isOpen={showServiceModal}
                 onClose={() => setShowServiceModal(false)}
@@ -2798,7 +2934,7 @@ export default function IPTVService() {
                 <div className="space-y-2">
                     <div className="flex items-center gap-2 mb-3">
                         <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
-                        <h3 className="text-indigo-600 font-semibold text-lg">User Details</h3>
+                        <h3 className="text-indigo-600 dark:text-indigo-400 font-semibold text-lg">User Details</h3>
                     </div>
                     <div className="space-y-1 text-sm">
                         <div className="flex">
@@ -2840,14 +2976,14 @@ export default function IPTVService() {
                 {/* Filter Badge */}
                 <div className="flex items-center justify-between bg-white dark:bg-gray-800 px-4 py-3 -mx-4">
                     <div className="flex items-center gap-2">
-                        <span className="text-base text-indigo-600 font-semibold">Filtered by :</span>
+                        <span className="text-base text-indigo-600 dark:text-indigo-400 font-semibold">Filtered by :</span>
                         <span className="bg-indigo-600 text-white text-sm font-medium px-4 py-1.5 rounded-md">
                             Cable TV
                         </span>
                     </div>
                     <button
                         onClick={() => setShowServiceModal(true)}
-                        className="text-indigo-600 hover:text-indigo-700 transition-colors"
+                        className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
                     >
                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
@@ -2875,10 +3011,10 @@ export default function IPTVService() {
                     <div className="space-y-2">
                         <div className="flex items-center gap-2 mb-2">
                             <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
-                            <h3 className="text-indigo-600 font-semibold text-lg">FoFi Box ID</h3>
+                            <h3 className="text-indigo-600 dark:text-indigo-400 font-semibold text-lg">FoFi Box ID</h3>
                         </div>
                         <div className="bg-gray-100 dark:bg-gray-800 px-4 py-3 rounded flex justify-between items-center">
-                            <p className="text-indigo-600 font-medium text-base">{fofiBoxId}</p>
+                            <p className="text-indigo-600 dark:text-indigo-400 font-medium text-base">{fofiBoxId}</p>
                             <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                             </svg>
@@ -2918,7 +3054,7 @@ export default function IPTVService() {
                         <p className="text-red-600 dark:text-red-400 text-center text-sm mb-2">{error}</p>
                         <button
                             onClick={() => window.location.reload()}
-                            className="mt-4 text-indigo-600 hover:text-indigo-700 text-sm font-medium underline"
+                            className="mt-4 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 text-sm font-medium underline"
                         >
                             Retry
                         </button>
@@ -2976,7 +3112,7 @@ export default function IPTVService() {
                     <div className="space-y-2">
                         <div className="flex items-center gap-2 mb-2">
                             <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
-                            <h3 className="text-indigo-600 font-semibold text-lg">Plan Details</h3>
+                            <h3 className="text-indigo-600 dark:text-indigo-400 font-semibold text-lg">Plan Details</h3>
                         </div>
                         <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
                             <div className="flex items-start gap-3">
@@ -3039,7 +3175,7 @@ export default function IPTVService() {
                                 </div>
                             ) : (
                                 <div className="mt-4 space-y-2">
-                                    <p className="text-xs text-red-600 font-medium">
+                                    <p className="text-xs text-red-600 dark:text-red-400 font-medium">
                                         {isFofiSmartServicePaid
                                             ? `Plan expired on ${expiryDate}. Renew below to enable Select Packages / Channels.`
                                             : `Plan expired on ${expiryDate}. Complete FoFi Smart Service payment to enable renewal.`}

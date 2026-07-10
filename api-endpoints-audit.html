@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BBNL PWA — API Endpoint Inventory</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; line-height: 1.5; }
+  h1 { font-size: 1.6em; border-bottom: 2px solid #333; padding-bottom: 8px; }
+  h2 { font-size: 1.2em; margin-top: 2em; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #f2f2f2; }
+  code { background: #f2f2f2; padding: 1px 5px; border-radius: 3px; font-size: 0.92em; }
+  .note { background: #fff8e1; border-left: 4px solid #e6a700; padding: 10px 14px; margin: 1em 0; }
+  .flag { background: #ffebee; border-left: 4px solid #c62828; padding: 10px 14px; margin: 1em 0; }
+  ul { margin: 0.5em 0; }
+  .src { color: #666; font-size: 0.85em; }
+</style>
+</head>
+<body>
+
+<h1>BBNL PWA — API Endpoint Inventory (for audit)</h1>
+<p class="src">Generated from repo source: <code>vite.config.js</code>, <code>.env.development</code>, <code>.env.production</code>, <code>server.js</code>, <code>src/data.js</code>, <code>deployment-package/relay-server.js</code>.</p>
+
+<h2>Production (<code>.env.production</code>)</h2>
+<table>
+<tr><th>Purpose</th><th>Base URL</th></tr>
+<tr><td>Main NetMon API</td><td><code>https://bbnlnetmon.bbnl.in/prod/</code></td></tr>
+<tr><td>Internet payment API (legacy contract)</td><td><code>https://bbnlnetmon.bbnl.in/prod/</code> — note: IP variant <code>http://124.40.244.211/netmon/internet/paymentinfo</code> is dead (returns HTTP 500)</td></tr>
+<tr><td>IPTV / Cabletv API</td><td><code>https://bbnlnetmon.bbnl.in/prod/Cabletvapis</code></td></tr>
+<tr><td>IPTV image CDN (channel logos, no auth)</td><td><code>https://cdn1.bbnl.in/cable</code></td></tr>
+<tr><td>Live stream hosts (proxied via <code>server.js</code> HTTP/2, path <code>/smartphone/crm/stream/...</code>)</td><td><code>livestream.bbnl.in</code>, <code>livestream2.bbnl.in</code></td></tr>
+</table>
+
+<h2>Dev (<code>.env.development</code> + <code>vite.config.js</code> proxy)</h2>
+<table>
+<tr><th>Purpose</th><th>Target</th></tr>
+<tr><td>Main NetMon API (<code>VITE_API_BASE_URL</code>)</td><td><code>https://netmontest.bbnl.in/netmon/</code></td></tr>
+<tr><td><code>/api/*</code> Vite proxy →</td><td><code>http://124.40.244.211/netmon/</code></td></tr>
+<tr><td><code>/iptv-api/*</code> Vite proxy →</td><td><code>http://124.40.244.211/netmon/</code></td></tr>
+<tr><td><code>/showimage</code>, <code>/adimage</code> Vite proxy →</td><td><code>http://124.40.244.211/netmon/Cabletvapis...</code> (Basic Auth + <code>x-api-key</code> injected by proxy config)</td></tr>
+<tr><td>IPTV base (<code>VITE_IPTV_API_BASE_URL</code>)</td><td><code>/iptv-api/Cabletvapis</code> (routed to 124.40.244.211 target above)</td></tr>
+<tr><td>OTT API (<code>VITE_OTT_API_BASE_URL</code>)</td><td><code>/api/OttApis</code> (same proxy)</td></tr>
+<tr><td>Stream proxy</td><td><code>/stream</code> → <code>livestream.bbnl.in</code> / <code>livestream2.bbnl.in</code></td></tr>
+</table>
+
+<h2>Other / adjacent (not the CRM API)</h2>
+<ul>
+  <li><code>https://bbnl.co.in</code> — marketing/corporate site links (<code>src/data.js</code>)</li>
+  <li><code>https://promotions.bbnl.in</code> — promotions (<code>src/data.js</code>)</li>
+  <li><code>https://bbnlnetmon.bbnl.in</code> — referenced again in <code>deployment-package/relay-server.js</code> (separate relay script, not part of the main app build)</li>
+</ul>
+
+<h2>Flag for audit: plaintext credentials in repo</h2>
+<div class="flag">
+<p>Both <code>.env.development</code> and <code>.env.production</code> are committed and contain plaintext secrets alongside the URLs above:</p>
+<ul>
+  <li>Main API: <code>VITE_API_AUTH_KEY</code>, <code>VITE_API_USERNAME</code>, <code>VITE_API_PASSWORD</code></li>
+  <li>Internet payment API (prod only): <code>VITE_INTERNET_PAYMENT_AUTH_KEY</code>, <code>VITE_INTERNET_PAYMENT_USERNAME</code>, <code>VITE_INTERNET_PAYMENT_PASSWORD</code></li>
+  <li>IPTV API: <code>VITE_IPTV_API_AUTH_KEY</code>, <code>VITE_IPTV_API_USERNAME</code>, <code>VITE_IPTV_API_PASSWORD</code></li>
+</ul>
+<p>These should be tracked as a separate finding — secrets belong in a secrets manager / CI-injected env, not committed <code>.env*</code> files.</p>
+</div>
+
+</body>
+</html>

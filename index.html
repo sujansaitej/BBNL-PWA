@@ -81,6 +81,10 @@
 
         // Clear caches and reload — nuclear recovery for stale SW / broken chunks
         window.clearAndReload = function() {
+          try {
+            document.cookie = 'SERVERUSED=; Max-Age=0; path=/';
+            document.cookie = 'SERVERUSED=; Max-Age=0; path=/smartphone/crm/';
+          } catch (_) {}
           Promise.all([
             ('caches' in window) ? caches.keys().then(function(n){return Promise.allSettled(n.map(function(k){return caches.delete(k)}))}) : Promise.resolve(),
             ('serviceWorker' in navigator) ? navigator.serviceWorker.getRegistrations().then(function(r){return Promise.allSettled(r.map(function(x){return x.unregister()}))}) : Promise.resolve()

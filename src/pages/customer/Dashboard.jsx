@@ -140,7 +140,7 @@ export default function Dashboard() {
         <Layout>
           <div className="px-4 py-4 space-y-6">
       
-            {/* Hero Ad Banner — Hotstar Style */}
+            {/* Hero Ad Banner â€” Hotstar Style */}
             {adLoading ? (
               <div className="-mx-4 px-4">
                 <div className="aspect-[16/9] rounded-2xl skeleton dark:skeleton-dark" />
@@ -244,13 +244,13 @@ export default function Dashboard() {
                 <>
                 <h2 className="text-xl font-semibold text-center text-green-500 mb-2">Warm Welcome!</h2>
                 <img src={import.meta.env.VITE_API_APP_DIR_PATH + 'img/welcome.png'} alt="Modal Info" className="w-70 h-70 mx-auto" />
-                <p className="text-center text-blue-600 mt-1">We're thrilled to introduce our new platform independent app — designed to bring you a faster, smarter, and more seamless experience!</p>
+                <p className="text-center text-blue-600 mt-1">We're thrilled to introduce our new platform independent app â€” designed to bring you a faster, smarter, and more seamless experience!</p>
                 </>
               ):(
                 <>
                 <h2 className="text-xl font-semibold text-center text-red-500 mb-2">Coming Soon!</h2>
                 <img src={import.meta.env.VITE_API_APP_DIR_PATH + 'img/under_dev.jpg'} alt="Modal Info" className="w-70 h-70 mx-auto" />
-                <p className="text-center text-violet-900 mt-1">We're working on this feature — check back soon!</p>
+                <p className="text-center text-violet-900 mt-1">We're working on this feature â€” check back soon!</p>
                 </>
               )
               }

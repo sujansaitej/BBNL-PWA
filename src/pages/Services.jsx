@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { ArrowLeftIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { getServiceList, getCustKYCPreview } from "../services/generalApis";
 import { lsGetStale } from "../services/lsCache";
-import { prefetchCustomerData } from "../services/prefetch";
+import { prefetchCustomerData, prioritizeCustomerService } from "../services/prefetch";
 import { loadKycWithRetry } from "../utils/kycRetry";
 import BottomNav from "../components/BottomNav";
 import { formatCustomerId } from "../services/helpers";
@@ -138,6 +138,9 @@ export default function Services() {
             setComingSoonOpen(true);
             return;
         }
+        const userid = customerData?.customer_id || customerData?.username || customerId;
+        const logUname = getUser()?.username || '';
+        prioritizeCustomerService(userid, logUname, service.id);
         setSelectedService(service.id);
         navigate(service.path, { state: { customer: customerData, services: apiServices } });
     };

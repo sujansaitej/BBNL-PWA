@@ -130,6 +130,27 @@ export function lsRemove(key) {
 }
 
 /**
+ * Remove cache entries whose raw cache key starts with one of the
+ * supplied prefixes. Non-cache localStorage keys remain untouched.
+ */
+export function lsRemoveByPrefix(prefixes) {
+  const list = Array.isArray(prefixes) ? prefixes : [prefixes];
+  const normalized = list.filter(Boolean);
+  if (normalized.length === 0) return;
+
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith(PREFIX)) continue;
+      const rawKey = k.slice(PREFIX.length);
+      if (normalized.some((prefix) => rawKey.startsWith(prefix))) {
+        localStorage.removeItem(k);
+      }
+    }
+  } catch (_) {}
+}
+
+/**
  * Evict the single oldest cache entry.  Returns true if something was evicted.
  */
 function evictOldest() {

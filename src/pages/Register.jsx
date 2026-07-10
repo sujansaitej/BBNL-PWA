@@ -585,6 +585,33 @@ const EMPTY_FORM = {
   termsAccepted: false,
 };
 
+const INSTALLATION_ADDRESS_FIELD_NAMES = [
+  "houseno",
+  "floor",
+  "cross",
+  "area",
+  "main",
+  "post",
+  "city",
+  "pincode",
+];
+
+function hasInstallationAddressFields(data = {}) {
+  return Boolean(
+    data.address ||
+    data.latitude ||
+    data.longitude ||
+    INSTALLATION_ADDRESS_FIELD_NAMES.some((field) => data[field])
+  );
+}
+
+function buildStructuredInstallationAddress(data = {}) {
+  return INSTALLATION_ADDRESS_FIELD_NAMES
+    .map((field) => (data[field] || "").trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
 function getInitialFormState() {
   try {
     const saved = localStorage.getItem(REG_FORM_SESSION_KEY);
@@ -737,6 +764,8 @@ export default function Register() {
   const [showMap, setShowMap] = useState(false);
   const [mapPos, setMapPos] = useState({ lat: 13.00322, lng: 77.58960 }); // Default Bangalore, India
   const [reverseAddress, setReverseAddress] = useState("");
+  // Tracks whether the address sub-fields should stay visible even if address is cleared
+  const [addressFieldsVisible, setAddressFieldsVisible] = useState(() => hasInstallationAddressFields(form));
 
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -777,7 +806,13 @@ export default function Register() {
   // handle input changes
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setForm((p) => ({ ...p, [name]: type === "checkbox" ? checked : value }));
+    setForm((p) => {
+      const next = { ...p, [name]: type === "checkbox" ? checked : value };
+      if (INSTALLATION_ADDRESS_FIELD_NAMES.includes(name)) {
+        next.address = buildStructuredInstallationAddress(next) || p.address;
+      }
+      return next;
+    });
 
     // realtime triggers:
     if (name === "emailid") {
@@ -891,7 +926,7 @@ export default function Register() {
         (pos) => {
           const { latitude, longitude } = pos.coords;
           setMapPos({ lat: latitude, lng: longitude }); // center the map
-          reverseGeocode(latitude, longitude); // also fetch address
+          reverseGeocode(latitude, longitude, { applyToForm: false }); // also fetch address
           setShowMap(true); // finally show the map modal
         },
         (err) => {
@@ -906,11 +941,12 @@ export default function Register() {
       );
     } else {
       toast.add("Geolocation not supported by your browser", { type: "error" });
+      setReverseAddress("");
       setShowMap(true);
     }
   }
   // reverse geocode using Nominatim
-  async function reverseGeocode(lat, lng) {
+  async function reverseGeocode(lat, lng, { applyToForm = true } = {}) {
     try {
       const u = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`;
       const r = await fetch(u);
@@ -918,9 +954,7 @@ export default function Register() {
       const d = await r.json();
       const addr = d.address || {};
       const display = d.display_name || "";
-      setReverseAddress(display);
-      setForm((p) => ({
-        ...p,
+      const nextAddress = {
         address: display,
         latitude: lat,
         longitude: lng,
@@ -932,23 +966,43 @@ export default function Register() {
         city: addr.city || addr.town || addr.village || "",
         post: addr.suburb || "",
         pincode: addr.postcode || "",
-      }));
+      };
+      setReverseAddress(display);
+      if (applyToForm) {
+        setAddressFieldsVisible(true);
+        setForm((p) => ({ ...p, ...nextAddress }));
+      }
+      return nextAddress;
     } catch (err) {
       console.error("reverseGeocode", err);
       toast.add("Could not fetch address. Please try again.", { type: "error" });
+      if (applyToForm) {
+        setAddressFieldsVisible(true);
+        setForm((p) => ({ ...p, latitude: lat, longitude: lng }));
+      }
+      return null;
     }
   }
 
   // when user picks a map position
   const onMapChange = (ll) => {
     setMapPos({ lat: ll.lat, lng: ll.lng });
-    setForm((p) => ({
-      ...p,
-      latitude: ll.lat,
-      longitude: ll.lng,
-    }));
     setReverseAddress("Fetching selected address...");
-    reverseGeocode(ll.lat, ll.lng);
+    reverseGeocode(ll.lat, ll.lng, { applyToForm: false });
+  };
+
+  const applySelectedMapAddress = async () => {
+    const picked = await reverseGeocode(mapPos.lat, mapPos.lng);
+    if (!picked && reverseAddress) {
+      setAddressFieldsVisible(true);
+      setForm((p) => ({
+        ...p,
+        address: reverseAddress,
+        latitude: mapPos.lat,
+        longitude: mapPos.lng,
+      }));
+    }
+    setShowMap(false);
   };
 
   const today = new Date();
@@ -1012,8 +1066,8 @@ export default function Register() {
     }
 
     else if (["12345678", "password"].includes(form.password.toLowerCase())) newErrors.password = "Weak password";
-    if (!form.address) newErrors.address = "Installation address is required";
-    if(form.address){
+    if (!hasInstallationAddressFields(form)) newErrors.address = "Select installation location";
+    if (addressFieldsVisible || hasInstallationAddressFields(form)) {
       if (!form.houseno) newErrors.houseno = "House No. is required";
       if (!form.area) newErrors.area = "Area is required";
       if (!form.post) newErrors.post = "Post is required";
@@ -1087,7 +1141,11 @@ export default function Register() {
       // Stage the Add User payload locally. Final registration happens
       // later from the ONU Details Register action after ONU MAC data exists.
       const filerefid = safeGetArray("filerefid");
-      const data = { ...form, isKirana: false }; //signature
+      const data = {
+        ...form,
+        address: buildStructuredInstallationAddress(form) || form.address,
+        isKirana: false,
+      }; //signature
       if (filerefid.length > 0) data.filerefid = filerefid;
       localStorage.setItem("registrationData", JSON.stringify(data));
 
@@ -1194,9 +1252,8 @@ export default function Register() {
         {/* Installation address via map */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Installation Address <span className="text-red-500">*</span></label>
-          <textarea name="address" value={form.address} onChange={handleChange} className="w-full text-sm dark:text-gray-700 bg-white rounded-xl border p-3" maxLength={300} ref={refs.address} />
           <div className="flex gap-2 mt-2">
-            <button type="button" onClick={openMapgetLoc} className="rounded border px-3 py-1 text-sm dark:text-gray-700">Pick on map</button>
+            <button type="button" ref={refs.address} onClick={openMapgetLoc} className="rounded border px-3 py-1 text-sm dark:text-gray-700">Pick on map</button>
             <button type="button" onClick={() => {
               // try geolocation fill if available
               if (navigator.geolocation) {
@@ -1215,7 +1272,7 @@ export default function Register() {
             }} className="rounded border px-3 py-1 text-sm dark:text-gray-700">Use current location</button>
           </div>
           {errors.address && <p className="text-xs text-red-500">{errors.address}</p>}
-          {form.address &&
+          {addressFieldsVisible &&
             <div className="grid grid-cols-2 md:grid-cols-2 gap-x-3 gap-y-5 mt-3">
               <FloatingInput label="House/Flat No." name="houseno" ref={refs.houseno} value={form.houseno} onChange={handleChange} error={errors.houseno} required />
               <FloatingInput label="Floor" name="floor" ref={refs.floor} value={form.floor} onChange={handleChange} error={errors.floor} />
@@ -1233,7 +1290,11 @@ export default function Register() {
           <label className="block text-sm font-medium text-gray-700 mb-1">Billing Address <span className="text-red-500">*</span></label>
           <textarea name="billaddress" value={form.billaddress} onChange={handleChange} className="w-full text-sm dark:text-gray-700 bg-white rounded-xl border p-3" maxLength={300} ref={refs.billaddress} />
           <label className="flex items-center gap-2 text-sm mt-2 dark:text-gray-700">
-            <input type="checkbox" onChange={(e) => setForm((p) => ({ ...p, billaddress: e.target.checked ? p.address : "" }))} className="[color-scheme:light]"/>
+            <input type="checkbox" onChange={(e) => setForm((p) => {
+              if (!e.target.checked) return { ...p, billaddress: "" };
+              const fullAddress = buildStructuredInstallationAddress(p);
+              return { ...p, billaddress: fullAddress || p.address };
+            })} className="[color-scheme:light]"/>
             Same as installation address
           </label>
           {errors.billaddress && <p className="text-xs text-red-500">{errors.billaddress}</p>}
@@ -1287,7 +1348,7 @@ export default function Register() {
             <p className="mt-2 text-xs text-black-600">Selected Address: <span className="text-blue-600">{reverseAddress}</span></p>
             <div className="mt-2 flex gap-2">
               {/* <button type="button" onClick={() => { setForm((p) => ({ ...p, address: reverseAddress })); setShowMap(false); }} className="px-3 py-1 rounded border">Use this address</button> */}
-              <button type="button" onClick={() => { setForm((p) => ({ ...p, address: reverseAddress })); setShowMap(false); }} disabled={reverseAddress ? false : true} className="bg-transparent hover:bg-indigo-500 text-blue-700 hover:text-white px-4 border border-blue-500 hover:border-transparent rounded py-1">
+              <button type="button" onClick={applySelectedMapAddress} disabled={reverseAddress ? false : true} className="bg-transparent hover:bg-indigo-500 text-blue-700 hover:text-white px-4 border border-blue-500 hover:border-transparent rounded py-1">
                 Use this address
               </button>
               <button type="button" onClick={() => setShowMap(false)} className="bg-transparent hover:bg-red-500 text-red-700 hover:text-white px-4 border border-red-500 hover:border-transparent rounded py-1">Close</button>

@@ -16,8 +16,9 @@ export default function Dashboard() {
   const logUname = user.username || "";
   const opId = user.op_id || "";
   const location = useLocation();
-  const [intWB, setIntWB] = useState(0);
-  const [fofiWB, setFofiWB] = useState(0);
+  // null = not yet fetched (shows loading), string = confirmed by backend
+  const [intWB, setIntWB] = useState(null);
+  const [fofiWB, setFofiWB] = useState(null);
   const [adList, setAdList] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [greet, setGreet] = useState(false);
@@ -42,7 +43,7 @@ export default function Dashboard() {
     }
   }, []);
 
-  // Refresh wallet balances — called on mount and when page regains focus.
+  // Refresh wallet balances - called on mount and when page regains focus.
   // skipCache=true bypasses the localStorage cache so the balance is fresh
   // (e.g. after a payment that changed the actual balance on the server).
   function refreshWalletBalances(skipCache = false) {
@@ -52,9 +53,9 @@ export default function Dashboard() {
       getWalBal({ loginuname: logUname, servicekey: 'fofi' }, skipCache).catch(() => null),
     ]).then(([intData, fofiData]) => {
       if (intData?.status?.err_code === 0)
-        setIntWB((intData?.body?.wallet_balance || 0).toFixed(2));
+        setIntWB((intData?.body?.wallet_balance ?? 0).toFixed(2));
       if (fofiData?.status?.err_code === 0)
-        setFofiWB((fofiData?.body?.wallet_balance || 0).toFixed(2));
+        setFofiWB((fofiData?.body?.wallet_balance ?? 0).toFixed(2));
     });
   }
 
@@ -78,7 +79,7 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
-    // Fetch everything in parallel — wallet balances + ads all at once
+    // Fetch everything in parallel - wallet balances + ads all at once
     const mobile = getIptvMobile();
     refreshWalletBalances();
     refreshDashboardCounts();
@@ -87,6 +88,19 @@ export default function Dashboard() {
         const list = (adData?.body?.[0]?.ads || []).filter(a => a.content);
         if (list.length > 0) setAdList(list);
       }).catch(() => {});
+    }
+
+    // Pre-warm the full "All Customers" list in the background so tapping
+    // "All Users" loads from the 10-min cache instead of a cold network
+    // fetch. Deferred ~1.5s so this big payload doesn't compete with the
+    // dashboard's own data on first paint. getCustList caches and returns
+    // the cache on hit, so it's network-free when already warm.
+    // Fire-and-forget — never blocks the dashboard.
+    let warmAllCustomersTimer = null;
+    if (logUname) {
+      warmAllCustomersTimer = setTimeout(() => {
+        getCustList({ username: logUname, servid: 1, search: [{ platform: "iptv", providerid: 5 }] }, '').catch(() => {});
+      }, 1500);
     }
 
     // Re-fetch wallet balances when user navigates back to this page
@@ -109,11 +123,12 @@ export default function Dashboard() {
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('pageshow', onPageShow);
       window.removeEventListener('focus', onPageShow);
+      if (warmAllCustomersTimer) clearTimeout(warmAllCustomersTimer);
     };
   }, []);
 
   // Re-fetch wallet when navigating back to dashboard (e.g. after payment)
-  // location.key changes on each navigation — skip cache to get fresh balance
+  // location.key changes on each navigation - skip cache to get fresh balance
   useEffect(() => {
     refreshWalletBalances(true);
     refreshDashboardCounts(true);
@@ -141,14 +156,18 @@ export default function Dashboard() {
         <div className="flex items-center justify-between">
           <div>
             <p className="text-md/5 opacity-90 font-bold">Wallet Balance</p>
-            <p className="text-3xl font-bold">{import.meta.env.VITE_API_APP_DEFAULT_CURRENCY_SYMBOL +' '+ intWB}</p>
+            <p className="text-3xl font-bold">
+              {intWB === null
+                ? <span className="inline-block h-8 w-32 align-middle rounded-md bg-white/30 animate-pulse" />
+                : import.meta.env.VITE_API_APP_DEFAULT_CURRENCY_SYMBOL + ' ' + intWB}
+            </p>
           </div>
           <button className="p-3 rounded bg-white/20 backdrop-blur">+</button>
         </div>
         <div className="grid grid-cols-3 gap-3 mt-4">
-          <div className="bg-white/10 p-2 rounded-xl text-center"><p className="text-sm opacity-90">Internet</p><p className="text-sm font-semibold">{import.meta.env.VITE_API_APP_DEFAULT_CURRENCY_SYMBOL +' '+ intWB}</p></div>
-          <div className="bg-white/10 p-2 rounded-xl text-center"><p className="text-sm opacity-90">Fo‑Fi</p><p className="text-sm font-semibold">{import.meta.env.VITE_API_APP_DEFAULT_CURRENCY_SYMBOL +' '+ fofiWB}</p></div>
-          <div className="bg-white/10 p-2 rounded-xl text-center"><p className="text-sm opacity-90">OTT</p><p className="text-sm font-semibold">₹ 0.00</p></div>
+          <div className="bg-white/10 p-2 rounded-xl text-center"><p className="text-sm opacity-90">Internet</p><p className="text-sm font-semibold">{intWB === null ? <span className="inline-block h-4 w-14 rounded bg-white/30 animate-pulse" /> : import.meta.env.VITE_API_APP_DEFAULT_CURRENCY_SYMBOL + ' ' + intWB}</p></div>
+          <div className="bg-white/10 p-2 rounded-xl text-center"><p className="text-sm opacity-90">Fo-Fi</p><p className="text-sm font-semibold">{fofiWB === null ? <span className="inline-block h-4 w-14 rounded bg-white/30 animate-pulse" /> : import.meta.env.VITE_API_APP_DEFAULT_CURRENCY_SYMBOL + ' ' + fofiWB}</p></div>
+          <div className="bg-white/10 p-2 rounded-xl text-center"><p className="text-sm opacity-90">OTT</p><p className="text-sm font-semibold">{import.meta.env.VITE_API_APP_DEFAULT_CURRENCY_SYMBOL + ' 0.00'}</p></div>
         </div>
       </div>
 
@@ -211,13 +230,13 @@ export default function Dashboard() {
           <>
           <h2 className="text-xl font-semibold text-center text-purple-500 mb-2">Warm Welcome!</h2>
           <img src={import.meta.env.VITE_API_APP_DIR_PATH + 'img/welcome.png'} alt="Modal Info" className="w-70 h-70 mx-auto" />
-          <p className="text-center text-blue-600 mt-1">We’re thrilled to introduce our new platform independent app — designed to bring you a faster, smarter, and more seamless experience!</p>
+          <p className="text-center text-blue-600 mt-1">We're thrilled to introduce our new platform independent app - designed to bring you a faster, smarter, and more seamless experience!</p>
           </>
         ):(
           <>
           <h2 className="text-xl font-semibold text-center text-red-500 mb-2">Coming Soon!</h2>
           <img src={import.meta.env.VITE_API_APP_DIR_PATH + 'img/under_dev.jpg'} alt="Modal Info" className="w-70 h-70 mx-auto" />
-          <p className="text-center text-violet-900 mt-1">We’re working on this feature — check back soon!</p>
+          <p className="text-center text-violet-900 mt-1">We're working on this feature - check back soon!</p>
           </>
         )
         }

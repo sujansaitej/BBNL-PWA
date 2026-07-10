@@ -41,15 +41,24 @@ function getBasicAuthHeader() {
 // low-tier franchisee phones. 15 s was timing out before the server
 // could respond on slow networks.
 const API_TIMEOUT = 30000; // 30 seconds
+// Submit-critical FoFi calls (upgradeRegistration, paymentinfo,
+// generateorder) hit heavy backend work — operator-sync, order
+// ledger writes — that legitimately runs past 30 s on slow franchisee
+// connections. QA (04 Jun 2026) saw "Request timed out" frequently on
+// an otherwise stable network where the submit "occasionally works":
+// the backend was simply answering between 30–60 s. A 60 s ceiling for
+// these specific calls removes the false timeout without masking a real
+// dead connection. Matches the 60 s upload timeout in generalApis.js.
+const API_TIMEOUT_LONG = 60000; // 60 seconds
 
 /** Fetch with AbortController timeout, perf monitoring, navigation abort, and structured logging */
-async function fofiApiFetch(url, options, label = "FoFi") {
+async function fofiApiFetch(url, options, label = "FoFi", timeoutMs = API_TIMEOUT) {
     const method = options.method || "POST";
     const endPerf = perfMonitor.start(method, url, "FoFi", label);
     logger.debug("FoFi", `${label} → ${method} ${url}`);
 
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT);
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
 
     // Link to navigation controller — abort if user navigated to another page.
     // Skip for background/prefetch requests so cache-warming isn't killed on navigation.
@@ -138,7 +147,7 @@ export async function generateFofiOrder(payload) {
         method: "POST",
         headers,
         body: JSON.stringify(orderPayload),
-    }, "generateFofiOrder");
+    }, "generateFofiOrder", API_TIMEOUT_LONG);
 
     if (!resp.ok) {
         throw new Error(`Failed to generate FoFi order: HTTP ${resp.status}`);
@@ -154,10 +163,14 @@ export async function generateFofiOrder(payload) {
  * @param {Object} payload - { logUname: string, isKiranastore: string }
  * @returns {Promise<Object>} Response containing special internet plans
  */
-export async function getSpecialInternetPlans(payload) {
+export async function getSpecialInternetPlans(payload, options = {}) {
     const cacheKey = `siplans_${payload.logUname || ''}`;
-    const cached = lsGet(cacheKey, 10 * 60 * 1000); // 10 min TTL
-    if (cached) { perfMonitor.recordCacheHit("FoFi", "getSpecialInternetPlans", cacheKey); return cached; }
+    // skipCache — used by the Link FoFi Box "Retry" action so a previously
+    // cached empty/partial result doesn't keep coming back on retry.
+    if (!options.skipCache) {
+        const cached = lsGet(cacheKey, 10 * 60 * 1000); // 10 min TTL
+        if (cached) { perfMonitor.recordCacheHit("FoFi", "getSpecialInternetPlans", cacheKey); return cached; }
+    }
 
     const url = `${getBaseUrl()}ServiceApis/specialInternetPlans`;
     const headers = getHeadersJson();
@@ -216,7 +229,20 @@ export async function validateBeforeFofiBoxReg(payload, options = {}) {
  * @returns {Promise<Object>} Response containing upgrade plans and service details
  */
 export async function getFofiUpgradePlans(payload) {
-    const cacheKey = `fofupl_${payload.userid || ''}_${payload.moduletype || ''}`;
+    // Cache the plan catalog per OPERATOR, not per customer.
+    //
+    // The "Add Fo-Fi Box" / upgrade services page only ever reads the
+    // fofi_plans (and ott_plans) arrays from this response, and those are
+    // IDENTICAL for every customer under the same operator — verified in prod:
+    // 3 different userids returned a byte-for-byte identical fofi_plans list.
+    // (The response also carries per-customer internet_plans, but this flow
+    // explicitly never uses them — see FoFiSmartBox.jsx "internet_plans and
+    // cable_plans are NOT added".) Keying on userid meant the same ~70 KB list
+    // was refetched from scratch for every customer; keying on the operator
+    // means it loads once and every subsequent customer reuses it instantly.
+    // Different operators keep separate entries, so operator-specific pricing
+    // is never shared across operators.
+    const cacheKey = `fofupl_${payload.logUname || payload.userid || ''}_${payload.moduletype || ''}`;
     const cached = lsGet(cacheKey, 10 * 60 * 1000); // 10 min TTL
     if (cached) { perfMonitor.recordCacheHit("FoFi", "getFofiUpgradePlans", cacheKey); return cached; }
 
@@ -242,21 +268,25 @@ export async function getFofiUpgradePlans(payload) {
 }
 
 /**
- * Upgrade Registration - Submit FoFi upgrade registration for new users
- * @param {Object} payload - { fofiboxid: string, fofimac: string, fofiserailnumber: string, loginuname: string, services: array, username: string }
+ * Upgrade Registration - Submit FoFi upgrade registration for existing users.
+ * @param {Object} payload - { fofiboxid: string, fofimac: string, fofiserailnumber: string, loginuname: string, plan_id: string, planid: string, priceid: string, servid: string, services: array, userid: string, username: string }
  * @returns {Promise<Object>} Response containing upgrade registration status
  */
 export async function upgradeRegistration(payload) {
     const url = `${getBaseUrl()}ServiceApis/upgradeRegistration`;
     const headers = getHeadersJson();
 
-    logger.debug("FoFi", "upgradeRegistration request", { fofiboxid: payload.fofiboxid });
+    logger.debug("FoFi", "upgradeRegistration request", {
+        fofiboxid: payload.fofiboxid,
+        plan_id: payload.plan_id || payload.planid,
+        userid: payload.userid || payload.username,
+    });
 
     const resp = await fofiApiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    }, "upgradeRegistration");
+    }, "upgradeRegistration", API_TIMEOUT_LONG);
 
     if (!resp.ok) {
         throw new Error(`Failed to submit upgrade registration: HTTP ${resp.status}`);
@@ -282,7 +312,7 @@ export async function getFofiPaymentInfo(payload) {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    }, "getFofiPaymentInfo");
+    }, "getFofiPaymentInfo", API_TIMEOUT_LONG);
 
     if (!resp.ok) {
         throw new Error(`Failed to get FoFi payment info: HTTP ${resp.status}`);
