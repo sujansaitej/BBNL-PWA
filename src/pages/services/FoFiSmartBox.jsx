@@ -1091,6 +1091,13 @@ function FoFiSmartBox() {
     const [view, setView] = useState(paymentSuccess ? 'overview' : (fromInternet ? 'link-fofi' : 'overview'));
     const [selectedPlan, setSelectedPlan] = useState(null);
     const [isUpgradeLinkContinuation, setIsUpgradeLinkContinuation] = useState(false);
+    // True when the operator is subscribing a package for a device that is
+    // ALREADY linked to the customer (present in getUserAssignedItems but with
+    // no active plan — see linkedDeviceNoPlan). In that case the box + MAC are
+    // already known, so the link-fofi step must render as a read-only
+    // "confirm & subscribe" screen instead of the Scan/GET-MAC entry form —
+    // the device is already added, we're only subscribing a package to it.
+    const [isLinkedDeviceSubscription, setIsLinkedDeviceSubscription] = useState(false);
     const [deviceValidated, setDeviceValidated] = useState(false);
     const [showValidationSuccess, setShowValidationSuccess] = useState(false);
     const [validationMethod, setValidationMethod] = useState(null); // 'qr' or 'manual'
@@ -2792,6 +2799,7 @@ function FoFiSmartBox() {
             console.log('🔵 [UPGRADE] Box ID:', fofiServiceDetails.boxId);
 
             // Navigate to subscription confirmation view
+            setIsLinkedDeviceSubscription(false);
             enterSubView('subscription-confirm');
         } else {
             // NEW USER - Navigate to link-fofi view with selected plan.
@@ -2805,6 +2813,15 @@ function FoFiSmartBox() {
                 if (isMeaningfulFoFiValue(linkedDeviceNoPlan.boxId)) setBoxId(linkedDeviceNoPlan.boxId);
                 if (isMeaningfulFoFiValue(linkedDeviceNoPlan.macAddress)) setMacAddress(linkedDeviceNoPlan.macAddress);
                 if (isMeaningfulFoFiValue(linkedDeviceNoPlan.serialNumber)) setSerialNumber(linkedDeviceNoPlan.serialNumber);
+                // The device is already linked — render link-fofi as a
+                // read-only "confirm & subscribe" screen (no re-scan / GET MAC),
+                // per operator feedback that a linked device must go straight
+                // to package subscription.
+                setIsLinkedDeviceSubscription(true);
+            } else {
+                // Cable-TV / genuinely-new box: operator still needs the entry
+                // form to scan / enter the box, so keep the full link flow.
+                setIsLinkedDeviceSubscription(false);
             }
             setIsUpgradeLinkContinuation(true);
             enterSubView('link-fofi');
@@ -4627,7 +4644,11 @@ function FoFiSmartBox() {
                                         disabled={upgradePlansLoading}
                                         className="bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-semibold py-3 px-10 rounded-lg text-sm uppercase tracking-wide transition-shadow duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        {upgradePlansLoading ? 'Loading...' : 'ADD FO-FI BOX'}
+                                        {upgradePlansLoading
+                                            ? 'Loading...'
+                                            : (linkedDeviceNoPlan && isMeaningfulFoFiValue(linkedDeviceNoPlan.boxId || linkedDeviceNoPlan.macAddress)
+                                                ? 'SUBSCRIBE PACKAGE'
+                                                : 'ADD FO-FI BOX')}
                                     </button>
                                     {upgradePlansError && (
                                         <p className="text-red-500 text-sm mt-3 text-center">{upgradePlansError}</p>
@@ -5065,7 +5086,7 @@ function FoFiSmartBox() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                     </svg>
                 </button>
-                <h1 className="text-xl font-medium text-white">Link FO-FI Box</h1>
+                <h1 className="text-xl font-medium text-white">{isLinkedDeviceSubscription ? 'Subscribe Package' : 'Link FO-FI Box'}</h1>
             </header>
 
             <div className="flex-1 px-4 py-4 space-y-4 pb-24 max-w-md mx-auto w-full">
@@ -5103,6 +5124,33 @@ function FoFiSmartBox() {
                     </div>
                 )}
 
+                {/* ALREADY-LINKED DEVICE — read-only confirm card.
+                    The box + MAC are already known (device is linked to the
+                    customer with no active plan), so we do NOT show the
+                    Scan / GET MAC / editable entry form again. The operator
+                    just confirms the box and proceeds to package payment.
+                    Same handleLinkFoFiBox submit (freeOTAService +
+                    paymentinfo/fofi) runs underneath with these values. */}
+                {isLinkedDeviceSubscription ? (
+                    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
+                        <div className="flex items-center gap-2 mb-4">
+                            <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
+                            <h2 className="text-lg font-semibold text-indigo-600 dark:text-indigo-400">Linked TV Device</h2>
+                        </div>
+                        <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-gray-700/40 px-4 py-3 rounded-xl border border-indigo-200 dark:border-gray-600 space-y-1">
+                            {isMeaningfulFoFiValue(boxId) && (
+                                <p className="text-indigo-600 dark:text-indigo-300 font-semibold text-base break-all">{boxId}</p>
+                            )}
+                            {isMeaningfulFoFiValue(macAddress) && (
+                                <p className="text-sm text-gray-700 dark:text-gray-300 font-mono break-all">MAC: {macAddress}</p>
+                            )}
+                        </div>
+                        <p className="text-gray-500 dark:text-gray-400 text-xs mt-3">
+                            This device is already linked. Confirm and proceed to subscribe the selected package.
+                        </p>
+                    </div>
+                ) : (
+                <>
                 {/* FOFI Section Card */}
                 <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
                     {/* FOFI Header */}
@@ -5179,6 +5227,8 @@ function FoFiSmartBox() {
                         </div>
                     </div>
                 </div>
+                </>
+                )}
 
                 {/* Select a Plan dropdown — sourced from
                     registrationNecessities (body.fofi_plans, the
@@ -5274,9 +5324,11 @@ function FoFiSmartBox() {
                         onClick={handleLinkFoFiBox}
                         disabled={isLoading || !boxId || !macAddress || !selectedPlan}
                         className={`bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-bold py-4 px-12 rounded-full transition-shadow duration-200 uppercase text-sm shadow-lg hover:shadow-xl tracking-wide ${isLoading || !boxId || !macAddress || !selectedPlan ? 'opacity-50 cursor-not-allowed' : ''}`}
-                        title={!selectedPlan ? 'Please select a plan first' : !boxId ? 'Please scan or enter FOFI Box ID' : !macAddress ? 'Please get MAC ID first' : 'Link this box'}
+                        title={!selectedPlan ? 'Please select a plan first' : !boxId ? 'Please scan or enter FOFI Box ID' : !macAddress ? 'Please get MAC ID first' : (isLinkedDeviceSubscription ? 'Subscribe this package' : 'Link this box')}
                     >
-                        {isLoading ? 'Linking…' : 'LINK FO-FI BOX'}
+                        {isLoading
+                            ? (isLinkedDeviceSubscription ? 'Subscribing…' : 'Linking…')
+                            : (isLinkedDeviceSubscription ? 'PROCEED TO PAYMENT' : 'LINK FO-FI BOX')}
                     </button>
                 </div>
 

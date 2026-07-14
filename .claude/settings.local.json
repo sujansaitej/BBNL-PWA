@@ -16,7 +16,15 @@
       "Artifact",
       "Bash(git status *)",
       "PowerShell(node \"C:\\\\Users\\\\Nikhil\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Nikhil-Desktop-BBNL-PWA\\\\7ea6f666-b5ca-47d0-ba87-8242f89b864e\\\\scratchpad\\\\probe-apis.cjs\")",
-      "PowerShell(node tools/smoke-overview-apis.cjs)"
+      "PowerShell(node tools/smoke-overview-apis.cjs)",
+      "Skill(run)",
+      "Bash(grep -nE \"export async function|export function|\\\\\\\\\\\\$\\\\{base\\\\}|\\\\\\\\\\\\$\\\\{BASE\\\\}|url = |const url|endpoint\" src/services/generalApis.js)",
+      "Bash(grep -vE \"^\\\\s*//\")",
+      "Bash(sed \"s/.*'//\")",
+      "Bash(sed 's/<[^>]*>//g')",
+      "Bash(python *)",
+      "Bash(grep -vE \"^\\\\s*$\")",
+      "Bash(grep -oE \"[A-Za-z/][^|]{3,90}\")"
     ]
   }
 }
