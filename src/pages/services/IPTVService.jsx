@@ -618,6 +618,7 @@ export default function IPTVService() {
             if (navCancelled(assignedFofiResult)) return;
 
             const _EMPTY_ASSIGNED = { status: "fulfilled", value: null };
+            let assignedCableResult = _EMPTY_ASSIGNED;
             let assignedMultiResult = _EMPTY_ASSIGNED;
             let assignedVoipResult = _EMPTY_ASSIGNED;
             let assignedInternetResult = _EMPTY_ASSIGNED;
@@ -625,7 +626,17 @@ export default function IPTVService() {
                 ? !!extractBoxIdFromAssigned(assignedFofiResult.value, userid)
                 : false;
             if (!fofiHasBox) {
-                [assignedMultiResult, assignedVoipResult, assignedInternetResult] = await Promise.allSettled([
+                // servkey is a CONTENT FILTER, not a label: the backend returns
+                // only the items matching the requested key (verified live —
+                // servkey="fofi" omits the internet bucket entirely). Native's
+                // cable page queries servkey="cabletv" specifically
+                // (CustomerCompleteOverviewFragment: getUserConnections with
+                // servkey="cabletv"), and a cable-only customer's box can land
+                // under that key alone. The PWA never sent it, so we add it to
+                // the fan-out. This is a pure superset — a cached/deduped read
+                // that can only find MORE boxes, never fewer.
+                [assignedCableResult, assignedMultiResult, assignedVoipResult, assignedInternetResult] = await Promise.allSettled([
+                    getUserAssignedItems("cabletv", userid).catch(() => null),
                     getUserAssignedItems("multi", userid).catch(() => null),
                     getUserAssignedItems("voip", userid).catch(() => null),
                     getUserAssignedItems("internet", userid).catch(() => null),
@@ -633,10 +644,13 @@ export default function IPTVService() {
                 if (cancelled) return;
             }
 
-            // Box ID resolution — scan ALL servkey responses (fofi, multi, voip, internet)
-            // and pick the first BBNL-/FOFI-/TV-shaped product_name we find. Different
-            // user-state classifications on the backend put the same box under different
-            // servkeys; trying all means we don't silently miss the box ID.
+            // Box ID resolution — scan ALL servkey responses (fofi, cabletv,
+            // multi, voip, internet) and pick the first BBNL-/FOFI-/TV-shaped
+            // product_name we find. Different user-state classifications on the
+            // backend put the same box under different servkeys; trying all
+            // means we don't silently miss the box ID. cabletv is checked right
+            // after fofi because this is the cable page and native resolves the
+            // cable box from that key.
             // Box-ID extraction is shared with prefetch.js via
             // utils/boxId.js so the prefetch warm-up and this page resolve
             // the SAME box and never cache conflicting values.
@@ -646,6 +660,7 @@ export default function IPTVService() {
             };
 
             let boxId = extractBoxId(assignedFofiResult) ||
+                extractBoxId(assignedCableResult) ||
                 extractBoxId(assignedMultiResult) ||
                 extractBoxId(assignedVoipResult) ||
                 extractBoxId(assignedInternetResult);
@@ -657,6 +672,7 @@ export default function IPTVService() {
             // instead of guessing at code).
             console.log('🟣 [IPTV] box-id resolution:', {
                 fofi: extractBoxId(assignedFofiResult) || '(empty)',
+                cabletv: extractBoxId(assignedCableResult) || '(empty)',
                 multi: extractBoxId(assignedMultiResult) || '(empty)',
                 voip: extractBoxId(assignedVoipResult) || '(empty)',
                 internet: extractBoxId(assignedInternetResult) || '(empty)',
@@ -832,6 +848,16 @@ export default function IPTVService() {
     // versions used `new Date()` which returned NaN on DD-MM-YYYY
     // and silently treated every expired customer as active.
     const isCableTvExpired = isExpiredDate(expiryDate);
+    // Native gates the Select Packages / Select Channels buttons on the
+    // backend flag chnls_pkgs_selection.btn_status != "disable"
+    // (CustomerCompleteOverviewFragment:873-886) — the same btn_status
+    // contract this PWA already honours for internet renewals
+    // (InternetService.jsx:225). We only hide the buttons when the backend
+    // EXPLICITLY says "disable"; a missing flag leaves them enabled so no
+    // plan regresses.
+    const packageSelectionDisabled =
+        String(planDetails?.body?.chnls_pkgs_selection?.btn_status || '').toLowerCase() === 'disable';
+    const canSelectPackages = !isCableTvExpired && !packageSelectionDisabled;
     const remainingSubscriptionDays = !isCableTvExpired
         ? getRemainingDaysFromSubscription(subscribedService, lastSubscribedInfo?.body)
         : null;
@@ -3056,46 +3082,26 @@ export default function IPTVService() {
                         <p className="text-gray-500 dark:text-gray-400 text-xs mt-3">Loading plan details…</p>
                     </div>
                 ) : !subscribedService || planName === 'N/A' ? (
-                    (() => {
-                        const trulyNotOpted = !hasCableFromUsertype;
-                        return (
-                            <div className="bg-gray-50 dark:bg-gray-800 rounded-xl py-10 px-4 flex flex-col items-center">
-                                <p className="text-gray-600 dark:text-gray-400 text-base text-center font-medium leading-snug">
-                                    {trulyNotOpted ? (
-                                        <>Selected Customer have not opted<br />for this Service</>
-                                    ) : (
-                                        <>Cable TV plan details are temporarily unavailable.<br />
-                                            <span className="text-xs font-normal opacity-80">Customer is on Cable TV per record. The plan-details endpoint couldn't load — try again or contact support.</span>
-                                        </>
-                                    )}
-                                </p>
-                                {/* Always render an action button so the
-                                    operator never lands on a dead-end
-                                    "not opted" / "unavailable" screen.
-                                    Truly-not-opted → SUBSCRIBE bridges
-                                    to FoFi Smart Box (the real opt-in
-                                    entry point — Cable TV requires a
-                                    FoFi box). Otherwise → REFRESH. */}
-                                {trulyNotOpted ? (
-                                    <button
-                                        onClick={() => navigate(`/customer/${customerData.customer_id}/service/fofi-smart-box`, {
-                                            state: { customer: customerData, services: servicesFromState }
-                                        })}
-                                        className="mt-6 bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-semibold py-3 px-10 rounded-full text-sm shadow-md"
-                                    >
-                                        SUBSCRIBE
-                                    </button>
-                                ) : (
-                                    <button
-                                        onClick={() => window.location.reload()}
-                                        className="mt-6 bg-gradient-to-r from-indigo-600 to-blue-600 text-white font-semibold py-3 px-10 rounded-full text-sm shadow-md"
-                                    >
-                                        REFRESH
-                                    </button>
-                                )}
-                            </div>
-                        );
-                    })()
+                    // No active cable plan from getMyPlanDetails(cabletv). Native
+                    // treats every no-plan outcome identically: the generic "not
+                    // opted" state routing into the opt-in flow
+                    // (CustomerCompleteOverviewFragment:1030-1036), with no
+                    // usertype-based "temporarily unavailable" branch. We mirror
+                    // that — SUBSCRIBE bridges to FoFi Smart Box, the real opt-in
+                    // entry point (Cable TV requires a FoFi/AndroidTV box).
+                    <div className="bg-gray-50 dark:bg-gray-800 rounded-xl py-10 px-4 flex flex-col items-center">
+                        <p className="text-gray-600 dark:text-gray-400 text-base text-center font-medium leading-snug">
+                            Selected Customer have not opted<br />for this Service
+                        </p>
+                        <button
+                            onClick={() => navigate(`/customer/${customerData.customer_id}/service/fofi-smart-box`, {
+                                state: { customer: customerData, services: servicesFromState }
+                            })}
+                            className="mt-6 bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-semibold py-3 px-10 rounded-full text-sm shadow-md"
+                        >
+                            SUBSCRIBE
+                        </button>
+                    </div>
                 ) : (
                     /* Customer has an active plan */
                     <div className="space-y-2">
@@ -3147,7 +3153,7 @@ export default function IPTVService() {
                                 overview with no way to take action — they had
                                 to manually navigate back to the customer list
                                 and re-enter via FoFi Smart Box. */}
-                            {!isCableTvExpired ? (
+                            {canSelectPackages ? (
                                 <div className="flex gap-3 mt-4">
                                     <button
                                         onClick={handleSelectPackages}
@@ -3162,6 +3168,15 @@ export default function IPTVService() {
                                         Select Channels
                                     </button>
                                 </div>
+                            ) : !isCableTvExpired && packageSelectionDisabled ? (
+                                // Active plan, but the backend disabled package/
+                                // channel selection (chnls_pkgs_selection.btn_status
+                                // = "disable"). Native hides the buttons and shows
+                                // just the plan card; mirror that with a short note
+                                // instead of a dead-end blank.
+                                <p className="mt-4 text-xs text-gray-500 dark:text-gray-400 font-medium">
+                                    Package / channel selection is currently unavailable for this plan.
+                                </p>
                             ) : (
                                 <div className="mt-4 space-y-2">
                                     <p className="text-xs text-red-600 dark:text-red-400 font-medium">
