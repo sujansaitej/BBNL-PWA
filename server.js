@@ -1,6 +1,7 @@
 // Production server for BBNL CRM PWA
-// Serves static files + proxies /stream via HTTP/2 to stream hosts
-// The server itself runs on HTTP/2 (no HTTP/1.1).
+// Serves static files + proxies /stream via HTTP/2 to stream hosts.
+// The /stream proxy always talks HTTP/2 outbound; the inbound listener
+// depends on TLS (see TLS_CERT_PATH below).
 //
 // Usage:
 //   npm run build
@@ -11,12 +12,17 @@
 //   TLS_CERT_PATH   — path to TLS certificate file (PEM)
 //   TLS_KEY_PATH    — path to TLS private key file (PEM)
 //                     When both are set → HTTP/2 over TLS (h2, direct browser access)
-//                     When omitted      → HTTP/2 cleartext (h2c, use behind a
-//                                         TLS-terminating reverse proxy like nginx)
+//                     When omitted      → HTTP/1.1, for use behind a TLS-terminating
+//                                         reverse proxy. Proxies speak HTTP/1.1 to
+//                                         their upstreams (Traefik by default; nginx
+//                                         cannot proxy_pass HTTP/2 at all), so an
+//                                         h2c listener here would reject every
+//                                         proxied request.
 //   STREAM_HOSTS    — comma-separated allowed stream hosts
 //                     (default: livestream.bbnl.in,livestream2.bbnl.in)
 
 import http2 from "node:http2";
+import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { pipeline } from "node:stream";
@@ -536,7 +542,13 @@ if (useTLS) {
     requestHandler,
   );
 } else {
-  server = http2.createServer(requestHandler);
+  // No TLS means we're behind a reverse proxy, and that upstream hop is
+  // HTTP/1.1: Traefik defaults to it and nginx cannot proxy_pass HTTP/2 at
+  // all. http2.createServer() is HTTP/2-only and rejects HTTP/1.1, which
+  // surfaces at the proxy as a bare 500. Serving HTTP/1.1 here is what the
+  // topology actually calls for; the /stream proxy is unaffected because it
+  // negotiates HTTP/2 outbound via http2.connect().
+  server = http.createServer(requestHandler);
 }
 
 // Pre-warm HTTP/2 sessions for all allowed hosts
@@ -546,7 +558,7 @@ for (const host of ALLOWED_HOSTS) {
 
 const hostList = [...ALLOWED_HOSTS].join(", ");
 const protocol = useTLS ? "https" : "http";
-const h2Mode = useTLS ? "HTTP/2 (TLS)" : "HTTP/2 (h2c — place behind TLS reverse proxy)";
+const h2Mode = useTLS ? "HTTP/2 (TLS)" : "HTTP/1.1 (behind reverse proxy; /stream still uses HTTP/2)";
 server.listen(PORT, () => {
   console.log(`\n  BBNL CRM PWA — Production Server`);
   console.log(`  ─────────────────────────────────`);
