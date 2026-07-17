@@ -1,0 +1,26 @@
+node_modules
+dist
+dev-dist
+.git
+.github
+.claude
+
+# Credentials must never enter the build context. The build gets its config
+# from the ENV_FILE_B64 build arg instead (see Dockerfile).
+.env
+.env.*
+env.development
+env.production
+env.test
+env.local
+
+*.log
+.DS_Store
+Thumbs.db
+
+# Audit/report artefacts and local tooling — not part of the app.
+*.html
+!index.html
+tools
+local-prod-preview.cjs
+PWA_TestResult_*.txt

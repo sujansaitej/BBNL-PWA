@@ -40,6 +40,13 @@ Thumbs.db
 # Environment files
 .env
 .env.*
+# Vite env files in this repo are named without the leading dot — the
+# patterns above do NOT match them. They hold plaintext production
+# credentials and must never be committed.
+env.development
+env.production
+env.test
+env.local
 
 # PWA generated files
 service-worker.js
