@@ -333,18 +333,6 @@ function resolveCableTvBoxes(assignedItemsResponse, hasCablePerRecord, userid) {
     }];
 }
 
-function mergeFoFiAssignedResponses(results) {
-    const merged = { body: {} };
-    const bucketNames = ['fofi', 'multi', 'voip', 'internet'];
-    results.forEach((result, idx) => {
-        if (result.status === 'fulfilled' && result.value?.body) {
-            const bucket = bucketNames[idx];
-            merged.body[bucket] = result.value.body[bucket] || result.value.body;
-        }
-    });
-    return merged;
-}
-
 function findFoFiSubscribedService(planResponse) {
     const subscribedServices = planResponse?.body?.subscribed_services || [];
     if (!Array.isArray(subscribedServices)) return null;
@@ -1588,30 +1576,25 @@ function FoFiSmartBox() {
                 // so the operator sees the Box ID + customer details
                 // without waiting for the plan call to land.
                 // ──────────────────────────────────────────────────
-                // Fetch data with proper error handling - don't silently swallow errors
-                // CRITICAL: Try multiple servkey buckets in parallel - backends store boxes
-                // under different keys (fofi, multi, voip, internet) depending on user type
-                const [assignedFofiResult, assignedMultiResult, assignedVoipResult, assignedInternetResult] = await Promise.allSettled([
-                    getUserAssignedItems('fofi', userid, skipStatusCache),
-                    getUserAssignedItems('multi', userid, skipStatusCache).catch(() => null),
-                    getUserAssignedItems('voip', userid, skipStatusCache).catch(() => null),
-                    getUserAssignedItems('internet', userid, skipStatusCache).catch(() => null),
-                ]);
-
-                // Merge all servkey responses into a single body shape for deriveFofiOverviewFromAssigned
-                const assignedItemsResponse = mergeFoFiAssignedResponses([
-                    assignedFofiResult, assignedMultiResult, assignedVoipResult, assignedInternetResult
-                ]);
-
-                // Log any failures for debugging
-                if (assignedFofiResult.status === 'rejected') {
-                    console.error('❌ [FoFi] getUserAssignedItems(fofi) failed:', assignedFofiResult.reason?.message);
-                }
-                if (assignedMultiResult.status === 'rejected') {
-                    console.warn('⚠️ [FoFi] getUserAssignedItems(multi) failed:', assignedMultiResult.reason?.message);
+                // ONE call. This used to fan out 4 servkeys through Promise.allSettled.
+                // Verified against the live backend (7 real accounts):
+                //   • servkey "multi" returns the UNION of every bucket
+                //     (fofi/voip/internet) — the response shape is identical
+                //     whichever key is sent, so 'fofi'/'internet' were duplicates
+                //     of data 'multi' already carried.
+                //   • 'voip' was never a valid key: the backend answers
+                //     "Please enter valid service key." with body:null.
+                // The backend also stalls ~30s on a large fraction of requests;
+                // awaiting 4 calls meant a high chance of eating at least one, so a
+                // single call cuts exposure. Root cause is server-side (PHP 5.6.40).
+                let assignedItemsResponse = null;
+                try {
+                    assignedItemsResponse = await getUserAssignedItems('multi', userid, skipStatusCache);
+                } catch (err) {
+                    console.error('❌ [FoFi] getUserAssignedItems(multi) failed:', err?.message);
                 }
 
-                console.log('🟣 [FoFi] getUserAssignedItems(fofi) body:', assignedItemsResponse?.body);
+                console.log('🟣 [FoFi] getUserAssignedItems(multi) body:', assignedItemsResponse?.body);
 
                 // Done with primary spinner — let the overview render.
                 setIsLoading(false);
@@ -1934,15 +1917,10 @@ function FoFiSmartBox() {
             lsRemove(`uai_internet_${userid}`);
             if (currentBoxId) lsRemove(`plandets_fofi_${userid}_${currentBoxId}`);
             try {
-                const assignedResults = await Promise.allSettled([
-                    getUserAssignedItems('fofi', userid, true).catch(() => null),
-                    getUserAssignedItems('multi', userid, true).catch(() => null),
-                    getUserAssignedItems('voip', userid, true).catch(() => null),
-                    getUserAssignedItems('internet', userid, true).catch(() => null),
-                ]);
+                // Single call — servkey "multi" already returns the fofi/voip/internet
+                // union. See the note on the mount batch above.
+                const assignedItems = await getUserAssignedItems('multi', userid, true).catch(() => null);
                 if (stopped) return;
-
-                const assignedItems = mergeFoFiAssignedResponses(assignedResults);
                 const derived = deriveFofiOverviewFromAssigned(assignedItems);
                 const fofiBoxId = derived.boxId || currentBoxId;
                 if (assignedItems) setFofiAssignedItems(assignedItems);
@@ -2181,13 +2159,9 @@ function FoFiSmartBox() {
             );
 
             if (!fofiBoxId || !planDetailsSnapshot?.body) {
-                const assignedResults = await Promise.allSettled([
-                    getUserAssignedItems('fofi', userid, true).catch(() => null),
-                    getUserAssignedItems('multi', userid, true).catch(() => null),
-                    getUserAssignedItems('voip', userid, true).catch(() => null),
-                    getUserAssignedItems('internet', userid, true).catch(() => null),
-                ]);
-                assignedSnapshot = mergeFoFiAssignedResponses(assignedResults);
+                // Single call — servkey "multi" already returns the fofi/voip/internet
+                // union. See the note on the mount batch above.
+                assignedSnapshot = await getUserAssignedItems('multi', userid, true).catch(() => null);
                 const freshDerived = deriveFofiOverviewFromAssigned(assignedSnapshot);
                 if (assignedSnapshot) setFofiAssignedItems(assignedSnapshot);
                 fofiBoxId = firstTrimmedValue(fofiBoxId, freshDerived?.boxId);

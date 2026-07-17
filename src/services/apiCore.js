@@ -214,7 +214,15 @@ export async function apiFetch(url, options, label, cfg = {}) {
 
   let resp;
   try {
-    resp = await fetch(url, { ...options, signal: ctrl.signal });
+    // credentials:"omit" — do NOT send the ci_session_prodnew cookie. The API
+    // authenticates on the static header credentials, never on the session, so
+    // the cookie buys nothing. But PHP holds an exclusive lock on the session
+    // file for the life of each request, so any calls sharing a session cookie
+    // serialize server-side (measured ~8x on the FoFi mount's parallel batch).
+    // Android is fast here only because OkHttp defaults to CookieJar.NO_COOKIES.
+    // Placed before the spread so a caller that genuinely needs the session
+    // (login handshake) can override via options.credentials.
+    resp = await fetch(url, { credentials: "omit", ...options, signal: ctrl.signal });
   } catch (err) {
     const isTimeout = err.name === "AbortError";
     if (isTimeout && navSignal?.aborted) {

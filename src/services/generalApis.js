@@ -21,7 +21,9 @@ export async function UserLogin(username, password) {
 
   logger.info("Auth", `Login attempt for user: ${username}`);
 
-  const resp = await apiFetch(url, { method: "POST", headers, body: formData }, "UserLogin");
+  // credentials pinned to browser default: the login handshake is the one flow
+  // that may rely on server-side session state, and it is not covered by tests.
+  const resp = await apiFetch(url, { method: "POST", headers, body: formData, credentials: "same-origin" }, "UserLogin");
 
   if (!resp.ok) {
     logger.security("LOGIN_API_FAILED", { username, status: resp.status });
@@ -50,7 +52,7 @@ export async function OTPauth(username, otprefid, otpcode) {
 
   logger.info("Auth", `OTP verification attempt for user: ${username}`);
 
-  const resp = await apiFetch(url, { method: "POST", headers, body: formData }, "OTPauth");
+  const resp = await apiFetch(url, { method: "POST", headers, body: formData, credentials: "same-origin" }, "OTPauth");
 
   if (!resp.ok) {
     logger.security("OTP_VERIFY_FAILED", { username, status: resp.status });
@@ -72,7 +74,7 @@ export async function resendOTP(username) {
   const url = `${getBaseUrl()}ServiceApis/custLoginResendOtp?username=` + username;
   const headers = getHeadersJson();
   logger.info("Auth", `OTP resend requested for user: ${username}`);
-  const resp = await apiFetch(url, { method: "POST", headers }, "resendOTP");
+  const resp = await apiFetch(url, { method: "POST", headers, credentials: "same-origin" }, "resendOTP");
   if (!resp.ok) throw new Error(`Failed to resend otp ${resp.status}`);
   const data = await resp.json();
   return data;
