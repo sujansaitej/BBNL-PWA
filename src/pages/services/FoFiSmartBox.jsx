@@ -31,7 +31,8 @@ import { getMyPlanDetails, getCustKYCPreview, getUserAssignedItems } from "../..
 // Box-identity logic (extractBoxFromItem + linked-TV detection) lives in
 // utils/boxId.js so this page, IPTVService, and prefetch all resolve a box
 // the SAME way and can never diverge on "opted vs not opted".
-import { extractBoxFromItem, detectLinkedTvType, getLinkedTvIdentifier, extractBoxIdFromAssigned } from "../../utils/boxId";
+import { extractBoxFromItem, detectLinkedTvType, getLinkedTvIdentifier, extractBoxIdFromAssigned, isFofiAndroidBoxId } from "../../utils/boxId";
+import { raceForFirstMatch } from "../../utils/raceForFirst";
 import { lsRemove, lsGetStale, lsSet, lsGet } from "../../services/lsCache";
 import { refreshServiceController } from "../../services/navigationController";
 import { loadKycWithRetry } from "../../utils/kycRetry";
@@ -1597,14 +1598,33 @@ function FoFiSmartBox() {
                 // The backend also stalls ~30s on a large fraction of requests;
                 // awaiting 4 calls meant a high chance of eating at least one, so a
                 // single call cuts exposure. Root cause is server-side (PHP 5.6.40).
+                // Box discovery — FIRST-BOX-WINS race across multi + fofi +
+                // cabletv (unit-tested raceForFirstMatch). A SINGLE servkey is
+                // unreliable on this backend: verified live that for `pwaram`
+                // servkey="multi" FAILED (null, ~45s) while "cabletv" returned
+                // the box in ~4s and "fofi" in ~41s. When the lone "multi" call
+                // stalled/failed — most visibly right after a payment when the
+                // operator lands back here — the box was missed and the overview
+                // showed a FALSE "not opted" until a manual refresh happened to
+                // hit a faster key. Racing takes the fastest key that carries a
+                // box and survives any one key failing. (Was a single call under
+                // 9a93c0c; the concurrency it avoided is worth paying for the
+                // reliability, since the alternative is a wrong "not opted".)
                 let assignedItemsResponse = null;
-                try {
-                    assignedItemsResponse = await getUserAssignedItems('multi', userid, skipStatusCache);
-                } catch (err) {
-                    console.error('❌ [FoFi] getUserAssignedItems(multi) failed:', err?.message);
-                }
+                const _AI_KEYS = ['multi', 'fofi', 'cabletv'];
+                const aiRaced = await raceForFirstMatch(
+                    _AI_KEYS.map((k) => () => getUserAssignedItems(k, userid, skipStatusCache)),
+                    (v) => !!v && !!extractBoxIdFromAssigned(v, userid)
+                );
+                // Prefer the response that actually carries a box; otherwise the
+                // first settled non-null (so a genuinely box-less customer still
+                // gets a valid empty response to render "not opted" from).
+                assignedItemsResponse =
+                    aiRaced.find((r) => r?.status === 'fulfilled' && r.value && extractBoxIdFromAssigned(r.value, userid))?.value
+                    || aiRaced.find((r) => r?.status === 'fulfilled' && r.value)?.value
+                    || null;
 
-                console.log('🟣 [FoFi] getUserAssignedItems(multi) body:', assignedItemsResponse?.body);
+                console.log('🟣 [FoFi] getUserAssignedItems(race multi/fofi/cabletv) body:', assignedItemsResponse?.body);
 
                 // Done with primary spinner — let the overview render.
                 setIsLoading(false);
@@ -2365,6 +2385,27 @@ function FoFiSmartBox() {
         const userid = customerData?.username || customerData?.customer_id;
         const user = getUser();
         const logUname = user?.username || 'superadmin';
+
+        // ATV / unicast guard — if this customer ALREADY has a non-ANDBOX box
+        // (an Android TV device, id 'TV-<hash>'), the FoFi upgrade-registration
+        // path fails server-side ("Wrong Fofi box ID"). Route straight to the
+        // Cable TV flow, which accepts the device. A brand-new customer with no
+        // box has an empty id here and correctly stays on the add-FoFi-box path.
+        const existingBoxId = firstTrimmedValue(
+            fofiServiceDetails?.boxId,
+            linkedDeviceNoPlan?.boxId,
+            optimisticFofiBoxId
+        );
+        if (existingBoxId && !isFofiAndroidBoxId(existingBoxId)) {
+            console.warn('🔶 [FoFi] Existing non-ANDBOX (ATV/unicast) box — routing upgrade to Cable TV:', existingBoxId);
+            toast.add('This is an Android TV (cable) device. Opening the Cable TV subscription flow.', { type: 'info' });
+            navigate(`/customer/${customerData.customer_id}/service/iptv`, {
+                replace: true,
+                state: { customer: customerData, services: servicesFromState },
+            });
+            return;
+        }
+
         const isRetryableOperatorSyncError = (response) => {
             const msg = String(response?.status?.err_msg || '').toLowerCase();
             return msg.includes('operator is disabled') ||
@@ -2801,6 +2842,23 @@ function FoFiSmartBox() {
             if (!fofiBoxId) {
                 toast.add('FoFi Box ID not found. Please contact support.', { type: 'error' });
                 setIsLoading(false);
+                return;
+            }
+
+            // ATV / unicast device guard — the backend's upgradeRegistration
+            // only accepts AUG-/BBNL-ANDBOX box ids (chk__fofiboxid); a unicast
+            // ATV device ('TV-<hash>') is rejected with "Wrong Fofi box ID!" no
+            // matter how the id/mac/serial are shaped (proven via live probes).
+            // The SAME device IS accepted by the Cable TV endpoints, so route it
+            // there instead of firing a call that always fails.
+            if (!isFofiAndroidBoxId(fofiBoxId)) {
+                console.warn('🔶 [SUBSCRIPTION] Non-ANDBOX (ATV/unicast) box — routing to Cable TV flow:', fofiBoxId);
+                toast.add('This is an Android TV (cable) device. Opening the Cable TV subscription flow.', { type: 'info' });
+                setIsLoading(false);
+                navigate(`/customer/${customerData.customer_id}/service/iptv`, {
+                    replace: true,
+                    state: { customer: customerData, services: servicesFromState },
+                });
                 return;
             }
 

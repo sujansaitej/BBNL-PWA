@@ -17,6 +17,24 @@
  */
 
 const _BBNL_BOX_RE = /^(bbnl[-_]andbox[-_]|BBNL[-_]ANDBOX[-_])/i;
+
+/**
+ * Does this box id belong to a real FoFi Android box (vs a unicast/ATV device)?
+ *
+ * Mirrors the backend's chk__fofiboxid gate EXACTLY
+ * (CustomerRegistrationValidations.php: substr($boxid,0,11) must equal
+ * 'AUG-ANDBOX-' or 'BBNL-ANDBOX'). ServiceApis/upgradeRegistration rejects any
+ * other id — notably a unicast/ATV device whose id is 'TV-<hash>' — with
+ * "Wrong Fofi box ID!". Verified live that the SAME 'TV-' id is accepted by the
+ * cabletv endpoints, so an ATV device must be subscribed via the Cable TV flow,
+ * not the FoFi upgrade-registration flow.
+ * @param {string} id
+ * @returns {boolean}
+ */
+export function isFofiAndroidBoxId(id) {
+    const prefix = String(id || '').slice(0, 11);
+    return prefix === 'AUG-ANDBOX-' || prefix === 'BBNL-ANDBOX';
+}
 const _FOFI_BOX_RE = /\b(fofi|fo-fi|smart\s*box|smartbox|fofibox|fofi[_-]?box|fta)\b/i;
 
 function firstTrimmedValue(...values) {
