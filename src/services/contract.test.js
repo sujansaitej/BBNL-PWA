@@ -433,3 +433,95 @@ describe("Cable-TV endpoint contracts", () => {
     });
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════
+//  Internet payment — native parity
+//
+//  These pin apis/savePaymentApi + apis/makepayment to the payloads the
+//  Android app actually sends. Source of truth (crmapp-new-master):
+//    RegistrationPaymentOverviewActivity.generateInternetOrder()   :257
+//    EmployeeCommonPaymentInfoFragment.generateInternetOrder()     :430
+//    RegistrationPaymentOverviewActivity.requestServerForInternet() :208
+//  Native puts the FULL customer bill in `cashpaid` and never sends
+//  `paidamount`. The PWA sent shareinfo.totbbnlshare (the "Amount
+//  Deductable" figure) in `cashpaid` from its initial commit — a value
+//  native never puts in that field.
+// ══════════════════════════════════════════════════════════════════════
+describe("internet payment native parity", () => {
+  const BASE = {
+    apiopid: "BBNL_OP49", apiuserid: "cust1", applicationname: "crmapp",
+    paymode: "cash", transstatus: "success", renewstatus: "success",
+    usagecompleted: 0, services_app: 1, paydoneby: "superadmin",
+    payreceivedby: "superadmin", receivedremark: "cash", noofmonth: 1,
+  };
+
+  test("savePaymentApi sends the customer total in cashpaid, not the share split", async () => {
+    const { payNow } = await import("./registrationApis.js");
+    fetchMock.mockResolvedValue(mockResponse({ error: 0, result: "ok" }));
+    // Screenshot case: plan 499 + CGST 44.91 + SGST 44.91 = 588.82 total,
+    // totbbnlshare 306.00. Native sends 588.82.
+    await payNow({ ...BASE, cashpaid: 588.82, omitPaidAmount: true });
+    const body = new URLSearchParams(lastRequest().opts.body);
+    expect(body.get("cashpaid")).toBe("588.82");
+    expect(body.get("cashpaid")).not.toBe("306.00");
+  });
+
+  test("savePaymentApi omits paidamount — not in the native contract", async () => {
+    const { payNow } = await import("./registrationApis.js");
+    fetchMock.mockResolvedValue(mockResponse({ error: 0, result: "ok" }));
+    await payNow({ ...BASE, cashpaid: 588.82, omitPaidAmount: true });
+    const body = new URLSearchParams(lastRequest().opts.body);
+    expect(body.has("paidamount")).toBe(false);
+  });
+
+  test("savePaymentApi field set matches native exactly on the renewal leg", async () => {
+    const { payNow } = await import("./registrationApis.js");
+    fetchMock.mockResolvedValue(mockResponse({ error: 0, result: "ok" }));
+    await payNow({ ...BASE, cashpaid: 588.82, omitPaidAmount: true });
+    const keys = [...new URLSearchParams(lastRequest().opts.body).keys()].sort();
+    // EmployeeCommonPaymentInfoFragment.java:430-452 — no othamt/othreason.
+    expect(keys).toEqual([
+      "apiopid", "apiuserid", "applicationname", "cashpaid", "noofmonth",
+      "paydoneby", "paymode", "payreceivedby", "receivedremark",
+      "renewstatus", "services_app", "transstatus", "usagecompleted",
+    ]);
+  });
+
+  test("registration leg adds othamt/othreason, renewal leg omits them", async () => {
+    const { payNow } = await import("./registrationApis.js");
+    fetchMock.mockResolvedValue(mockResponse({ error: 0, result: "ok" }));
+    // RegistrationPaymentOverviewActivity.java:274-275
+    await payNow({ ...BASE, cashpaid: 588.82, omitPaidAmount: true, othamt: "50", othreason: "install" });
+    let body = new URLSearchParams(lastRequest().opts.body);
+    expect(body.get("othamt")).toBe("50");
+    expect(body.get("othreason")).toBe("install");
+
+    await payNow({ ...BASE, cashpaid: 588.82, omitPaidAmount: true });
+    body = new URLSearchParams(lastRequest().opts.body);
+    expect(body.has("othamt")).toBe(false);
+    expect(body.has("othreason")).toBe(false);
+  });
+
+  test("makepayment carries othamt/othreason on registration only", async () => {
+    const { getPayDets } = await import("./registrationApis.js");
+    fetchMock.mockResolvedValue(mockResponse({ error: 0, result: {} }));
+    // requestServerForInternet(): !isinternetUpgrade branch, :216-219
+    await getPayDets({ apiopid: "BBNL_OP49", apptype: "crmapp", apiuserid: "cust1", othamt: "50", othreason: "install" });
+    let keys = [...new URLSearchParams(lastRequest().opts.body).keys()].sort();
+    expect(keys).toEqual(["apiopid", "apiuserid", "apptype", "othamt", "othreason"]);
+
+    // isinternetUpgrade branch, :212-214 — apiuserid + apiopid + apptype only.
+    await getPayDets({ apiopid: "BBNL_OP49", apptype: "crmapp", apiuserid: "cust1" });
+    keys = [...new URLSearchParams(lastRequest().opts.body).keys()].sort();
+    expect(keys).toEqual(["apiopid", "apiuserid", "apptype"]);
+  });
+
+  test("cable/IPTV caller keeps paidamount — no native counterpart to copy", async () => {
+    const { payNow } = await import("./registrationApis.js");
+    fetchMock.mockResolvedValue(mockResponse({ error: 0, result: "ok" }));
+    // IPTVService.jsx passes no omitPaidAmount; behaviour must be unchanged.
+    await payNow({ ...BASE, cashpaid: 4.96 });
+    const body = new URLSearchParams(lastRequest().opts.body);
+    expect(body.get("paidamount")).toBe("4.96");
+  });
+});

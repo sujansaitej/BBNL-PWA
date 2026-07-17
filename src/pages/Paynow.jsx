@@ -71,6 +71,13 @@ export default function Subscribe() {
     apiopid: customer_op_id,
     apptype: import.meta.env.VITE_API_APP_KEY_TYPE,
     apiuserid: userid,
+    // Registration leg only — matches native's !isinternetUpgrade branch.
+    ...(regData
+      ? {
+        othamt: regData?.othercharges || "",
+        othreason: regData?.otherchargesremarks || "",
+      }
+      : {}),
   };
 
   const [payNowInp, setPayNowInp] = useState({
@@ -240,38 +247,40 @@ export default function Subscribe() {
     return roundCurrency(toAmount(rawValue));
   };
 
-  const deriveInternetSettlement = (details = {}) => {
-    const totalAmount = roundCurrency(details?.["Total Amount"]);
-    const planRate = roundCurrency(details?.["Plan Rate"]);
-    const cgst = roundCurrency(details?.["CGST"]);
-    const sgst = roundCurrency(details?.["SGST"]);
-    const otherCharges = roundCurrency(details?.["Other Charges"]);
-    const balanceAmount = roundCurrency(details?.["Balance Amount"]);
-    const computedTotal = roundCurrency(planRate + cgst + sgst + otherCharges + balanceAmount);
+  // Native parity: `cashpaid` is the FULL customer bill, not the operator
+  // wallet debit. Both native internet paths do exactly this:
+  //   RegistrationPaymentOverviewActivity.java:261  cashpaid = totalAmount
+  //   EmployeeCommonPaymentInfoFragment.java:434     cashpaid = totalAmount
+  // ...where totalAmount = planrates.get_$1().getTotal(). The PWA used to
+  // send shareinfo.totbbnlshare (the "Amount Deductable" figure) here since
+  // the initial commit — a value native never puts in this field. The
+  // wallet debit is derived server-side from the share split; the client
+  // does not get a vote.
+  //
+  // ponytail: prefer the backend's own total; fall back to our computed
+  // total only on the no-planrates paths where native would have bailed out
+  // entirely (it errors instead of paying).
+  const nativeCashPaid = (strict) =>
+    strict.backendTotal > 0 ? strict.backendTotal : strict.totalAmount;
 
-    // An Internet renewal bills exactly one cycle: plan rate + taxes +
-    // other charges. NEVER fold a prior "Balance Amount" residual into
-    // the new payable. That residual is the share-settlement phantom
-    // (customer total − operator wallet debit) that the backend echoes
-    // back via prevbalance/oldbalance fields; adding it here is what
-    // makes the receipt grow 20 → 40 → 60 across renewals. Force it to
-    // zero so the customer total == the amount they pay this cycle.
-    // Updated behavior: a real normalized balance is part of paidamount.
-    const payableAmount = roundCurrency(Math.max(computedTotal, totalAmount));
+  // Native sends othamt/othreason on the REGISTRATION leg only, read from
+  // the new-customer model (RegistrationPaymentOverviewActivity.java:217-218
+  // for makepayment, :274-275 for savePaymentApi). The renewal/upgrade leg
+  // omits both. `regData` is non-null only in the registration flow, which
+  // mirrors native's !isinternetUpgrade branch exactly.
+  const nativeOtherCharges = () =>
+    regData
+      ? { othamt: regData?.othercharges || "", othreason: regData?.otherchargesremarks || "" }
+      : {};
 
-    // cashpaid = operator wallet debit (totbbnlshare). paidamount =
-    // customer-facing receipt total (the full cycle bill). These are
-    // intentionally distinct ledgers, but the RECEIPT must be fully
-    // paid: paidamount == total => the backend records BalanceAmount 0.
-    const walletDebit = roundCurrency(payNowInp?.cashpaid || payableAmount);
-
-    return {
-      totalAmount: payableAmount,
-      balanceAmount,
-      payableAmount: payableAmount > 0 ? payableAmount : totalAmount,
-      walletDebit,
-    };
-  };
+  // Display-only snapshot of what the operator is looking at when they tap
+  // PROCEED TO PAY. Nothing here reaches the wire — the payload is native's
+  // (see nativeCashPaid) — but it's logged next to the request so a
+  // mismatch between screen and backend is diagnosable from one log line.
+  const deriveInternetSettlement = (details = {}) => ({
+    totalAmount: roundCurrency(details?.["Total Amount"]),
+    balanceAmount: roundCurrency(details?.["Balance Amount"]),
+  });
 
   const getMonthOnePlan = (raw) => {
     if (!raw) return null;
@@ -411,6 +420,13 @@ export default function Subscribe() {
       otherCharges,
       balanceAmount: displayBalanceAmount,
       totalAmount,
+      // The backend's own `total` for the 1-month entry, untouched. This
+      // is the exact value the native app sends as `cashpaid`
+      // (RegistrationPaymentOverviewActivity.generateInternetOrder →
+      // planrates.get_$1().getTotal()). Kept separate from `totalAmount`
+      // because the PWA recomputes GST precisely for DISPLAY, and the
+      // wire value must stay byte-identical to native.
+      backendTotal: candidateTotal,
       operatorShare: toAmount(
         raw?.optrshare ??
         det?.shareinfo?.optrshare ??
@@ -452,7 +468,10 @@ export default function Subscribe() {
       bbnlShare: sharedet?.["BBNL Share"],
       softwareCharges: sharedet?.["Software Charges"],
       tds: sharedet?.["TDS"],
-      operatorDebit: payNowInp?.cashpaid,
+      // Seed from the displayed Amount Deductable, NOT payNowInp.cashpaid —
+      // that field now carries native's customer total, so using it here
+      // would show the full bill as the wallet debit.
+      operatorDebit: sharedet?.["Amount Deductable"],
     });
 
     setPaydet(prev => ({
@@ -477,7 +496,7 @@ export default function Subscribe() {
 
     setPayNowInp(prev => ({
       ...prev,
-      cashpaid: strict.operatorDebit,
+      cashpaid: nativeCashPaid(strict),
       noofmonth: 1,
     }));
 
@@ -611,14 +630,9 @@ export default function Subscribe() {
           
           console.log("🟢 Selected plan details (det):", det);
 
-          // CRITICAL FIX: If the backend only returned multi-month plans, 
+          // CRITICAL FIX: If the backend only returned multi-month plans,
           // we still force noofmonth to 1, but we should log a warning.
-          const noofmonth = 1; 
-
-          // Ensure cashpaid is the amount for exactly 1 month.
-          // If det.month is > 1, this amount might be wrong for 1 month!
-          // But usually, 'totbbnlshare' in the 1-month entry is correct.
-          const cashpaid = det?.shareinfo?.totbbnlshare ?? det?.totbbnlshare ?? det?.total ?? 0;
+          const noofmonth = 1;
 
           if (det && Number(det.month) !== 1) {
             console.error("❌ CRITICAL: Backend did not return a 1-month plan rate. Selected month:", det.month);
@@ -658,8 +672,8 @@ export default function Subscribe() {
             "TDS": strict.tds,
             "Amount Deductable": strict.operatorDebit
           });
-          setPayNowInp(prev => ({ ...prev, cashpaid: strict.operatorDebit, noofmonth }));
-          console.log("✅ Payment details loaded — cashpaid:", strict.operatorDebit, "noofmonth:", noofmonth);
+          setPayNowInp(prev => ({ ...prev, cashpaid: nativeCashPaid(strict), noofmonth }));
+          console.log("✅ Payment details loaded — cashpaid:", nativeCashPaid(strict), "noofmonth:", noofmonth);
         } else {
           // No plan rates array, try to use direct result fields
           console.log("⚠️ No planrates array found, checking direct result fields");
@@ -682,7 +696,7 @@ export default function Subscribe() {
             planRate,
             totalAmount: passedInternetService?.total ?? planRate,
           });
-          const cashpaid = strict.operatorDebit;
+          const cashpaid = nativeCashPaid(strict);
           // CRITICAL FIX: Always default to 1 month for standard renewals in fallback path too.
           const noofmonth = 1; // Force 1 month for all standard renewals
 
@@ -881,40 +895,34 @@ export default function Subscribe() {
         return;
       }
       const settlement = deriveInternetSettlement(paydet);
-      const displayedTotal = settlement.totalAmount;
-      const receiptPaidAmount = settlement.payableAmount;
-      const walletDebit = settlement.walletDebit;
       const forcedNoofMonth = 1;
+      // Byte-for-byte native parity (see nativeCashPaid): cashpaid carries
+      // the backend's own customer total and `paidamount` is not part of
+      // this endpoint's native contract at all — neither native internet
+      // path sends it. Anything we derive here is display-only.
+      const nativeTotal = payNowInp.cashpaid;
 
-      // Keep the mutating call to savePaymentApi as the single live
-      // renewal call, but preserve the native amount semantics:
-      // cashpaid = operator wallet debit, paidamount = customer receipt
-      // total. Collapsing these into one value creates phantom balances.
       console.log("🔴 savePaymentApi REQUEST:", JSON.stringify({
         endpoint: "apis/savePaymentApi",
         authMode: import.meta.env.VITE_API_APP_USER_TYPE || "employee",
         payload: {
           ...payNowInp,
-          cashpaid: walletDebit,
-          paidamount: receiptPaidAmount,
+          ...nativeOtherCharges(),
+          cashpaid: nativeTotal,
           paydoneby: freshPayDoneBy,
           payreceivedby: freshPayDoneBy,
           noofmonth: forcedNoofMonth,
-          derivedSettlement: {
-            totalAmount: displayedTotal,
-            balanceAmount: settlement.balanceAmount,
-            receiptPaidAmount,
-            walletDebit,
-          },
+        },
+        displayOnly: {
+          totalAmount: settlement.totalAmount,
+          balanceAmount: settlement.balanceAmount,
         },
       }, null, 2));
-      const data = await payNow({ 
-        ...payNowInp, 
-        // cashpaid is the operator wallet debit. paidamount is the
-        // customer-facing receipt total. Sending both prevents Netmon
-        // from closing a correct wallet debit with a phantom balance.
-        cashpaid: walletDebit,
-        paidamount: receiptPaidAmount,
+      const data = await payNow({
+        ...payNowInp,
+        ...nativeOtherCharges(),
+        cashpaid: nativeTotal,
+        omitPaidAmount: true,
         paydoneby: freshPayDoneBy,
         payreceivedby: freshPayDoneBy,
         noofmonth: forcedNoofMonth,
@@ -927,8 +935,7 @@ export default function Subscribe() {
           request: {
             apiuserid: userid,
             apiopid: customer_op_id,
-            cashpaid: walletDebit,
-            paidamount: receiptPaidAmount,
+            cashpaid: nativeTotal,
             noofmonth: forcedNoofMonth,
           },
           response: data,

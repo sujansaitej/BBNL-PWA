@@ -206,9 +206,12 @@ export async function registerCustomer(payload) {
 // Internet payment — get payment details.
 // Endpoint: apis/makepayment
 // Form fields: apiopid, apptype, apiuserid (per backend contract).
-// Previous version sent extra `othamt` / `othreason` fields which
-// the backend now ignores — pruned to keep the payload identical to
-// what netmon's other clients send.
+// `othamt` / `othreason` are sent on the REGISTRATION leg only, matching
+// native (RegistrationPaymentOverviewActivity.requestServerForInternet:
+// the !isinternetUpgrade branch adds both; the upgrade branch omits them).
+// A previous revision pruned them unconditionally on the assumption the
+// backend ignores them — native still sends them, so registrations with
+// other charges are the case that assumption would break.
 export async function getPayDets(params) {
   const url = `${getBaseUrl()}apis/makepayment`;
   // Use employee payment headers (same as paymentinfo + savePaymentApi)
@@ -223,6 +226,8 @@ export async function getPayDets(params) {
     apiopid: params.apiopid,
     apptype: params.apptype,
     apiuserid: params.apiuserid,
+    ...(typeof params.othamt !== "undefined" ? { othamt: params.othamt } : {}),
+    ...(typeof params.othreason !== "undefined" ? { othreason: params.othreason } : {}),
   }).toString();
 
   const resp = await apiFetch(url, {
@@ -334,10 +339,16 @@ export async function getInternetPaymentInfo(params) {
 // to-Pay: persists the payment record after paymentinfo validated
 // and computed the breakdown.
 // Endpoint: apis/savePaymentApi (form-urlencoded)
-// Fields per backend contract:
-//   apiopid, cashpaid, paidamount, transstatus, services_app, noofmonth,
-//   paydoneby, apiuserid, usagecompleted, applicationname,
-//   payreceivedby, paymode, renewstatus, receivedremark
+// Fields per the NATIVE contract (generateInternetOrder in both
+// RegistrationPaymentOverviewActivity and EmployeeCommonPaymentInfoFragment):
+//   apiopid, apiuserid, cashpaid, noofmonth, usagecompleted, applicationname,
+//   paymode, paydoneby, payreceivedby, receivedremark, transstatus,
+//   renewstatus, services_app  [+ othamt, othreason on registration]
+//
+// `cashpaid` is the FULL customer bill in native, NOT the operator wallet
+// debit — the split is derived server-side. `paidamount` is not in the
+// native contract at all; callers wanting native parity pass
+// omitPaidAmount: true.
 export async function payNow(params) {
   const url = `${getInternetPaymentBaseUrl()}apis/savePaymentApi`;
   const headers = getHeaders({
@@ -357,9 +368,10 @@ export async function payNow(params) {
       ? Number(params.cashpaid).toFixed(2)
       : "0.00"
   );
-  // Native Internet flow does not always send paidamount in savePaymentApi.
-  // When omitted, renewal logic relies on paymentinfo while savePaymentApi
-  // closes the receipt using cashpaid only.
+  // The native Internet flow never sends paidamount — savePaymentApi closes
+  // the receipt from cashpaid alone. Retained (default-on) only for the
+  // cable/IPTV caller, which has no native counterpart on this endpoint to
+  // copy and was verified live as-is.
   if (!params.omitPaidAmount) {
     bodyParams.set(
       "paidamount",
@@ -381,6 +393,9 @@ export async function payNow(params) {
   bodyParams.set("paymode", params.paymode || "cash");
   bodyParams.set("renewstatus", params.renewstatus || "success");
   bodyParams.set("receivedremark", params.receivedremark || "cash");
+  // Registration leg only — native's renewal path omits both entirely.
+  if (typeof params.othreason !== "undefined") bodyParams.set("othreason", params.othreason);
+  if (typeof params.othamt !== "undefined") bodyParams.set("othamt", params.othamt);
   const body = bodyParams.toString();
 
 
