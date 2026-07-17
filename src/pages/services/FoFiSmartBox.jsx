@@ -1546,9 +1546,19 @@ function FoFiSmartBox() {
             // If lsGetStale already gave us a cached overview, render it
             // instantly and let the network revalidate in the background.
             // After payment, keep the hydrated overview on screen while
-            // we revalidate FoFi status in the background.
+            // we revalidate FoFi status in the background (ram-dev
+            // intentionally dropped the `|| refreshData` force-spinner
+            // path — preserved).
             if (!_hasCached) setIsOverviewLoading(true);
-            setIsLoading(true);
+            // When the operator tapped "Link FoFi Box" from Internet
+            // Service they land directly on view='link-fofi'. Don't
+            // block the link form's SUBMIT button while these overview
+            // APIs run — the link submission doesn't depend on any of
+            // them. Without this, the operator sees the SUBMIT button
+            // stuck in "Processing…" for the 2-8 s it takes 6 parallel
+            // APIs to resolve, before they've even filled the form.
+            const _skipMountLoader = fromInternet && view === 'link-fofi';
+            if (!_skipMountLoader) setIsLoading(true);
 
             try {
                 // ──────────────────────────────────────────────────

@@ -3,7 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import Layout from "../layout/Layout";
 import { MagnifyingGlassIcon, ArrowRightIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
 import { getCustList, getServiceList } from "../services/generalApis";
-import { lsGet } from "../services/lsCache";
+import { lsGet, lsGetStale } from "../services/lsCache";
 import { prefetchCustomerData } from "../services/prefetch";
 import { formatCustomerId } from "../services/helpers";
 import { Loader, Badge } from "@/components/ui";
@@ -11,6 +11,19 @@ import { useToast } from "@/components/ui/Toast";
 import { getUser } from "../services/safeStorage";
 
 const PAGE_SIZE = 20;
+const CUSTLIST_TTL = 10 * 60 * 1000; // matches getCustList cache TTL
+
+// Read the cached customer list synchronously so the initial render has
+// real data + count. Without this, useState defaults ([], 0, loading=true)
+// paint first and the count flashes 0 with a full-screen loader on every
+// navigation return — even when the cache is warm.
+function readCachedCustomers(status) {
+  const cached = lsGetStale(`custlist_${status || 'all'}`, CUSTLIST_TTL);
+  const body = cached?.data?.status?.err_code === 0 && Array.isArray(cached?.data?.body)
+    ? cached.data.body
+    : null;
+  return { body, fresh: !!cached?.fresh };
+}
 
 export default function Customerlist() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -18,10 +31,15 @@ export default function Customerlist() {
   const toast = useToast();
   const searchTerm = searchParams.get('filter') || '';
 
-  const [allCustomers, setAllCustomers] = useState([]);
-  const [customers, setCustomers] = useState([]);
-  const [customercount, setCustomercount] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const _seed = readCachedCustomers(searchTerm);
+  const [allCustomers, setAllCustomers] = useState(_seed.body || []);
+  const [customers, setCustomers] = useState(_seed.body || []);
+  const [customercount, setCustomercount] = useState(_seed.body?.length || 0);
+  // Only show the full loader when we truly have nothing to render.
+  // If we have any cached data (even stale) we render it immediately
+  // and refresh in the background so the count never flashes to 0.
+  const [loading, setLoading] = useState(!_seed.body);
+  const [refreshing, setRefreshing] = useState(false);
   const [loadingServices, setLoadingServices] = useState(false);
   const [page, setPage] = useState(1);
   const title = (searchTerm === 'expiring' ? "Today's Expiry" : (searchTerm === 'live' ? "Live Customers" : "All Customers"));
@@ -29,11 +47,24 @@ export default function Customerlist() {
   const logUname = getUser().username || "";
 
   useEffect(() => {
-    getData();
+    // If the cached snapshot for this filter is fresh, skip the fetch
+    // entirely — getCustList's in-flight dedup will collapse duplicate
+    // hits, but we can skip the round trip altogether.
+    const seed = readCachedCustomers(searchTerm);
+    if (seed.body) {
+      if (allCustomers !== seed.body) {
+        setAllCustomers(seed.body);
+        setCustomers(seed.body);
+        setCustomercount(seed.body.length);
+      }
+      if (seed.fresh) return; // nothing to do — cache is within TTL
+    }
+    getData(!!seed.body); // pass true to run as a background refresh
   }, [title]);
 
-  async function getData() {
-    setLoading(true);
+  async function getData(isBackground = false) {
+    if (isBackground) setRefreshing(true);
+    else setLoading(true);
     try {
       const payload = { username: logUname, servid: 1, search: [{ platform: "iptv", providerid: 5 }] };
       const data = await getCustList(payload, searchTerm);
@@ -41,7 +72,6 @@ export default function Customerlist() {
         setAllCustomers(data?.body);
         setCustomers(data?.body);
         setCustomercount(data?.body?.length);
-        // console.log(data?.body);
       } else {
         console.error("Failed to get customers:", data?.status?.err_msg || "Unknown error");
       }
@@ -49,6 +79,7 @@ export default function Customerlist() {
       console.error("Error in getting customers:", err);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }
 
@@ -127,7 +158,12 @@ export default function Customerlist() {
     <Layout>
       {/* Removed fullscreen loader — navigation is now instant */}
       <div className="max-w-2xl mx-auto space-y-2 px-3 py-2">
-        <h1 className="text-medium font-bold text-gray-900 dark:text-white">{title} <Badge color="grey">{customercount}</Badge></h1>
+        <h1 className="text-medium font-bold text-gray-900 dark:text-white">
+          {title} <Badge color="grey">{customercount}</Badge>
+          {refreshing && (
+            <span className="ml-2 text-xs text-gray-400 font-normal">Refreshing…</span>
+          )}
+        </h1>
         {/* <p className="text-sm text-gray-500 dark:text-gray-400">Choose from our range of internet plans.</p> */}
         <div className="sticky z-20 -mx-3 px-3 py-2 bg-gray-50 dark:bg-gray-900 shadow-[0_2px_4px_-1px_rgba(0,0,0,0.08)]" style={{ top: 'calc(4rem + env(safe-area-inset-top, 0px))' }}>
           <div className="relative w-full">

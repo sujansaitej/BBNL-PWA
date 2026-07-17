@@ -225,10 +225,16 @@ export default function InternetService() {
   const renewalStatus = String(planDetails?.body?.other_service_renewal?.btn_status || '').toLowerCase();
   const isRenewalDisabled = !renewalStatusReady || renewalStatus !== 'enable';
 
-  // Handle payment button click
+  // Handle payment button click.
+  // Guard against rapid double-tap / StrictMode double-invocation so we
+  // don't fire two getMyPlanDetails renewal-checks + two navigations
+  // (which was surfacing as "paybill hitting the API many times").
+  const payBillInFlightRef = useRef(false);
 
   const handlePayBill = async () => {
-    const op_id = customerData?.op_id;
+    if (payBillInFlightRef.current) return;
+    payBillInFlightRef.current = true;
+    const op_id = cableDetails?.body?.op_id || customerData?.op_id;
     let latestPlan = planDetails;
 
     try {
@@ -240,6 +246,7 @@ export default function InternetService() {
     } catch (err) {
       console.error("Error verifying renewal status:", err);
       toast.add('Unable to verify payment status. Please try again.', { type: 'error' });
+      payBillInFlightRef.current = false;
       return;
     }
 
@@ -247,6 +254,7 @@ export default function InternetService() {
     if (latestStatus === 'disable') {
       const errMsg = latestPlan?.body?.other_service_renewal?.err_msg || 'Operator is disabled.';
       toast.add(errMsg, { type: 'error' });
+      payBillInFlightRef.current = false;
       return;
     }
 
@@ -260,6 +268,9 @@ export default function InternetService() {
         cableDetails: cableDetails
       }
     });
+    // Leave the ref true — this component unmounts on navigate so the
+    // ref goes with it; a back+re-tap gets a fresh component with a
+    // fresh guard.
   };
 
   // Handle Link FOFI BOX button click.

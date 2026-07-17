@@ -86,26 +86,30 @@ export async function getWalBal(payload, skipCache = false) {
     const cached = lsGet(cacheKey, 5 * 60 * 1000); // 5 min TTL
     if (cached) { perfMonitor.recordCacheHit("General", "getWalBal", cacheKey); return cached; }
   }
-  const url = `${getBaseUrl()}ServiceApis/myWallet`;
-  const headers = getHeadersJson();
-  const resp = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "getWalBal");
-  if (!resp.ok) throw new Error(`Failed to get wallet balance ${resp.status}`);
-  const data = await resp.json();
-  lsSet(cacheKey, data);
-  return data;
+  return dedupe(cacheKey, async () => {
+    const url = `${getBaseUrl()}ServiceApis/myWallet`;
+    const headers = getHeadersJson();
+    const resp = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "getWalBal");
+    if (!resp.ok) throw new Error(`Failed to get wallet balance ${resp.status}`);
+    const data = await resp.json();
+    lsSet(cacheKey, data);
+    return data;
+  });
 }
 
 export async function getCustList(payload, status) {
   const cacheKey = `custlist_${status || 'all'}`;
   const cached = lsGet(cacheKey, 10 * 60 * 1000); // 10 min TTL
   if (cached) { perfMonitor.recordCacheHit("General", "getCustList", cacheKey); return cached; }
-  const url = `${getBaseUrl()}ServiceApis/customersList?status=${encodeURIComponent(status || '')}`;
-  const headers = getHeadersJson();
-  const resp = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "getCustList");
-  if (!resp.ok) throw new Error(`Failed to get customer data ${resp.status}`);
-  const data = await resp.json();
-  lsSet(cacheKey, data);
-  return data;
+  return dedupe(cacheKey, async () => {
+    const url = `${getBaseUrl()}ServiceApis/customersList?status=${encodeURIComponent(status || '')}`;
+    const headers = getHeadersJson();
+    const resp = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "getCustList");
+    if (!resp.ok) throw new Error(`Failed to get customer data ${resp.status}`);
+    const data = await resp.json();
+    lsSet(cacheKey, data);
+    return data;
+  });
 }
 
 export async function getServiceList() {
