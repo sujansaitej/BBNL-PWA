@@ -1768,20 +1768,15 @@ function FoFiSmartBox() {
                         } : prev);
                     });
                 } else {
-                    // Check if all API calls failed - if so, show error instead of "not opted"
-                    const allServkeyFailed = assignedFofiResult.status === 'rejected' &&
-                                            assignedMultiResult.status === 'rejected' &&
-                                            assignedVoipResult.status === 'rejected' &&
-                                            assignedInternetResult.status === 'rejected';
-
-                    if (allServkeyFailed) {
-                        setError('Failed to load service data. Please check your connection and try again.');
-                        console.error('❌ [FoFi] All API calls failed - service data unavailable');
-                    }
-
-                    // NOTE: The deriveFofiOverviewFromAssigned function now scans ALL buckets
-                    // (fofi, multi, voip, internet). If no box found anywhere, customer truly
-                    // doesn't have FoFi service.
+                    // No confirmed FoFi box. Native (CustomerCompleteOverviewFragment)
+                    // treats this exactly like an empty getFofi() list: it simply
+                    // doesn't show the FoFi section — no error screen. An empty
+                    // response and a failed call are indistinguishable here and both
+                    // mean the same thing to the operator, so we don't try to tell
+                    // them apart. (The old allServkeyFailed check referenced four
+                    // Promise.allSettled results that the single-call refactor in
+                    // 9a93c0c deleted; reaching this branch threw a ReferenceError
+                    // that surfaced as "Failed to load linked-device details".)
                     setHasFofiService(false);
                     setFofiServiceDetails(null);
                     setLinkedDeviceNoPlan(null); // no device linked at all
@@ -1796,10 +1791,10 @@ function FoFiSmartBox() {
                     // with skipCache — only after the button tap, which is
                     // why ADD FO-FI BOX "kept loading for a very long time".
                     // It caches success for 5 min; handleUpgradeClick reads
-                    // that cache, so the tap becomes near-instant.
-                    if (!allServkeyFailed) {
-                        validateBeforeFofiBoxReg({ username: userid, loginuname: logUname }).catch(() => {});
-                    }
+                    // that cache, so the tap becomes near-instant. Its own
+                    // .catch swallows failures, so warming it unconditionally
+                    // is safe.
+                    validateBeforeFofiBoxReg({ username: userid, loginuname: logUname }).catch(() => {});
                 }
             } catch (error) {
                 // Ignore errors from navigation cancellation (user navigated away)
