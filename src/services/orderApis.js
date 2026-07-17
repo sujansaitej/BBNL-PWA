@@ -2,38 +2,7 @@
 import logger from "../utils/logger";
 import perfMonitor from "../utils/apiPerfMonitor";
 import { lsGet, lsSet } from "./lsCache";
-
-function getBaseUrl() {
-  if (import.meta.env.PROD) return import.meta.env.VITE_API_BASE_URL;
-  return '/api/'; // Use proxy in development to avoid CORS issues
-}
-
-const API_TIMEOUT = 15000; // 15 seconds
-
-/** Fetch with AbortController timeout, perf monitoring, and structured logging */
-async function apiFetchWithTimeout(url, options, label = "Order") {
-    const method = options.method || "POST";
-    const endPerf = perfMonitor.start(method, url, "Order", label);
-    logger.debug("Order", `${label} → ${method} ${url}`);
-
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT);
-    try {
-        const resp = await fetch(url, { ...options, signal: ctrl.signal });
-        const entry = endPerf({ status: resp.status });
-        logger.api(method, url, resp.status, entry.duration);
-        return resp;
-    } catch (err) {
-        const isTimeout = err.name === "AbortError";
-        const errMsg = isTimeout ? "timeout" : `network error: ${err.message}`;
-        endPerf({ status: 0, error: errMsg });
-        logger.error("Order", `${label} ${errMsg}`, { method, url });
-        if (isTimeout) throw new Error("Request timed out. Please check your network and try again.");
-        throw err;
-    } finally {
-        clearTimeout(timer);
-    }
-}
+import { apiFetch, getBaseUrl } from "./apiCore";
 
 /**
  * Get Order/Payment History
@@ -74,11 +43,11 @@ export async function getOrderHistory({ apiopid, cid, servicekey }) {
     cid: cid || '',
   }).toString();
 
-  const resp = await apiFetchWithTimeout(url, {
+  const resp = await apiFetch(url, {
     method: 'POST',
     headers,
     body,
-  }, "getOrderHistory");
+  }, "getOrderHistory", { group: "Order" });
 
   if (!resp.ok) {
     const errorText = await resp.text();
@@ -91,24 +60,28 @@ export async function getOrderHistory({ apiopid, cid, servicekey }) {
 }
 
 /**
- * Get service-scoped order history from the dedicated cabletv namespace.
- * API: ServiceApis/cabletv/orderhistory
+ * Get service-scoped order history via the REAL endpoint: ServiceApis/ordersList.
  *
- * Both FoFi Smart Box (servid=3) and Cable TV / IPTV (servid=1) register
- * their orders through ServiceApis/cabletv/*. This endpoint is filtered
- * SERVER-SIDE by servid, so every row it returns is authoritatively that
- * service — including older records whose generic custpayhistory rows lack
- * the modern servicekey/servid fields. Callers should treat these rows as
- * definitive and never let client-side classification drop them.
+ * FIX (2026-07-17): previously called ServiceApis/cabletv/orderhistory, which
+ * DOES NOT EXIST — it 404s on prod and staging (verified against the backend
+ * source; no such method or route). Every call threw and callers fell back to
+ * generic custpayhistory, so cable/FoFi order history never showed its real
+ * server-filtered rows. ordersList is the endpoint the Android app actually
+ * uses (CABLE_TV_API_REPORT.md 6.15); it is generic, keyed by servid, so it
+ * covers both Cable TV (servid=1) and FoFi (servid=3).
+ *
+ * ordersList returns { status, body: { total_orders, result: [...] } }. We
+ * normalize `body` down to the `result` array so the existing array-shape
+ * consumers (getHistoryRows / getOrderHistoryFor) keep working unchanged.
  *
  * @param {Object} p
  * @param {string} p.userid  customer username / id
- * @param {string} p.boxid   FoFi box id (servid 3) or cable box id (servid 1)
+ * @param {string} p.boxid   box id (unused on the wire — ordersList keys on servid)
  * @param {string} p.servid  '3' = FoFi, '1' = Cable TV / IPTV
  */
 export async function getServiceOrderHistory({ userid, boxid, servid }) {
   const timestamp = Date.now();
-  const url = `${getBaseUrl()}ServiceApis/cabletv/orderhistory?_t=${timestamp}`;
+  const url = `${getBaseUrl()}ServiceApis/ordersList?_t=${timestamp}`;
 
   const headers = {
     'Authorization': import.meta.env.VITE_API_AUTH_KEY,
@@ -122,20 +95,28 @@ export async function getServiceOrderHistory({ userid, boxid, servid }) {
     'Pragma': 'no-cache'
   };
 
+  // ordersList body — the Android app always sends the 6 date/filter fields
+  // empty (report 6.15). `username` is the employee; `userid` is the customer.
   const payload = {
     userid: userid || '',
-    fofiboxid: boxid || '',
-    servid: String(servid || '3')
+    username: import.meta.env.VITE_API_USERNAME || 'superadmin',
+    servid: String(servid || '3'),
+    ordernumber: '',
+    txndatefrom: '',
+    txndatetill: '',
+    orderdatefrom: '',
+    orderdatetill: '',
+    paymentmode: '',
   };
 
-  logger.debug("Order", "getServiceOrderHistory request", { userid, boxid, servid });
+  logger.debug("Order", "getServiceOrderHistory (ordersList) request", { userid, boxid, servid });
 
-  const resp = await apiFetchWithTimeout(url, {
+  const resp = await apiFetch(url, {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
     cache: 'no-store'
-  }, "getServiceOrderHistory");
+  }, "getServiceOrderHistory", { group: "Order" });
 
   if (!resp.ok) {
     const errorText = await resp.text();
@@ -143,9 +124,12 @@ export async function getServiceOrderHistory({ userid, boxid, servid }) {
     throw new Error(`HTTP ${resp.status}: ${errorText}`);
   }
 
-  const result = await resp.json();
-  logger.debug("Order", "getServiceOrderHistory response", { errCode: result?.status?.err_code, servid });
-  return result;
+  const raw = await resp.json();
+  // Normalize {status, body:{result:[...], total_orders}} → {status, body:[...]}
+  // so getHistoryRows / hasUsableBody (which expect body to be an array) work.
+  const rows = Array.isArray(raw?.body?.result) ? raw.body.result : [];
+  logger.debug("Order", "getServiceOrderHistory response", { errCode: raw?.status?.err_code, rows: rows.length, servid });
+  return { ...raw, body: rows };
 }
 
 /**

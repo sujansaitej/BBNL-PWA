@@ -7,6 +7,7 @@ import {
 } from "@heroicons/react/24/solid";
 import { Download, Smartphone, Info, ArrowRight, CheckCircle } from "lucide-react";
 import { UserToggle } from "../components/ui";
+import { isEnvelopeOk, envelopeError } from "../services/apiEnvelope";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { useDarkMode } from "../hooks/useDarkMode";
@@ -114,8 +115,11 @@ export default function Login() {
 
     try {
       const result = await UserLogin(username, password);
-      if(result?.status?.err_code === 1) {
-          setError(result?.status?.err_msg || "Login failed");
+      // Gate on the real contract (err_code === 0 is success), not on
+      // err_code === 1. The old check only caught code 1, so any other
+      // non-zero code fell through and was treated as a successful login.
+      if (!isEnvelopeOk(result)) {
+          setError(envelopeError(result));
           setLoading(false);
           return;
       }

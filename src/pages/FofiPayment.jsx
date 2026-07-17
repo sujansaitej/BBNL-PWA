@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { formatToDecimals } from "../services/helpers";
 import { Loader, Alert } from "@/components/ui";
 import { generateFofiOrder, getFofiPaymentInfo, linkFoFiBox, upgradeRegistration } from "../services/fofiApis";
-import { getCableCustomerDetails, getPrimaryCustomerDetails, getWalBal, getMyPlanDetails, getUserAssignedItems } from "../services/generalApis";
+import { getWalBal, getMyPlanDetails, getUserAssignedItems } from "../services/generalApis";
 import { getFofiOrderHistory } from "../services/orderApis";
 import { getUser } from "../services/safeStorage";
 import { lsRemove } from "../services/lsCache";
@@ -438,10 +438,12 @@ export default function FofiPayment() {
   // polls for plan/expiry propagation and shows the optimistic plan meanwhile,
   // so this runs fire-and-forget after we've navigated to success.
   const confirmFoFiActivationInBackground = ({ userid, fofiboxid, planid, planName }) => {
+    // Fire-and-forget activation confirmation. (Previously also warmed the
+    // customer-detail cache via the unauthenticated primaryCustdet/cblCustDet
+    // endpoints — removed; results were discarded and the calls exposed PII
+    // without auth. The overview reconciles real state from authenticated calls.)
     Promise.allSettled([
       confirmFoFiServiceActivation({ userid, fofiboxid, planid, planName }),
-      getCableCustomerDetails(userid),
-      getPrimaryCustomerDetails(userid),
     ]).catch(() => { /* best-effort; overview reconciles the real state */ });
   };
 

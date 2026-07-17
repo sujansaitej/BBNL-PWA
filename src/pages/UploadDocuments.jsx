@@ -5,8 +5,6 @@ import {
   getCustKYCPreview,
   uploadCustKYC,
   submitKYC,
-  getCableCustomerDetails,
-  getPrimaryCustomerDetails
 } from "../services/generalApis";
 import { Alert, ConfirmDialog, Loader } from "@/components/ui";
 import {
@@ -366,10 +364,11 @@ export default function UploadDocuments() {
       setAlertOpen(true);
       setUploading(false);
 
-      // Steps 2-5: Run all post-upload tasks in parallel (non-blocking)
+      // Finalize the KYC submission, then refresh the document list.
+      // (Previously this also warmed the customer-detail cache via the
+      // unauthenticated primaryCustdet/cblCustDet endpoints — removed; those
+      // calls exposed customer PII without auth and the results were discarded.)
       Promise.allSettled([
-        getCableCustomerDetails(customerData?.customer_id).catch(() => {}),
-        getPrimaryCustomerDetails(customerData?.customer_id).catch(() => {}),
         submitKYC({ cid: customerData?.customer_id, loginuser, prooftype, reqtype: 'update' }).catch(() => {}),
       ]).then(() => {
         // Refresh document list after all background tasks complete

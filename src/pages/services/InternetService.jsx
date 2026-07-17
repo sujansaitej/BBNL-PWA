@@ -5,8 +5,6 @@ import ServiceSelectionModal from "../../components/ui/ServiceSelectionModal";
 import BottomNav from "../../components/BottomNav";
 import {
   getUserAssignedItems,
-  getCableCustomerDetails,
-  getPrimaryCustomerDetails,
   getMyPlanDetails,
   getCustKYCPreview
 } from "../../services/generalApis";
@@ -45,22 +43,15 @@ export default function InternetService() {
   // expiry until the background refetch lands.
   const _useCacheForRender = !refreshData;
   const _cachedAI = (_useCacheForRender && userid) ? lsGetStale(`uai_internet_${userid}`, OVERVIEW_TTL) : null;
-  const _cachedCD = (_useCacheForRender && userid) ? lsGetStale(`cblcust_${userid}`, OVERVIEW_TTL) : null;
   const _cachedPlan = (_useCacheForRender && userid) ? lsGetStale(`plandets_internet_${userid}_`, OVERVIEW_TTL) : null;
   const _hasCachedPlan = !!(_cachedAI || _cachedPlan);
 
   // API states — initialize from cache if available (instant render)
-  const _cachedPC = (_useCacheForRender && userid) ? lsGetStale(`pricust_${userid}`, OVERVIEW_TTL) : null;
   const [assignedItems, setAssignedItems] = useState(_cachedAI?.data || null);
-  const [cableDetails, setCableDetails] = useState(_cachedCD?.data || null);
-  const [primaryCustomerDetails, setPrimaryCustomerDetails] = useState(_cachedPC?.data || null);
   const [planDetails, setPlanDetails] = useState(_cachedPlan?.data || null);
   const [planLoading, setPlanLoading] = useState(!_hasCachedPlan); // Only for plan section
   const [renewalStatusReady, setRenewalStatusReady] = useState(false);
   const [error, setError] = useState("");
-  const [detailsLoading, setDetailsLoading] = useState(!(_cachedCD?.data && _cachedPC?.data));
-  const [detailsError, setDetailsError] = useState("");
-  const [overviewRetryKey, setOverviewRetryKey] = useState(0);
   const [uploadLoading, setUploadLoading] = useState(false);
   const lastRenewalCheckRef = useRef(0);
 
@@ -77,44 +68,12 @@ export default function InternetService() {
       try {
         lsRemove(`uai_internet_${userid}`);
         lsRemove(`plandets_internet_${userid}_`);
-        lsRemove(`cblcust_${userid}`);
-        lsRemove(`pricust_${userid}`);
       } catch (_) {}
     }
 
     async function fetchOverview() {
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       const navCancelled = (r) => r.status === "rejected" && r.reason?.message?.includes('navigated away');
-      const loadLinkedDetails = async (forceRefresh = false) => {
-        setDetailsLoading(true);
-        setDetailsError("");
-        const [cableResult, primaryResult] = await Promise.allSettled([
-          getCableCustomerDetails(userid, forceRefresh),
-          getPrimaryCustomerDetails(userid, forceRefresh),
-        ]);
-        if (navCancelled(cableResult) || navCancelled(primaryResult)) return;
-
-        if (cableResult.status === "fulfilled") setCableDetails(cableResult.value);
-        else console.error("Error fetching cable details:", cableResult.reason);
-
-        if (primaryResult.status === "fulfilled") setPrimaryCustomerDetails(primaryResult.value);
-        else console.error("Error fetching primary customer details:", primaryResult.reason);
-
-        const hasAnyLinkedDetails =
-          cableResult.status === "fulfilled" ||
-          primaryResult.status === "fulfilled" ||
-          !!cableDetails ||
-          !!primaryCustomerDetails ||
-          !!_cachedCD?.data ||
-          !!_cachedPC?.data;
-
-        if (cableResult.status === "rejected" && primaryResult.status === "rejected" && !hasAnyLinkedDetails) {
-          setDetailsError("Linked-device details could not be loaded. Check the connection and retry.");
-        } else if (cableResult.status === "rejected" || primaryResult.status === "rejected") {
-          setDetailsError("Some linked-device details could not be refreshed. Retry to update them.");
-        }
-        setDetailsLoading(false);
-      };
 
       // Only show loading for plan/internet sections, not the whole page
       setRenewalStatusReady(false);
@@ -157,7 +116,6 @@ export default function InternetService() {
       // the linked-device details (cable + primary, their own section).
       const aiPromise = getUserAssignedItems("internet", userid, skipCache);
       aiPromise.then((ai) => setAssignedItems(ai)).catch(() => {});
-      const detailsPromise = loadLinkedDetails(!!refreshData || overviewRetryKey > 0);
 
       let [aiResult, planResult] = await Promise.allSettled([aiPromise, planPromise]);
 
@@ -193,12 +151,6 @@ export default function InternetService() {
         setError("");
       }
       setPlanLoading(false);
-      detailsPromise.catch((err) => {
-        if (err?.message?.includes('navigated away')) return;
-        console.error("Error fetching linked-device details:", err);
-        setDetailsError("Linked-device details could not be loaded. Check the connection and retry.");
-        setDetailsLoading(false);
-      });
     }
     if (userid) fetchOverview();
 
@@ -225,7 +177,7 @@ export default function InternetService() {
         window.history.replaceState(cleaned, document.title, window.location.pathname + window.location.search);
       } catch (_) { /* defensive */ }
     }
-  }, [userid, refreshData, paymentSuccess, overviewRetryKey]);
+  }, [userid, refreshData, paymentSuccess]);
 
   // Handle service selection — peer service switch.
   // replace: true so flipping between Internet/IPTV/Voice/FoFi via the
@@ -256,6 +208,14 @@ export default function InternetService() {
     }
   };
 
+  // Synthesized from the authenticated selected-customer (from customersList)
+  // so downstream nav-state / child-prop consumers keep the same shape without
+  // the unauthenticated cabletvapis/GeneralApi PII calls (the Android app also
+  // never calls those). Only body.op_id is read downstream (PaymentHistory /
+  // Paynow), each of which additionally falls back to customerData/user op_id.
+  // ponytail: minimal shape — extend only if a consumer ever reads more.
+  const cableDetails = customerData ? { body: { op_id: customerData.op_id } } : null;
+
   // Extract data from API responses
   const internetId = assignedItems?.body?.internet?.[0]?.product_name || userid;
   const internetService = planDetails?.body?.subscribed_services?.find(s => canonicalServiceKey(s?.servicekey) === 'internet');
@@ -268,7 +228,7 @@ export default function InternetService() {
   // Handle payment button click
 
   const handlePayBill = async () => {
-    const op_id = cableDetails?.body?.op_id || customerData?.op_id;
+    const op_id = customerData?.op_id;
     let latestPlan = planDetails;
 
     try {
@@ -433,23 +393,6 @@ export default function InternetService() {
             Order History
           </button>
         </div>
-
-        {(detailsLoading || detailsError) && (
-          <div className={`rounded-xl border px-4 py-3 text-sm ${detailsError ? 'bg-red-50 border-red-200 text-red-700' : 'bg-indigo-50 border-indigo-100 text-indigo-700'}`}>
-            <div className="flex items-center justify-between gap-3">
-              <span>{detailsError || 'Loading linked-device details...'}</span>
-              {detailsError && (
-                <button
-                  type="button"
-                  onClick={() => setOverviewRetryKey((key) => key + 1)}
-                  className="shrink-0 font-semibold text-indigo-600 hover:text-indigo-700"
-                >
-                  Retry
-                </button>
-              )}
-            </div>
-          </div>
-        )}
 
         {/* Filter Badge — renders instantly */}
         <div className="flex items-center justify-between bg-white dark:bg-gray-800 px-4 py-3 -mx-4">

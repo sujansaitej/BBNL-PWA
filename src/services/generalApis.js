@@ -2,119 +2,14 @@
 import logger from "../utils/logger";
 import perfMonitor from "../utils/apiPerfMonitor";
 import { lsGet, lsSet } from "./lsCache";
-import { getServiceSignal, isBackgroundMode } from "./navigationController";
-
-// ── Request deduplication ───────────────────────────────────────────
-// Multiple components (overview mount, prefetch, click handlers) can
-// race for the same endpoint+payload. Without dedup each fires its own
-// network request — wasting connection slots (browsers cap at 6 per
-// origin over HTTP/1.1) and bandwidth. The native Android app dedupes
-// at the HTTP client level; we mirror that here.
-//
-// The map is keyed by cache key (helpers already build a stable cache
-// key for every cached endpoint, so we reuse it). The first call
-// registers a Promise; concurrent callers attach to it; on settle the
-// entry is cleared so the next call starts fresh.
-const _inflight = new Map();
-
-function dedupe(key, fn) {
-  if (_inflight.has(key)) return _inflight.get(key);
-  const p = (async () => fn())().finally(() => _inflight.delete(key));
-  _inflight.set(key, p);
-  return p;
-}
-
-function getBaseUrl() {
-  if (import.meta.env.PROD) return import.meta.env.VITE_API_BASE_URL;
-  return '/api/';
-}
-
-function getHeadersJson() {
-  return {
-    Authorization: import.meta.env.VITE_API_AUTH_KEY,
-    username: import.meta.env.VITE_API_USERNAME,
-    password: import.meta.env.VITE_API_PASSWORD,
-    appkeytype: localStorage.getItem('loginType') == "franchisee" ? import.meta.env.VITE_API_APP_USER_TYPE : import.meta.env.VITE_API_APP_USER_TYPE_CUST,
-    appversion: import.meta.env.VITE_API_APP_VERSION,
-    "X-App-Package": "com.bbnl.smartphone",
-    "Content-Type": "application/json",
-  };
-}
-
-function getHeadersForm() {
-  return {
-    Authorization: import.meta.env.VITE_API_AUTH_KEY,
-    username: import.meta.env.VITE_API_USERNAME,
-    password: import.meta.env.VITE_API_PASSWORD,
-    appkeytype: localStorage.getItem('loginType') == "franchisee" ? import.meta.env.VITE_API_APP_USER_TYPE : import.meta.env.VITE_API_APP_USER_TYPE_CUST,
-    appversion: import.meta.env.VITE_API_APP_VERSION,
-    "X-App-Package": "com.bbnl.smartphone",
-  };
-}
-
-// Field devices on 3G / patchy 4G see 10-15 s baseline latency (DNS + TLS +
-// server RTT + packet retransmits). A 15 s cap caused frequent "Request
-// timed out" errors on low-tier franchisee phones while working fine on
-// flagships on LTE. 30 s matches the real-world tail latency measured on
-// the slowest test SIMs without being so long that the UI feels frozen.
-const API_TIMEOUT = 30000; // 30 seconds default
-const UPLOAD_TIMEOUT = 60000; // 60 seconds for file uploads
-
-/** Wrapper that adds timing, security logging, perf monitoring, and timeout to every API call.
- *  Also links to the navigation controller — requests are auto-aborted when user navigates away. */
-async function apiFetch(url, options, label, timeout = API_TIMEOUT) {
-  const method = options.method || "GET";
-  const endPerf = perfMonitor.start(method, url, "General", label);
-  logger.debug("API", `${label} → ${method} ${url}`);
-
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeout);
-
-  // Link to navigation controller — abort this request if user navigated to another page.
-  // Skip for background/prefetch requests so cache-warming isn't killed on navigation.
-  const _bg = isBackgroundMode();
-  let navSignal, onNavAbort;
-  if (!_bg) {
-    navSignal = getServiceSignal();
-    onNavAbort = () => ctrl.abort();
-    if (navSignal.aborted) {
-      clearTimeout(timer);
-      endPerf({ status: 0, error: "navigation cancelled" });
-      throw new Error("Request cancelled — navigated away.");
-    }
-    navSignal.addEventListener('abort', onNavAbort, { once: true });
-  }
-
-  let resp;
-  try {
-    resp = await fetch(url, { ...options, signal: ctrl.signal });
-  } catch (err) {
-    clearTimeout(timer);
-    if (navSignal) navSignal.removeEventListener('abort', onNavAbort);
-    const isTimeout = err.name === "AbortError";
-    // Distinguish navigation abort from timeout
-    if (isTimeout && navSignal?.aborted) {
-      endPerf({ status: 0, error: "navigation cancelled" });
-      throw new Error("Request cancelled — navigated away.");
-    }
-    const errMsg = isTimeout ? "timeout" : `network error: ${err.message}`;
-    endPerf({ status: 0, error: errMsg });
-    logger.error("API", `${label} ${errMsg}`, { method, url });
-    throw new Error(isTimeout ? "Request timed out. Please check your network and try again." : `Network error: ${err.message}`);
-  } finally {
-    clearTimeout(timer);
-    if (navSignal) navSignal.removeEventListener('abort', onNavAbort);
-  }
-
-  const entry = endPerf({ status: resp.status });
-  logger.api(method, url, resp.status, entry.duration);
-
-  if (resp.status === 401 || resp.status === 403) {
-    logger.security("API_AUTH_REJECTED", { endpoint: url, status: resp.status, label });
-  }
-
-  return resp;
-}
+import {
+  getBaseUrl,
+  getHeadersJson,
+  getHeadersForm,
+  dedupe,
+  apiFetch,
+  UPLOAD_TIMEOUT,
+} from "./apiCore";
 
 export async function UserLogin(username, password) {
   const url = `${getBaseUrl()}ServiceApis/custlogin`;
@@ -216,23 +111,15 @@ export async function getServiceList() {
   const cached = lsGet(cacheKey, 10 * 60 * 1000); // 10 min TTL
   if (cached) { perfMonitor.recordCacheHit("General", "getServiceList", cacheKey); return cached; }
 
+  // servtype/iskirana go in the QUERY STRING only. Confirmed against backend
+  // source: ServicesModules/ServicesList.php::_getservicesList reads both via
+  // input->get() — the previous multipart body was never read and is dropped.
   const params = new URLSearchParams({ servtype: 'all', iskirana: 'false' });
   const url = `${getBaseUrl()}ServiceApis/servServiceList?${params.toString()}`;
 
-  const headers = {
-    Authorization: import.meta.env.VITE_API_AUTH_KEY,
-    username: import.meta.env.VITE_API_USERNAME,
-    password: import.meta.env.VITE_API_PASSWORD,
-    appkeytype: localStorage.getItem('loginType') == "franchisee" ? import.meta.env.VITE_API_APP_USER_TYPE : import.meta.env.VITE_API_APP_USER_TYPE_CUST,
-    appversion: import.meta.env.VITE_API_APP_VERSION,
-    "X-App-Package": "com.bbnl.smartphone",
-  };
+  const headers = getHeadersForm();
 
-  const formData = new FormData();
-  formData.append("servtype", "all");
-  formData.append("iskirana", "false");
-
-  const resp = await apiFetch(url, { method: "POST", headers, body: formData }, "getServiceList");
+  const resp = await apiFetch(url, { method: "POST", headers }, "getServiceList");
 
   if (!resp.ok) {
     throw new Error(`HTTP ${resp.status}`);
@@ -267,66 +154,20 @@ export async function getUserAssignedItems(servkey, userid, skipCache = false) {
   });
 }
 
-export async function getCableCustomerDetails(refid, skipCache = false) {
-  const cacheKey = `cblcust_${refid}`;
-  if (!skipCache) {
-    const cached = lsGet(cacheKey, 10 * 60 * 1000); // 10 min TTL
-    if (cached) { perfMonitor.recordCacheHit("General", "getCableCustomerDetails", cacheKey); return cached; }
-  }
-  return dedupe(cacheKey, async () => {
-    const url = `${getBaseUrl()}GeneralApi/cblCustDet`;
-
-    const headers = {
-      Authorization: "Basic 06e32ddefe8ad2b05024530451a1cc28",
-      username: import.meta.env.VITE_API_USERNAME,
-      password: import.meta.env.VITE_API_PASSWORD,
-      "X-App-Package": "com.bbnl.smartphone",
-      "Content-Type": "application/x-www-form-urlencoded",
-    };
-
-    const formData = new URLSearchParams();
-    formData.append("refid", refid);
-
-    const resp = await apiFetch(url, { method: "POST", headers, body: formData }, "getCableCustomerDetails");
-
-    if (!resp.ok) {
-      throw new Error(`Failed to get cable customer details: HTTP ${resp.status}`);
-    }
-
-    const data = await resp.json();
-    lsSet(cacheKey, data);
-    return data;
-  });
-}
-
-export async function getPrimaryCustomerDetails(userid, skipCache = false) {
-  const cacheKey = `pricust_${userid}`;
-  if (!skipCache) {
-    const cached = lsGet(cacheKey, 10 * 60 * 1000); // 10 min TTL
-    if (cached) { perfMonitor.recordCacheHit("General", "getPrimaryCustomerDetails", cacheKey); return cached; }
-  }
-  return dedupe(cacheKey, async () => {
-    const url = `${getBaseUrl()}cabletvapis/primaryCustdet`;
-
-    const headers = {
-      "X-App-Package": "com.bbnl.smartphone",
-      "Content-Type": "application/x-www-form-urlencoded",
-    };
-
-    const formData = new URLSearchParams();
-    formData.append("userid", userid);
-
-    const resp = await apiFetch(url, { method: "POST", headers, body: formData }, "getPrimaryCustomerDetails");
-
-    if (!resp.ok) {
-      throw new Error(`Failed to get primary customer details: HTTP ${resp.status}`);
-    }
-
-    const data = await resp.json();
-    lsSet(cacheKey, data);
-    return data;
-  });
-}
+// REMOVED (2026-07-17): getCableCustomerDetails (GeneralApi/cblCustDet) and
+// getPrimaryCustomerDetails (cabletvapis/primaryCustdet).
+//
+// Both hit backend endpoints that return full customer PII — name, mobile,
+// email, address, GST — for ANY userid with NO authentication (verified in
+// the backend source: Cabletvapis has no auth gate; the cblCustDet Basic key
+// is unprovisioned in prod). The Android app never calls either; it carries
+// the operator-selected customer forward from the authenticated customersList
+// search and reads plan data from authenticated endpoints.
+//
+// All six consuming screens were migrated to that model: customer basics come
+// from `customerData` (customersList selection), op_id falls back to the
+// logged-in user, and the "has cable" signal derives from customerData.usertype.
+// See memory bbnl-audit-corrections / bbnl-backend-source-truths.
 
 export async function getMyPlanDetails(params, skipCache = false) {
   const cacheKey = `plandets_${params.servicekey}_${params.userid}_${params.fofiboxid || ''}`;
@@ -501,7 +342,7 @@ export async function uploadCustKYC({ cid, prooftype, reqtype = 'update', file, 
 
   logger.info("API", `KYC upload: cid=${cid}, type=${prooftype}, file=${file.name} (${file.size} bytes)`);
 
-  const resp = await apiFetch(url, { method: 'POST', headers, body: formData }, "uploadCustKYC", UPLOAD_TIMEOUT);
+  const resp = await apiFetch(url, { method: 'POST', headers, body: formData }, "uploadCustKYC", { timeout: UPLOAD_TIMEOUT });
 
   if (!resp.ok) {
     const errorText = await resp.text();
@@ -531,6 +372,12 @@ export async function submitKYC({ cid, loginuser = 'superadmin', prooftype, reqt
   logger.info("API", `KYC submit: cid=${cid}, type=${prooftype}`);
 
   const resp = await apiFetch(url, { method: 'POST', headers, body: JSON.stringify(payload) }, "submitKYC");
+
+  if (!resp.ok) {
+    const errorText = await resp.text();
+    logger.error("API", "submitKYC error", { status: resp.status, cid, prooftype });
+    throw new Error(`HTTP ${resp.status}: ${errorText}`);
+  }
 
   const data = await resp.json().catch(() => null);
   if (data) {
@@ -851,5 +698,180 @@ export async function getPkgChannelsList({ packageid, pkgcode, userid, username 
 
   const resp = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "getPkgChannelsList");
   if (!resp.ok) throw new Error(`Failed to get package channels list: HTTP ${resp.status}`);
+  return resp.json();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Cable-TV endpoints ported from the Android employee flavor (2026-07-17).
+//  Contracts verified against CABLE_TV_API_REPORT.md + backend PHP source.
+//  Each mirrors the mobile app's exact wire bytes (report section 6) so the
+//  PWA cable flow behaves identically to the APK. Envelope is the standard
+//  {status:{err_code,err_msg}, body}; these return the raw parsed object like
+//  their siblings (getChannelsList etc.) so callers gate on err_code === 0.
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * custSearchOptions - provider/platform picker options for a service.
+ * Report 6.2. POST JSON { username: <employee>, servid: <int> }.
+ * NOTE servid is an INT on the wire (SearchOptionsRequest.java), not a string.
+ */
+export async function getCustSearchOptions({ username = "superadmin", servid = 1 }) {
+  const url = `${getBaseUrl()}ServiceApis/custSearchOptions`;
+  const headers = getHeadersJson();
+  const payload = { username, servid: Number(servid) || 0 };
+  const resp = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "getCustSearchOptions");
+  if (!resp.ok) throw new Error(`Failed to get search options: HTTP ${resp.status}`);
+  return resp.json();
+}
+
+/**
+ * subscribedChannels - the customer's currently-subscribed cable selection.
+ * Report 6.8. POST JSON { userid: <customer>, username: <employee>, servid }.
+ * Response body: { channelid[], packageid[], lcochid[], pkgcode[],
+ *                  issubscribed:"yes"|"no", total_amount:<number> }.
+ */
+export async function getSubscribedChannels({ userid, username = "superadmin", servid }) {
+  const url = `${getBaseUrl()}ServiceApis/subscribedChannels`;
+  const headers = getHeadersJson();
+  const payload = { userid, username, servid: String(servid ?? "1") };
+  const resp = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "getSubscribedChannels");
+  if (!resp.ok) throw new Error(`Failed to get subscribed channels: HTTP ${resp.status}`);
+  return resp.json();
+}
+
+/**
+ * filterOptions - genre/language/broadcaster/stream/price/sort option lists
+ * for the channel-filter dialog. Report 6.20. GET query.
+ * apptype is the literal "android" in the APK; sent verbatim to match the app.
+ */
+export async function getFilterOptions({ username = "superadmin", userid, apptype = "android" }, skipCache = false) {
+  const cacheKey = `filteropts_${userid}`;
+  if (!skipCache) {
+    const cached = lsGet(cacheKey, 30 * 60 * 1000); // 30 min - options rarely change
+    if (cached) { perfMonitor.recordCacheHit("General", "getFilterOptions", cacheKey); return cached; }
+  }
+  const params = new URLSearchParams({ username, userid: userid ?? "", apptype });
+  const url = `${getBaseUrl()}ServiceApis/filterOptions?${params.toString()}`;
+  const headers = getHeadersForm(); // GET - no Content-Type needed
+  const resp = await apiFetch(url, { method: "GET", headers }, "getFilterOptions");
+  if (!resp.ok) throw new Error(`Failed to get filter options: HTTP ${resp.status}`);
+  const data = await resp.json();
+  if (data?.status?.err_code === 0) lsSet(cacheKey, data);
+  return data;
+}
+
+/**
+ * denominations - currency-note breakdown for the cash-collection screen.
+ * Report 6.21. POST, NO body, NO params. Result feeds generateorder's
+ * `denominations` array on the cash rail.
+ */
+export async function getDenominations() {
+  const url = `${getBaseUrl()}ServiceApis/denominations`;
+  const headers = getHeadersJson();
+  const resp = await apiFetch(url, { method: "POST", headers }, "getDenominations");
+  if (!resp.ok) throw new Error(`Failed to get denominations: HTTP ${resp.status}`);
+  return resp.json();
+}
+
+/**
+ * getServRegCastNos - CAS numbers linked to a customer/service.
+ * Report 6.16. GET query ?servid=&username=. body is a BARE ARRAY of
+ * linked-account rows; each row's `castregid` is the regid for delServRegCasNos.
+ */
+export async function getServRegCastNos({ servid, username = "superadmin" }) {
+  const params = new URLSearchParams({ servid: String(servid ?? "1"), username });
+  const url = `${getBaseUrl()}ServiceApis/getServRegCastNos?${params.toString()}`;
+  const headers = getHeadersForm();
+  const resp = await apiFetch(url, { method: "GET", headers }, "getServRegCastNos");
+  if (!resp.ok) throw new Error(`Failed to get linked CAS numbers: HTTP ${resp.status}`);
+  return resp.json();
+}
+
+/**
+ * delServRegCasNos - unlink a CAS account. Report 6.16.
+ * The ONLY form-encoded cable endpoint: single field `regid` (= a row's
+ * castregid). NOT JSON.
+ */
+export async function delServRegCasNos({ regid }) {
+  const url = `${getBaseUrl()}ServiceApis/delServRegCasNos`;
+  const headers = getHeadersForm();
+  const body = new URLSearchParams();
+  body.append("regid", regid ?? "");
+  const resp = await apiFetch(url, { method: "POST", headers, body }, "delServRegCasNos");
+  if (!resp.ok) throw new Error(`Failed to delete linked CAS: HTTP ${resp.status}`);
+  return resp.json();
+}
+
+/**
+ * registrationTermsAndConditions - T&C text for the registration wizard.
+ * Report 6.22. POST, no params.
+ */
+export async function getRegistrationTermsAndConditions() {
+  const url = `${getBaseUrl()}ServiceApis/registrationTermsAndConditions`;
+  const headers = getHeadersJson();
+  const resp = await apiFetch(url, { method: "POST", headers }, "getRegistrationTermsAndConditions");
+  if (!resp.ok) throw new Error(`Failed to get terms and conditions: HTTP ${resp.status}`);
+  return resp.json();
+}
+
+/**
+ * crmGeneralDetails - generic CRM config/details. Report 6.22.
+ * POST JSON (ad-hoc body). Pass whatever the call site needs; forwarded verbatim.
+ */
+export async function getCrmGeneralDetails(params = {}) {
+  const url = `${getBaseUrl()}ServiceApis/crmGeneralDetails`;
+  const headers = getHeadersJson();
+  // Backend requires `username` (verified live: an empty body returns
+  // err_code 1 "Please enter username."). Default to the employee login;
+  // callers may override via params.
+  const payload = { username: "superadmin", ...params };
+  const resp = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "getCrmGeneralDetails");
+  if (!resp.ok) throw new Error(`Failed to get CRM general details: HTTP ${resp.status}`);
+  return resp.json();
+}
+
+/**
+ * servicesOrders - generic operator order list (getCommonOrderList).
+ * Report 6.22. POST JSON ServiceOrderRequest; all fields optional filters.
+ */
+export async function getServicesOrders(params = {}) {
+  const url = `${getBaseUrl()}ServiceApis/servicesOrders`;
+  const headers = getHeadersJson();
+  const payload = {
+    opid: "", limit: "", offset: "", todate: "", fromdate: "", planname: "",
+    txnstatus: "", datesearch: "", servuserid: "", ordernumber: "", servicename: "",
+    paymentmode: "", gatewaytxnid: "", customised_data: "",
+    ...params,
+  };
+  const resp = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "getServicesOrders");
+  if (!resp.ok) throw new Error(`Failed to get services orders: HTTP ${resp.status}`);
+  return resp.json();
+}
+
+/**
+ * ordersList - the customer's cable/service order history. Report 6.15.
+ * POST JSON { userid, username, servid, + 6 always-empty date/filter fields }.
+ * Response body: { total_orders:<int>, result:[ {ordernumber, orderdate,
+ *   txndate, totalamount, paidamount, balanceamount, taxamount,
+ *   discountamount, othercharges, paymentmode, txnstatus}, ... ] }.
+ * This is the REAL order-history endpoint - ServiceApis/cabletv/orderhistory
+ * (which orderApis previously called) does not exist and 404s.
+ */
+export async function getOrdersList({ userid, username = "superadmin", servid }) {
+  const url = `${getBaseUrl()}ServiceApis/ordersList`;
+  const headers = getHeadersJson();
+  const payload = {
+    userid: userid ?? "",
+    username,
+    servid: String(servid ?? "1"),
+    ordernumber: "",
+    txndatefrom: "",
+    txndatetill: "",
+    orderdatefrom: "",
+    orderdatetill: "",
+    paymentmode: "",
+  };
+  const resp = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "getOrdersList");
+  if (!resp.ok) throw new Error(`Failed to get orders list: HTTP ${resp.status}`);
   return resp.json();
 }

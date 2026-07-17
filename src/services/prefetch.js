@@ -5,7 +5,7 @@
  * service, prioritizeCustomerService() warms that selected service first, then
  * resumes the broader customer prefetch after a short delay.
  */
-import { getUserAssignedItems, getCableCustomerDetails, getPrimaryCustomerDetails, getMyPlanDetails, getIptvLastSubscribedInfo } from "./generalApis";
+import { getUserAssignedItems, getMyPlanDetails, getIptvLastSubscribedInfo } from "./generalApis";
 import { getSpecialInternetPlans, getFofiUpgradePlans, validateBeforeFofiBoxReg } from "./fofiApis";
 import { lsGet, lsSet, lsRemoveByPrefix } from "./lsCache";
 import { enterBackgroundMode, exitBackgroundMode } from "./navigationController";
@@ -48,15 +48,14 @@ function startBackgroundCalls(createTasks) {
   }
 }
 
-function maybeWarmCustomerOverview(userid) {
-  const tasks = [];
-  if (!lsGet(`cblcust_${userid}`, OVERVIEW_TTL)) {
-    tasks.push(getCableCustomerDetails(userid).catch(() => null));
-  }
-  if (!lsGet(`pricust_${userid}`, OVERVIEW_TTL)) {
-    tasks.push(getPrimaryCustomerDetails(userid).catch(() => null));
-  }
-  return tasks;
+function maybeWarmCustomerOverview(_userid) {
+  // No-op. This used to warm cblcust_/pricust_ caches by calling the
+  // unauthenticated primaryCustdet/cblCustDet endpoints (customer PII with no
+  // auth). Those calls were removed for the Android-parity/security rework;
+  // customer basics now come from the selected-customer navigation state
+  // (authenticated customersList) and internetsrvid from getMyPlanDetails.
+  // Kept as a no-op so the existing task-assembly call sites stay unchanged.
+  return [];
 }
 
 function createAssignedItemWarmup(userid) {

@@ -9,8 +9,6 @@ import {
     getCustKYCPreview,
     getMyPlanDetails,
     getUserAssignedItems,
-    getCableCustomerDetails,
-    getPrimaryCustomerDetails,
     getCustomerRegistrationStatus,
     getIptvLastSubscribedInfo,
     getPkgCategories,
@@ -18,7 +16,6 @@ import {
     getChannelsList,
     getPkgChannelsList,
     getWalBal,
-    getPaymentInfo,
     getPlanExtensionPeriods,
     getCableTvPaymentDetails,
     generateCableTvOrder,
@@ -244,6 +241,12 @@ export default function IPTVService() {
     }, [location.state, SESSION_KEY]);
     const userid = customerData?.customer_id;
 
+    // "Has cable" signal, sourced from the authenticated customersList
+    // selection (customerData.usertype, e.g. 'cableonly'/'cabletv') —
+    // replaces the unauthenticated cblCustDet body.multplatforms.cabletv.
+    // ponytail: substring match covers 'cableonly', 'cabletv', etc.
+    const hasCableFromUsertype = String(customerData?.usertype || '').toLowerCase().includes('cable');
+
     // Mirror customerData to sessionStorage every time we receive
     // fresh state. The fallback read above relies on this being kept
     // up to date so a hard refresh / popstate / PWA restore can
@@ -385,7 +388,6 @@ export default function IPTVService() {
     const _BOX_TTL = 365 * 24 * 60 * 60 * 1000;       // 1 year — box ID rarely changes
     const _STALE_TTL = 60 * 60 * 1000;                // 1h — show stale, revalidate
     const _cachedBoxId = userid ? lsGet(`cabletv_boxid_${userid}`, _BOX_TTL) : '';
-    const _cachedCblCust = userid ? lsGetStale(`cblcust_${userid}`, _STALE_TTL) : null;
     const _cachedPlan = (_cachedBoxId && userid)
         ? lsGetStale(`plandets_cabletv_${userid}_${_cachedBoxId}`, _STALE_TTL) : null;
     const _cachedFofiPlan = (_cachedBoxId && userid)
@@ -393,10 +395,10 @@ export default function IPTVService() {
     const _cachedLastSub = (_cachedBoxId && userid)
         ? lsGetStale(`iptvLastSub_${userid}_${_cachedBoxId}`, _STALE_TTL) : null;
     const _cachedWallet = logUname ? lsGetStale(`walbal_${logUname}_cabletv`, _STALE_TTL) : null;
-    // Plan-section is renderable from cache when we have either:
+    // Plan-section is renderable without waiting when we have either:
     //   1. Cached plan details with a real subscribed_services entry
     //      (we can render the plan card instantly), OR
-    //   2. Cached cblCustDet that says no cabletv platform
+    //   2. The authenticated usertype says this customer has no cable
     //      (definitive "not opted" — no need to wait for plan).
     // Otherwise the plan section is genuinely loading and the
     // operator should see a spinner, not a misleading message.
@@ -404,9 +406,7 @@ export default function IPTVService() {
     const _cachedHasPlan = !!_cachedSubscribedService;
     const _cachedPlanLooksExpired = _cachedHasPlan && isExpiredDate(_cachedSubscribedService?.expirydate);
     const _cachedPlanDataForRender = _cachedPlanLooksExpired ? null : _cachedPlan?.data;
-    const _cachedCblCustBody = _cachedCblCust?.data?.body;
-    const _cachedDefinitelyNotOpted = !!_cachedCblCustBody
-        && !_cachedCblCustBody?.multplatforms?.cabletv;
+    const _cachedDefinitelyNotOpted = !!customerData && !hasCableFromUsertype;
     const _hasCachedPlanRender = (!!_cachedPlanDataForRender && _cachedHasPlan) || _cachedDefinitelyNotOpted;
 
     // API states — overview
@@ -416,13 +416,6 @@ export default function IPTVService() {
     const [lastSubscribedInfo, setLastSubscribedInfo] = useState(_cachedLastSub?.data || null);
     const [fofiBoxId, setFofiBoxId] = useState(_cachedBoxId || "");
     const [hasFofiBox, setHasFofiBox] = useState(!!_cachedBoxId); // Whether user actually has a FoFi box
-    // cblCustDet response — used as a fallback signal for "does this
-    // customer have cabletv?" when getUserAssignedItems and
-    // getMyPlanDetails come back empty (e.g. backend data sync gap).
-    // Reading body.multplatforms.cabletv lets us detect cabletv
-    // subscription even when the box ID isn't surfaced by the items
-    // endpoint, so we don't show a misleading "not opted" screen.
-    const [cblCustomerDetails, setCblCustomerDetails] = useState(_cachedCblCust?.data || null);
     // Two-stage loading so the FoFi Box ID + customer-record signals
     // can paint as soon as Phase 1 settles, while only the Plan Details
     // card waits on Phase 2 (getMyPlanDetails refire). Operators on
@@ -571,14 +564,24 @@ export default function IPTVService() {
             // spin for the whole assigned-items wait even on a warm cache.
             // If the freshly-resolved box ID disagrees with the cache, the
             // reconciliation below refires and the card self-corrects.
+            // R1 fix (2026-07-17): use the warm cache (skipCache=false) that
+            // prefetch.js (warmIptvAndFofiPlans) populated seconds before this
+            // mount. Previously these two getMyPlanDetails calls forced
+            // skipCache=true, re-hitting the network on every warm open and
+            // wasting the prefetch entirely (2 duplicate fetches per visit).
+            // Post-payment freshness is preserved independently:
+            // completeCableOrderSuccess (~:1484) lsRemove()s the plandets_*
+            // caches, so the next mount cache-misses and fetches fresh anyway.
+            // If the cached box id turns out wrong, the reconciliation below
+            // still refires with the fresh id (skipCache=true).
             const planPromiseMaybe = cachedBoxId
-                ? getMyPlanDetails({ servicekey: "cabletv", userid, fofiboxid: cachedBoxId, voipnumber: "" }, true)
+                ? getMyPlanDetails({ servicekey: "cabletv", userid, fofiboxid: cachedBoxId, voipnumber: "" }, false)
                 : Promise.resolve(null);
             const lastSubPromiseMaybe = cachedBoxId
                 ? getIptvLastSubscribedInfo({ userid, itemid: cachedBoxId })
                 : Promise.resolve(null);
             const fofiPlanPromiseMaybe = cachedBoxId
-                ? getMyPlanDetails({ servicekey: "fofi", userid, fofiboxid: cachedBoxId, voipnumber: "" }, true)
+                ? getMyPlanDetails({ servicekey: "fofi", userid, fofiboxid: cachedBoxId, voipnumber: "" }, false)
                 : Promise.resolve(null);
             if (cachedBoxId) {
                 planPromiseMaybe.then(d => {
@@ -590,35 +593,45 @@ export default function IPTVService() {
                 fofiPlanPromiseMaybe.then(d => { if (!cancelled && d) setFofiPlanDetails(d); }).catch(() => {});
             }
 
+            // R4 fix (2026-07-17): box discovery no longer fires all four
+            // servkeys concurrently. fofi is where the box lives in the common
+            // case, so fire it first (alongside the already-live plan/lastSub
+            // promises), and fan out to the multi/voip/internet fallbacks ONLY
+            // if fofi surfaces no box. Previously all four fired every cold
+            // start — 3 wasted concurrent requests on the common path. They are
+            // 5-min cached + deduped, so warm opens were already free; this
+            // trims the cold-start burst the operator sees. Cost: one extra RTT
+            // in the uncommon case where the box is classified outside "fofi".
             const [
                 assignedFofiResult,
-                assignedMultiResult,
-                assignedVoipResult,
-                assignedInternetResult,
-                cblCustResult,
-                priCustResult,
                 planResultMaybe,
                 lastSubResultMaybe,
                 fofiPlanResultMaybe,
             ] = await Promise.allSettled([
                 getUserAssignedItems("fofi", userid),
-                // multi/voip/internet are fallback sources for the box ID:
-                // some user accounts on certain backends have their FoFi
-                // box exposed outside servkey="fofi". Fire them in the
-                // first batch so fallback discovery does not cost a second RTT.
-                getUserAssignedItems("multi", userid).catch(() => null),
-                getUserAssignedItems("voip", userid).catch(() => null),
-                getUserAssignedItems("internet", userid).catch(() => null),
-                getCableCustomerDetails(userid),
-                Promise.resolve(null),
                 planPromiseMaybe,
                 lastSubPromiseMaybe,
                 fofiPlanPromiseMaybe,
             ]);
 
             if (cancelled) return;
-            if (navCancelled(assignedFofiResult) || navCancelled(cblCustResult) || navCancelled(priCustResult)) return;
-            getPrimaryCustomerDetails(userid).catch(() => null);
+            if (navCancelled(assignedFofiResult)) return;
+
+            const _EMPTY_ASSIGNED = { status: "fulfilled", value: null };
+            let assignedMultiResult = _EMPTY_ASSIGNED;
+            let assignedVoipResult = _EMPTY_ASSIGNED;
+            let assignedInternetResult = _EMPTY_ASSIGNED;
+            const fofiHasBox = assignedFofiResult.status === "fulfilled" && assignedFofiResult.value
+                ? !!extractBoxIdFromAssigned(assignedFofiResult.value, userid)
+                : false;
+            if (!fofiHasBox) {
+                [assignedMultiResult, assignedVoipResult, assignedInternetResult] = await Promise.allSettled([
+                    getUserAssignedItems("multi", userid).catch(() => null),
+                    getUserAssignedItems("voip", userid).catch(() => null),
+                    getUserAssignedItems("internet", userid).catch(() => null),
+                ]);
+                if (cancelled) return;
+            }
 
             // Box ID resolution — scan ALL servkey responses (fofi, multi, voip, internet)
             // and pick the first BBNL-/FOFI-/TV-shaped product_name we find. Different
@@ -637,34 +650,21 @@ export default function IPTVService() {
                 extractBoxId(assignedVoipResult) ||
                 extractBoxId(assignedInternetResult);
 
-            // Persist cblCustDet response so the renderer can fall
-            // back to body.multplatforms.cabletv when getMyPlanDetails
-            // can't run (no box ID resolved). Without this the page
-            // shows a misleading "Selected Customer have not opted"
-            // banner for customers who DO have cabletv per the
-            // customer record but whose box wasn't returned by the
-            // items endpoint due to a backend data sync gap.
-            if (cblCustResult.status === "fulfilled" && cblCustResult.value) {
-                setCblCustomerDetails(cblCustResult.value);
-            }
-
             // Diagnostic log — when the operator hits "not opted" on a
-            // customer who actually has cabletv per cblCustDet, this
-            // log makes it obvious in DevTools which API gap is
-            // responsible (so we can pursue the right backend / DNS /
-            // env-config fix instead of guessing at code).
-            const _cblBody = cblCustResult.status === "fulfilled" ? (cblCustResult.value?.body || {}) : {};
-            const _hasCabletvPerRecord = !!_cblBody?.multplatforms?.cabletv;
+            // customer who actually has cable per usertype, this log
+            // makes it obvious in DevTools which API gap is responsible
+            // (so we can pursue the right backend / DNS / env-config fix
+            // instead of guessing at code).
             console.log('🟣 [IPTV] box-id resolution:', {
                 fofi: extractBoxId(assignedFofiResult) || '(empty)',
                 multi: extractBoxId(assignedMultiResult) || '(empty)',
                 voip: extractBoxId(assignedVoipResult) || '(empty)',
                 internet: extractBoxId(assignedInternetResult) || '(empty)',
                 resolved: boxId || '(none)',
-                cabletvPerCblCustDet: _hasCabletvPerRecord,
+                cabletvPerUsertype: hasCableFromUsertype,
             });
-            if (!boxId && _hasCabletvPerRecord) {
-                console.warn('⚠️ [IPTV] customer has cabletv per cblCustDet but no box ID found via getUserAssignedItems — likely a backend data sync gap (this PWA env vs the data the mobile sees).');
+            if (!boxId && hasCableFromUsertype) {
+                console.warn('⚠️ [IPTV] customer has cable per usertype but no box ID found via getUserAssignedItems — likely a backend data sync gap (this PWA env vs the data the mobile sees).');
             }
 
             if (!cancelled) {
@@ -747,16 +747,10 @@ export default function IPTVService() {
                                     assignedMultiResult.status === 'rejected' &&
                                     assignedVoipResult.status === 'rejected' &&
                                     assignedInternetResult.status === 'rejected';
-            const allFailed = allServkeyFailed &&
-                             cblCustResult.status === 'rejected' &&
-                             priCustResult.status === 'rejected';
 
-            if (allFailed) {
+            if (allServkeyFailed) {
                 setError('Failed to load Cable TV data. Please check your connection and try again.');
                 console.error('❌ [IPTV] All API calls failed - service data unavailable');
-            } else if (allServkeyFailed) {
-                setError('Unable to retrieve box information. Please try again.');
-                console.warn('⚠️ [IPTV] All servkey calls failed - box ID unavailable');
             }
 
             // No hard error gate — even when getUserAssignedItems
@@ -1073,11 +1067,20 @@ export default function IPTVService() {
             // promise resolves (fast click, popstate, deep link), or
             // with a stale value, so we re-fire here unless we already
             // have a populated lastSubscribedInfo response.
+            // R3 fix (2026-07-17): honor the guard this comment already
+            // describes. If overview-mount already populated lastSubscribedInfo,
+            // reuse it instead of re-fetching (each fetch is 2 wire requests).
+            // Only fetch when we don't yet have a body, and then WITHOUT
+            // skipCache (was forced skipCache=true) so the mount's 5-min cache
+            // is honored. Mirrors the channels loader's `!lastSubscribedInfo?.body`
+            // check. Race case (landed before mount resolved) still fetches.
             const [catResult, lastSubResult] = await Promise.allSettled([
                 retryPackageRequest(() => getPkgCategories({ username: logUname, userid })),
-                fofiBoxId
-                    ? getIptvLastSubscribedInfo({ userid, itemid: fofiBoxId }, true)
-                    : Promise.resolve(lastSubscribedInfo),
+                lastSubscribedInfo?.body
+                    ? Promise.resolve(lastSubscribedInfo)
+                    : (fofiBoxId
+                        ? getIptvLastSubscribedInfo({ userid, itemid: fofiBoxId })
+                        : Promise.resolve(lastSubscribedInfo)),
             ]);
 
             let catResponse = catResult.status === "fulfilled" ? catResult.value : null;
@@ -1519,8 +1522,6 @@ export default function IPTVService() {
             lsRemove(`iptvLastSub_${userid}_${fofiBoxId}`);
             lsRemove(`uai_fofi_${userid}`);
             lsRemove(`uai_cabletv_${userid}`);
-            lsRemove(`cblcust_${userid}`);
-            lsRemove(`pricust_${userid}`);
             lsRemove(`walbal_${logUname}_cabletv`);
         } catch (_) { /* cache clear is best-effort */ }
 
@@ -1589,11 +1590,6 @@ export default function IPTVService() {
 
         const walletPromise = refreshCableWalletBalance().catch(() => {});
 
-        const customerRefreshPromise = Promise.allSettled([
-            getCableCustomerDetails(userid, true).catch(() => null),
-            getPrimaryCustomerDetails(userid, true).catch(() => null),
-        ]).catch(() => {});
-
         const extensionPeriodsPromise = isExistingSubscriberCheckout
             ? Promise.resolve()
             : getPlanExtensionPeriods({ userid, servkey: "cabletv", itemid: fofiBoxId }).then(async (periodsResp) => {
@@ -1637,7 +1633,6 @@ export default function IPTVService() {
             setCheckoutLoading(false);
         }
         void walletPromise;
-        void customerRefreshPromise;
         void extensionPeriodsPromise;
     }
 
@@ -2030,18 +2025,14 @@ export default function IPTVService() {
         const seq = checkoutPreviewSeqRef.current + 1;
         checkoutPreviewSeqRef.current = seq;
         const timer = setTimeout(() => {
-            const pkgCodesForInfo = parts.pkgCodes.length > 0 ? parts.pkgCodes : parts.pkgIds;
-            getPaymentInfo({
-                channelid: parts.chIds,
-                lcochid: parts.chIds,
-                packageid: parts.pkgIds,
-                pkgcode: pkgCodesForInfo,
-                servapptype: "crmapp",
-                servid: "1",
-                userid,
-                username: logUname,
-            }).catch(() => {});
-
+            // R2 fix (2026-07-17): removed a getPaymentInfo() call here whose
+            // result was discarded (.catch with no .then). It was NOT harmless
+            // — ServiceApis/getPaymentInfo calls saveServOrdTxn() server-side
+            // (backend ServiceApis.php ~:2260), so firing it on every debounced
+            // checkout toggle minted an orphan transaction row each time. The
+            // pricing that IS used comes from requestCablePaymentDetails
+            // (service/paymentinfo/cabletv) below, which already returns the
+            // price + a transactionid. No behavioral change to the UI.
             requestCablePaymentDetails(parts)
                 .then((paymentInfo) => {
                     if (!checkoutAliveRef.current || checkoutPreviewSeqRef.current !== seq) return;
@@ -3026,8 +3017,8 @@ export default function IPTVService() {
                     Three distinct cases the renderer must distinguish:
                       1. subscribedService present → render the full
                          plan card (existing path).
-                      2. subscribedService missing AND cblCustDet says
-                         multplatforms.cabletv is set → the customer
+                      2. subscribedService missing AND usertype says
+                         the customer has cable → the customer
                          IS on cabletv per the customer record, but the
                          plan-details lookup couldn't run (usually
                          because the box ID isn't surfaced by the
@@ -3066,9 +3057,7 @@ export default function IPTVService() {
                     </div>
                 ) : !subscribedService || planName === 'N/A' ? (
                     (() => {
-                        const cblBody = cblCustomerDetails?.body || {};
-                        const hasCableTvPerRecord = !!(cblBody?.multplatforms?.cabletv);
-                        const trulyNotOpted = !hasCableTvPerRecord;
+                        const trulyNotOpted = !hasCableFromUsertype;
                         return (
                             <div className="bg-gray-50 dark:bg-gray-800 rounded-xl py-10 px-4 flex flex-col items-center">
                                 <p className="text-gray-600 dark:text-gray-400 text-base text-center font-medium leading-snug">
@@ -3076,7 +3065,7 @@ export default function IPTVService() {
                                         <>Selected Customer have not opted<br />for this Service</>
                                     ) : (
                                         <>Cable TV plan details are temporarily unavailable.<br />
-                                            <span className="text-xs font-normal opacity-80">Customer is on Cable TV per record (platform: {cblBody.multplatforms.cabletv}). The plan-details endpoint couldn't load — try again or contact support.</span>
+                                            <span className="text-xs font-normal opacity-80">Customer is on Cable TV per record. The plan-details endpoint couldn't load — try again or contact support.</span>
                                         </>
                                     )}
                                 </p>

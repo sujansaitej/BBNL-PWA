@@ -27,7 +27,7 @@ import {
     linkFoFiBox,
     upgradeRegistration,
 } from "../../services/fofiApis";
-import { getCableCustomerDetails, getPrimaryCustomerDetails, getMyPlanDetails, getCustKYCPreview, getUserAssignedItems } from "../../services/generalApis";
+import { getMyPlanDetails, getCustKYCPreview, getUserAssignedItems } from "../../services/generalApis";
 // Box-identity logic (extractBoxFromItem + linked-TV detection) lives in
 // utils/boxId.js so this page, IPTVService, and prefetch all resolve a box
 // the SAME way and can never diverge on "opted vs not opted".
@@ -288,8 +288,9 @@ function extractCableTvBoxesFromAssigned(assignedItemsResponse) {
 // Resolve the cable-TV fallback boxes for the UPGRADE PLAN card. This is the
 // SINGLE decision point for "does this customer get the cable-TV upgrade card
 // instead of the bare 'not opted' screen". A customer qualifies when the
-// customer record says they have cable TV (cblCustDet.multplatforms.cabletv)
-// OR an assigned row is explicitly cable-marked.
+// customer record says they have cable TV (hasCablePerRecord, derived from
+// the authenticated customerData.usertype) OR an assigned row is
+// explicitly cable-marked.
 //
 // Box-ID resolution is deliberately layered because a cable-only box often
 // isn't returned in the linked-device fields of getUserAssignedItems (the
@@ -301,9 +302,13 @@ function extractCableTvBoxesFromAssigned(assignedItemsResponse) {
 //      flow, which does NOT need the cable box id), with a blank Box ID row.
 // The plan-enrichment effect fills Plan Name / Expiry / real Box ID from
 // getMyPlanDetails afterwards.
-function resolveCableTvBoxes(assignedItemsResponse, cableDetailsResponse, userid) {
-    const hasCablePerRecord = !!cableDetailsResponse?.body?.multplatforms?.cabletv;
+// ponytail: usertype is a per-search-list literal ('cableonly'/'internet'),
+// not a per-customer capability flag, so a customer with both internet+cable
+// selected from the internet list reads as no-cable. Same approximation the
+// InternetService/IPTVService migrations use.
+const hasCableFromUsertype = (cd) => String(cd?.usertype || '').toLowerCase().includes('cable');
 
+function resolveCableTvBoxes(assignedItemsResponse, hasCablePerRecord, userid) {
     const rows = extractCableTvBoxesFromAssigned(assignedItemsResponse)
         .filter(b => hasCablePerRecord || b.cableHinted);
     if (rows.length) return rows;
@@ -1069,9 +1074,7 @@ function FoFiSmartBox() {
     // ── SWR: hydrate from cache for instant render ──
     const _userid = _uid(customerData);
     const _cachedAI = _userid ? lsGetStale(`uai_fofi_${_userid}`, OVERVIEW_TTL) : null;
-    const _cachedCD = _userid ? lsGetStale(`cblcust_${_userid}`, OVERVIEW_TTL) : null;
-    const _cachedPD = _userid ? lsGetStale(`pricust_${_userid}`, OVERVIEW_TTL) : null;
-    const _hasCached = !!(_cachedAI || _cachedCD || _cachedPD);
+    const _hasCached = !!_cachedAI;
     // Derive overview from cached assigned-items so existing customers
     // don't flash the "not opted" view on first paint while the network
     // revalidation is still in flight.
@@ -1080,8 +1083,8 @@ function FoFiSmartBox() {
     // Cable-TV fallback hydration — cabletv-only customers render the
     // cable box + UPGRADE PLAN card on first paint instead of flashing
     // the "not opted" CTA while the network revalidates.
-    const _cachedCableBoxes = (_cachedOverview && !_cachedOverview.hasFofi && (_cachedAI?.data || _cachedCD?.data))
-        ? resolveCableTvBoxes(_cachedAI?.data, _cachedCD?.data, _userid)
+    const _cachedCableBoxes = (_cachedOverview && !_cachedOverview.hasFofi && _cachedAI?.data)
+        ? resolveCableTvBoxes(_cachedAI?.data, hasCableFromUsertype(customerData), _userid)
         : [];
 
     // State management
@@ -1137,9 +1140,6 @@ function FoFiSmartBox() {
     // Flag to prevent sub-view popstate listener from resetting view when
     // QR scanner pops its own history entry via history.back()
     const skipNextPopStateRef = useRef(false);
-    const [customerDetails, setCustomerDetails] = useState(_cachedCD?.data || null);
-    const [primaryCustomerDetails, setPrimaryCustomerDetails] = useState(_cachedPD?.data || null);
-    const [customerInternetPlanId, setCustomerInternetPlanId] = useState(null);
     // FoFi service status - will be validated by API response
     // Hydrate from the cached assigned-items derivation so existing
     // customers render the correct view on first paint instead of
@@ -1536,7 +1536,6 @@ function FoFiSmartBox() {
             const userid = customerData?.username || customerData?.customer_id;
             const user = getUser();
             const logUname = user?.username || 'superadmin';
-            const skipCache = !!refreshData; // Bypass cache after payment
 
             // Normal navigation can use freshly prefetched cache. Payment
             // returns still bypass cache so new plan/order state is not hidden
@@ -1592,22 +1591,17 @@ function FoFiSmartBox() {
                 // Fetch data with proper error handling - don't silently swallow errors
                 // CRITICAL: Try multiple servkey buckets in parallel - backends store boxes
                 // under different keys (fofi, multi, voip, internet) depending on user type
-                const [assignedFofiResult, assignedMultiResult, assignedVoipResult, assignedInternetResult, cableDetailsResult, primaryDetailsResult] = await Promise.allSettled([
+                const [assignedFofiResult, assignedMultiResult, assignedVoipResult, assignedInternetResult] = await Promise.allSettled([
                     getUserAssignedItems('fofi', userid, skipStatusCache),
                     getUserAssignedItems('multi', userid, skipStatusCache).catch(() => null),
                     getUserAssignedItems('voip', userid, skipStatusCache).catch(() => null),
                     getUserAssignedItems('internet', userid, skipStatusCache).catch(() => null),
-                    getCableCustomerDetails(userid, skipCache),
-                    getPrimaryCustomerDetails(userid, skipCache),
                 ]);
 
                 // Merge all servkey responses into a single body shape for deriveFofiOverviewFromAssigned
                 const assignedItemsResponse = mergeFoFiAssignedResponses([
                     assignedFofiResult, assignedMultiResult, assignedVoipResult, assignedInternetResult
                 ]);
-
-                const cableDetailsResponse = cableDetailsResult.status === 'fulfilled' ? cableDetailsResult.value : null;
-                const primaryDetailsResponse = primaryDetailsResult.status === 'fulfilled' ? primaryDetailsResult.value : null;
 
                 // Log any failures for debugging
                 if (assignedFofiResult.status === 'rejected') {
@@ -1616,30 +1610,11 @@ function FoFiSmartBox() {
                 if (assignedMultiResult.status === 'rejected') {
                     console.warn('⚠️ [FoFi] getUserAssignedItems(multi) failed:', assignedMultiResult.reason?.message);
                 }
-                if (cableDetailsResult.status === 'rejected') {
-                    console.error('❌ [FoFi] getCableCustomerDetails failed:', cableDetailsResult.reason?.message);
-                }
-                if (primaryDetailsResult.status === 'rejected') {
-                    console.error('❌ [FoFi] getPrimaryCustomerDetails failed:', primaryDetailsResult.reason?.message);
-                }
 
                 console.log('🟣 [FoFi] getUserAssignedItems(fofi) body:', assignedItemsResponse?.body);
-                console.log('🟣 [FoFi] cblCustDet body:', cableDetailsResponse?.body);
-                console.log('🟣 [FoFi] primaryCustdet body:', primaryDetailsResponse?.body);
 
                 // Done with primary spinner — let the overview render.
                 setIsLoading(false);
-
-                // Customer & primary details — drive the User Details
-                // section + downstream calls (op_id for billing, etc.).
-                if (cableDetailsResponse) setCustomerDetails(cableDetailsResponse);
-                if (primaryDetailsResponse) setPrimaryCustomerDetails(primaryDetailsResponse);
-
-                // internetsrvid lives on primaryCustdet body — used
-                // by renewal payloads to identify the linked internet
-                // plan without a separate getMyPlanDetails(internet) call.
-                const internetSrvId = primaryDetailsResponse?.body?.internetsrvid;
-                if (internetSrvId) setCustomerInternetPlanId(String(internetSrvId));
 
                 // Derive FoFi overview (hasFofi, boxId, serviceDetails)
                 // from getUserAssignedItems. Same helper used for cache
@@ -1668,9 +1643,10 @@ function FoFiSmartBox() {
                 // a FoFi box but then fails plan confirmation and is cleared.
                 // The render only surfaces it when !hasConfirmedFofiService,
                 // so a genuine FoFi customer never sees it.
-                const cableBoxes = resolveCableTvBoxes(assignedItemsResponse, cableDetailsResponse, userid);
+                const hasCablePerRecord = hasCableFromUsertype(customerData);
+                const cableBoxes = resolveCableTvBoxes(assignedItemsResponse, hasCablePerRecord, userid);
                 console.log('🟣 [FoFi] cable-TV fallback:', {
-                    hasCablePerRecord: !!cableDetailsResponse?.body?.multplatforms?.cabletv,
+                    hasCablePerRecord,
                     boxes: cableBoxes.map(b => b.boxId || '(no id)'),
                 });
                 setCableTvBoxes(cableBoxes);
@@ -1804,17 +1780,10 @@ function FoFiSmartBox() {
                                             assignedMultiResult.status === 'rejected' &&
                                             assignedVoipResult.status === 'rejected' &&
                                             assignedInternetResult.status === 'rejected';
-                    const allFailed = allServkeyFailed &&
-                                     cableDetailsResult.status === 'rejected' &&
-                                     primaryDetailsResult.status === 'rejected';
 
-                    if (allFailed) {
+                    if (allServkeyFailed) {
                         setError('Failed to load service data. Please check your connection and try again.');
                         console.error('❌ [FoFi] All API calls failed - service data unavailable');
-                    } else if (allServkeyFailed) {
-                        // All servkey calls failed but customer details worked - partial failure
-                        setError('Unable to check FoFi service status. Please try again.');
-                        console.warn('⚠️ [FoFi] All servkey calls failed - partial data unavailable');
                     }
 
                     // NOTE: The deriveFofiOverviewFromAssigned function now scans ALL buckets
@@ -2137,7 +2106,10 @@ function FoFiSmartBox() {
         navigate('/payment-history', {
             state: {
                 customer: customerData,
-                cableDetails: customerDetails, // Pass cableDetails for op_id used in payment history API
+                // PaymentHistory only reads cableDetails.body.op_id (falls back to
+                // customerData/user op_id). Synthesise it from the authenticated
+                // customerData instead of the removed cblCustDet call.
+                cableDetails: { body: { op_id: customerData?.op_id || getUser()?.op_id } },
                 serviceType: 'fofi', // Indicate this is FoFi order history
                 fofiboxid: fofiServiceDetails?.boxId || '' // Pass FoFi box ID for order history API
             }
@@ -2433,40 +2405,21 @@ function FoFiSmartBox() {
         };
         const validateNewUserUpgradeEligibility = async () => {
             let lastValidation = null;
-            let lastCable = null;
-            let lastPrimary = null;
             let lastError = null;
 
             for (let attempt = 1; attempt <= 3; attempt += 1) {
                 let validateResponse;
                 try {
-                    // validate is the eligibility gate. The cable/primary detail
-                    // fetches are best-effort context (they already swallow their
-                    // own errors) and must never make the gate fail. A thrown
-                    // error here is the validate call itself failing the network.
-                    const [v, cableDetailsResponse, primaryDetailsResponse] = await Promise.all([
-                        // Use the 5-min validate cache (warmed by the overview
-                        // when it renders the not-opted state, and by
-                        // prefetch.js on service selection). Only successful
-                        // validations are cached, so a cached hit can never
-                        // mask an "Operator is disabled" error — and skipping
-                        // the fresh 6-8s call is what makes ADD FO-FI BOX
-                        // open the plan list quickly.
-                        validateBeforeFofiBoxReg({ username: userid, loginuname: logUname }),
-                        // Reuse the overview's cached customer details (the page
-                        // fetched these seconds ago) instead of forcing a network
-                        // refetch. These are best-effort display context, not the
-                        // eligibility gate, so a few-minutes-stale value is fine —
-                        // and skipping the refetch frees connections in the ~6-per-
-                        // origin pool for the validate + plans calls that matter.
-                        getCableCustomerDetails(userid).catch(() => null),
-                        getPrimaryCustomerDetails(userid).catch(() => null),
-                    ]);
-                    validateResponse = v;
-                    lastValidation = v;
+                    // validate is the eligibility gate. Use the 5-min validate
+                    // cache (warmed by the overview when it renders the not-opted
+                    // state, and by prefetch.js on service selection). Only
+                    // successful validations are cached, so a cached hit can never
+                    // mask an "Operator is disabled" error — and skipping the fresh
+                    // 6-8s call is what makes ADD FO-FI BOX open the plan list
+                    // quickly.
+                    validateResponse = await validateBeforeFofiBoxReg({ username: userid, loginuname: logUname });
+                    lastValidation = validateResponse;
                     lastError = null;
-                    lastCable = cableDetailsResponse || lastCable;
-                    lastPrimary = primaryDetailsResponse || lastPrimary;
                 } catch (err) {
                     if (err?.message?.includes('navigated away')) throw err;
                     // Transient network blip — retry instead of hard-failing.
@@ -2477,16 +2430,16 @@ function FoFiSmartBox() {
                 }
 
                 if (validateResponse?.status?.err_code === 0) {
-                    return { validateResponse, cableDetailsResponse: lastCable, primaryDetailsResponse: lastPrimary };
+                    return { validateResponse };
                 }
                 if (!isRetryableOperatorSyncError(validateResponse) || attempt === 3) {
-                    return { validateResponse, cableDetailsResponse: lastCable, primaryDetailsResponse: lastPrimary };
+                    return { validateResponse };
                 }
                 await new Promise(resolve => setTimeout(resolve, 2500));
             }
 
             if (lastError) throw lastError;
-            return { validateResponse: lastValidation, cableDetailsResponse: lastCable, primaryDetailsResponse: lastPrimary };
+            return { validateResponse: lastValidation };
         };
 
         console.log('🔵 [UPGRADE] Starting upgrade flow...');
@@ -2530,8 +2483,7 @@ function FoFiSmartBox() {
             setUpgradePlansError('');
             try {
                 console.log('🔵 [UPGRADE] Not-opted user — validating eligibility before showing plans…');
-                const { validateResponse, cableDetailsResponse, primaryDetailsResponse } =
-                    await validateNewUserUpgradeEligibility();
+                const { validateResponse } = await validateNewUserUpgradeEligibility();
 
                 if (validateResponse?.status?.err_code !== 0) {
                     const errorMsg = validateResponse?.status?.err_msg || 'Validation failed. Please try again.';
@@ -2540,9 +2492,6 @@ function FoFiSmartBox() {
                     setUpgradePlansLoading(false);
                     return;
                 }
-
-                if (cableDetailsResponse) setCustomerDetails(cableDetailsResponse);
-                if (primaryDetailsResponse) setPrimaryCustomerDetails(primaryDetailsResponse);
 
                 // Reset any pre-selected plan / box state from a
                 // prior visit so the link-fofi step (after plan
@@ -4024,8 +3973,6 @@ function FoFiSmartBox() {
                 try {
                     lsRemove(`uai_fofi_${username}`);
                     lsRemove(`uai_cabletv_${username}`);
-                    lsRemove(`cblcust_${username}`);
-                    lsRemove(`pricust_${username}`);
                     lsRemove(`plandets_fofi_${username}_${finalBoxIdForSubmit}`);
                     lsRemove(`plandets_fofi_${username}_`);
                 } catch (_) { /* cache clear is best-effort */ }
@@ -4069,23 +4016,6 @@ function FoFiSmartBox() {
                 setValidationError(upgradeResponse?.status?.err_msg || 'Failed to register upgrade');
                 setIsLoading(false);
                 return;
-            }
-
-            // =====================================================
-            // STEP 2: Call cblCustDet and primaryCustdet APIs
-            // =====================================================
-            console.log('🔵 [STEP 2] Fetching customer details...');
-            try {
-                const [cableDetails, primaryDetails] = await Promise.all([
-                    getCableCustomerDetails(username),
-                    getPrimaryCustomerDetails(username)
-                ]);
-                console.log('🟢 Cable Customer Details:', cableDetails);
-                console.log('🟢 Primary Customer Details:', primaryDetails);
-                setCustomerDetails(cableDetails);
-                setPrimaryCustomerDetails(primaryDetails);
-            } catch (detailsError) {
-                console.warn('⚠️ Could not fetch customer details:', detailsError);
             }
 
             // =====================================================
@@ -4370,26 +4300,16 @@ function FoFiSmartBox() {
     // Matches Internet module UI/UX exactly
     // =====================================================
     if (view === 'overview') {
-        // Get customer details from API response or fallback to passed customerData
-        const displayUsername = primaryCustomerDetails?.body?.username || 
-                               customerDetails?.body?.username || 
-                               customerData?.username || 
+        // Customer details come from the operator-selected customerData
+        // (authenticated customersList selection), matching Android — the
+        // removed unauthenticated cblCustDet/primaryCustdet calls are gone.
+        const displayUsername = customerData?.username ||
                                customerData?.customer_id || 'N/A';
-        const displayName = primaryCustomerDetails?.body?.custname || 
-                           primaryCustomerDetails?.body?.name ||
-                           customerDetails?.body?.custname ||
-                           customerDetails?.body?.name ||
-                           customerData?.name || 
+        const displayName = customerData?.name ||
                            customerData?.customer_name || 'N/A';
-        const displayPhone = primaryCustomerDetails?.body?.mobile || 
-                            primaryCustomerDetails?.body?.phone ||
-                            customerDetails?.body?.mobile ||
-                            customerDetails?.body?.contactno ||
-                            customerData?.mobile || 
+        const displayPhone = customerData?.mobile ||
                             customerData?.phone || 'N/A';
-        const displayEmail = primaryCustomerDetails?.body?.email || 
-                            customerDetails?.body?.email ||
-                            customerData?.email || 'N/A';
+        const displayEmail = customerData?.email || 'N/A';
 
         console.log('📊 [FoFi SmartBox] Overview Display Data:', {
             username: displayUsername,
@@ -4776,7 +4696,7 @@ function FoFiSmartBox() {
                     services={servicesFromState}
                     currentServiceKey="fofi-smart-box"
                     fofiboxid={fofiServiceDetails?.boxId || ''}
-                    cableDetails={customerDetails}
+                    cableDetails={{ body: { op_id: customerData?.op_id || getUser()?.op_id } }}
                 />
                 <BottomNav />
             </div>

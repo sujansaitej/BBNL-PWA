@@ -11,22 +11,12 @@
  *   VITE_OTT_API_BASE_URL=/api/OttApis        (dev — Vite proxy)
  *   VITE_OTT_API_BASE_URL=https://bbnlnetmon.bbnl.in/prod/OttApis  (prod)
  */
-import logger from "../utils/logger";
-import perfMonitor from "../utils/apiPerfMonitor";
+import { apiFetch, getHeadersJson, readEnvelope, dedupe } from "./apiCore";
 
+// NOTE: VITE_OTT_API_BASE_URL is set in .env.development but ABSENT from
+// .env.production, so prod falls back to `${VITE_API_BASE_URL}OttApis`.
+// Preserved as-is — see report; needs an env/backend answer, not a code fix.
 const OTT_API_BASE = import.meta.env.VITE_OTT_API_BASE_URL || `${import.meta.env.VITE_API_BASE_URL || '/api/'}OttApis`;
-
-function getHeaders() {
-  return {
-    "Content-Type": "application/json",
-    Authorization: import.meta.env.VITE_API_AUTH_KEY,
-    username: import.meta.env.VITE_API_USERNAME,
-    password: import.meta.env.VITE_API_PASSWORD,
-    appkeytype: localStorage.getItem('loginType') == "franchisee" ? import.meta.env.VITE_API_APP_USER_TYPE : import.meta.env.VITE_API_APP_USER_TYPE_CUST,
-    appversion: import.meta.env.VITE_API_APP_VERSION,
-    "X-App-Package": "com.bbnl.smartphone",
-  };
-}
 
 /** Get mobile number for OTT APIs (same as IPTV pattern) */
 export function getOttMobile() {
@@ -34,85 +24,50 @@ export function getOttMobile() {
   return user.mobileno || user.mobile || user.phone || "";
 }
 
-const API_TIMEOUT = 15000;
 const MAX_RETRIES = 1;
 
-// Request deduplication (same pattern as iptvApi.js)
-const _inflight = new Map();
-
 async function ottFetch(endpoint, options = {}) {
-  const dedupeKey = endpoint + "|" + (options.body || "");
-  const pending = _inflight.get(dedupeKey);
-  if (pending) return pending;
-
-  const promise = _ottFetchInner(endpoint, options).finally(() =>
-    _inflight.delete(dedupeKey)
+  // ponytail: apiCore.dedupe replaces the local _inflight map. Key is
+  // prefixed so it cannot collide with generalApis' cache-key namespace.
+  return dedupe("ott:" + endpoint + "|" + (options.body || ""), () =>
+    _ottFetchInner(endpoint, options)
   );
-  _inflight.set(dedupeKey, promise);
-  return promise;
 }
 
 async function _ottFetchInner(endpoint, options = {}) {
   const url = `${OTT_API_BASE}${endpoint}`;
-  const endPerf = perfMonitor.start("POST", url, "OTT", endpoint);
   let lastErr;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    logger.debug("OTT", `Request → POST ${endpoint}${attempt > 0 ? ` (retry ${attempt})` : ""}`);
-
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT);
     let res;
 
     try {
-      res = await fetch(url, {
-        ...options,
-        signal: ctrl.signal,
-        headers: { ...getHeaders(), ...options.headers },
-      });
-    } catch (err) {
-      clearTimeout(timer);
-      const isTimeout = err.name === "AbortError";
-      lastErr = new Error(
-        isTimeout
-          ? "Server took too long to respond. Please check your network and retry."
-          : `Network error: ${err.message}`
+      res = await apiFetch(
+        url,
+        { ...options, headers: { ...getHeadersJson(), ...options.headers } },
+        endpoint,
+        { group: "OTT" }
       );
+    } catch (err) {
+      lastErr = err;
       if (attempt < MAX_RETRIES) {
         await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
         continue;
       }
-      endPerf({ status: 0, error: lastErr.message });
       throw lastErr;
-    } finally {
-      clearTimeout(timer);
     }
 
-    if (!res.ok) {
+    // Retry 5xx only; readEnvelope turns everything else (4xx, bad JSON,
+    // non-zero err_code) into a thrown Error.
+    if (res.status >= 500 && attempt < MAX_RETRIES) {
       lastErr = new Error(`Server error: ${res.status} ${res.statusText}`);
-      if (res.status >= 500 && attempt < MAX_RETRIES) {
-        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-        continue;
-      }
-      endPerf({ status: res.status, error: lastErr.message });
-      throw lastErr;
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+      continue;
     }
 
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (_e) {
-      endPerf({ status: res.status, error: "invalid JSON" });
-      throw new Error("Server returned an invalid response. Please try again.");
-    }
-
-    const entry = endPerf({ status: res.status, size: text.length });
-    logger.api("POST", endpoint, res.status, entry.duration);
-    return data;
+    return readEnvelope(res, "OTT");
   }
 
-  endPerf({ status: 0, error: "max retries exhausted" });
   throw lastErr || new Error("Request failed after retries.");
 }
 

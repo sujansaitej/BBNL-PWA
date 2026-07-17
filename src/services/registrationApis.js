@@ -3,100 +3,24 @@ import logger from "../utils/logger";
 import perfMonitor from "../utils/apiPerfMonitor";
 import { lsGet, lsSet } from "./lsCache";
 import { getUser } from "./safeStorage";
-
-function getBaseUrl() {
-    // return import.meta.env.VITE_API_BASE_URL;
-    if (import.meta.env.PROD) return import.meta.env.VITE_API_BASE_URL; // Use this in production
-    return '/api/'; // Use proxy in development
-}
-
-function getHeadersJson() {
-  return {
-    Authorization: import.meta.env.VITE_API_AUTH_KEY,
-    username: import.meta.env.VITE_API_USERNAME,
-    password: import.meta.env.VITE_API_PASSWORD,
-    appkeytype: localStorage.getItem('loginType') == "franchisee" ? import.meta.env.VITE_API_APP_USER_TYPE : import.meta.env.VITE_API_APP_USER_TYPE_CUST,
-    appversion: import.meta.env.VITE_API_APP_VERSION,
-    "X-App-Package": "com.bbnl.smartphone",
-    "Content-Type": "application/json",
-  };
-}
-
-function getHeadersForm() {
-  return {
-    Authorization: import.meta.env.VITE_API_AUTH_KEY,
-    username: import.meta.env.VITE_API_USERNAME,
-    password: import.meta.env.VITE_API_PASSWORD,
-    appkeytype: localStorage.getItem('loginType') == "franchisee" ? import.meta.env.VITE_API_APP_USER_TYPE : import.meta.env.VITE_API_APP_USER_TYPE_CUST,
-    appversion: import.meta.env.VITE_API_APP_VERSION,
-    "X-App-Package": "com.bbnl.smartphone",
-  };
-}
+import {
+  getBaseUrl,
+  getHeaders,
+  getHeadersJson,
+  getHeadersForm,
+  apiFetch,
+  PROFILE,
+  UPLOAD_TIMEOUT,
+  PAYMENT_TIMEOUT,
+} from "./apiCore";
 
 function getInternetPaymentBaseUrl() {
   return import.meta.env.VITE_INTERNET_PAYMENT_BASE_URL || getBaseUrl();
 }
 
-function getEmployeePaymentHeaders(contentType = "application/json") {
-  return {
-    Authorization:
-      import.meta.env.VITE_API_PAYMENT_AUTH_KEY ||
-      import.meta.env.VITE_INTERNET_PAYMENT_AUTH_KEY ||
-      import.meta.env.VITE_API_AUTH_KEY ||
-      "19dbf24362dff8cca8bb1ab10998eb60",
-    username:
-      import.meta.env.VITE_API_PAYMENT_USERNAME ||
-      import.meta.env.VITE_INTERNET_PAYMENT_USERNAME ||
-      import.meta.env.VITE_API_USERNAME ||
-      "Oracle",
-    password:
-      import.meta.env.VITE_API_PAYMENT_PASSWORD ||
-      import.meta.env.VITE_INTERNET_PAYMENT_PASSWORD ||
-      import.meta.env.VITE_API_PASSWORD ||
-      "Oracle@123",
-    appkeytype:
-      import.meta.env.VITE_API_PAYMENT_APP_USER_TYPE ||
-      import.meta.env.VITE_INTERNET_PAYMENT_APP_USER_TYPE ||
-      import.meta.env.VITE_API_APP_USER_TYPE ||
-      "employee",
-    appversion: import.meta.env.VITE_API_APP_VERSION,
-    "X-App-Package": "com.bbnl.smartphone",
-    "Content-Type": contentType,
-  };
-}
-const API_TIMEOUT = 15000; // 15 seconds
-const UPLOAD_TIMEOUT = 60000; // 60 seconds for file uploads
-// Internet payment endpoints (paymentinfo + savePaymentApi) routinely
-// take 20–35s on bbnlnetmon.bbnl.in/prod because the backend validates,
-// computes share splits, persists the record, and updates plan/expiry
-// in a single request. 15s causes spurious "Request timed out" failures
-// even on 5G; the operator then risks double-charging on retry.
-const PAYMENT_TIMEOUT = 45000;
-
-/** Fetch with AbortController timeout, perf monitoring, and structured logging */
-async function apiFetchWithTimeout(url, options, timeout = API_TIMEOUT, label = "Registration") {
-    const method = options.method || "POST";
-    const endPerf = perfMonitor.start(method, url, "Registration", label);
-    logger.debug("Registration", `${label} → ${method} ${url}`);
-
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeout);
-    try {
-        const resp = await fetch(url, { ...options, signal: ctrl.signal });
-        const entry = endPerf({ status: resp.status });
-        logger.api(method, url, resp.status, entry.duration);
-        return resp;
-    } catch (err) {
-        const isTimeout = err.name === "AbortError";
-        const errMsg = isTimeout ? "timeout" : `network error: ${err.message}`;
-        endPerf({ status: 0, error: errMsg });
-        logger.error("Registration", `${label} ${errMsg}`, { method, url });
-        if (isTimeout) throw new Error("Request timed out. Please check your network and try again.");
-        throw err;
-    } finally {
-        clearTimeout(timer);
-    }
-}
+// ponytail: every apiFetch here is Registration-grouped; one const beats
+// repeating the object at 8 call sites.
+const REG = { group: "Registration" };
 
 // device id helper: persist a uuid in localStorage
 import { v4 as uuidv4 } from "uuid";
@@ -114,11 +38,11 @@ export function getDeviceId() {
 async function postGeneralValidation(payload) {
   const url = `${getBaseUrl()}ServiceApis/generalValidation`;
   const headers = getHeadersJson();
-  const resp = await apiFetchWithTimeout(url, {
+  const resp = await apiFetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify(payload),
-  }, API_TIMEOUT, "generalValidation");
+  }, "generalValidation", REG);
   if (!resp.ok) {
     throw new Error(`HTTP ${resp.status}`);
   }
@@ -190,32 +114,50 @@ export async function checkMobileAvailability(mobile) {
 
 /**
  * Upload a single file to ServiceApis/custKYC
- * - username: user id string (form requires username param)
- * - fieldName: name to send for file (photo1, addrproof1, idcard1, signature, ...)
+ * - username: sent as a query param for Android parity. THE SERVER IGNORES IT.
+ * - fieldName: the file part name — photo1 | idcard1 | idcard2 | addrproof1..3
+ *              | pan1 | pan2 | signature. THIS is what the server reads.
  * - file: File object
  *
- * Returns parsed JSON from server.
+ * HOW THIS ENDPOINT ACTUALLY WORKS (read from the backend source, not inferred)
+ * ---------------------------------------------------------------------------
+ * ServiceApis::custKYC -> CustomerRegistration::_custKYC()
+ * (BBNL-PWA-Backend/application/controllers/ServicesModules/CustomerRegistration.php:341)
+ *
+ * `_custKYC` never reads `username` — not from $_GET, not from $_POST, nowhere.
+ * It is a STATELESS TEMP-FILE UPLOAD:
+ *   1. switches on which $_FILES[<fieldName>] key is present, to derive
+ *      filetype (profile | idproof | address | pan | sign),
+ *   2. inserts a row into `cust_kyc_temp_files`,
+ *   3. writes the file to REG_FILE_DIR,
+ *   4. returns {status, body:{result:{id, filepath, filetype}}}.
+ *
+ * The file is bound to a customer LATER: the caller keeps `body.result.id` and
+ * passes it as `filerefid[]` on the registration POST, where the backend does
+ * getTempFiles($uname, $filerefid) (CustomerRegistration.php:51,151).
+ *
+ * So the ONLY thing that matters on this call is the file part NAME. Android's
+ * @Query("username") is equally ignored by the server; we send it purely so the
+ * two clients put identical bytes on the wire.
  */
 export async function uploadKycFile(username, file, fieldName) {
-  const url = `${getBaseUrl()}ServiceApis/custKYC`;
-  const headers = {
-    Authorization: import.meta.env.VITE_API_AUTH_KEY,
-    username: import.meta.env.VITE_API_USERNAME,
-    password: import.meta.env.VITE_API_PASSWORD,
-    appkeytype: localStorage.getItem('loginType') == "franchisee" ? import.meta.env.VITE_API_APP_USER_TYPE : import.meta.env.VITE_API_APP_USER_TYPE_CUST,
-    appversion: import.meta.env.VITE_API_APP_VERSION,
-    "X-App-Package": "com.bbnl.smartphone",
-  };
+  const url = `${getBaseUrl()}ServiceApis/custKYC?username=${encodeURIComponent(username)}`;
+  // No Content-Type — the browser must set the multipart boundary itself.
+  const headers = getHeadersForm();
 
+  // File part only, matching Android's single @Part. username is NOT a body
+  // field; see above.
   const formData = new FormData();
-  formData.append("username", username);
   formData.append(fieldName, file, file.name || "upload.jpg");
 
-  const resp = await apiFetchWithTimeout(url, {
+  const resp = await apiFetch(url, {
     method: "POST",
     headers,
     body: formData,
-  }, UPLOAD_TIMEOUT, "uploadKycFile");
+    // linkNavigation:false — a half-delivered document upload leaves the
+    // record ambiguous. Uploads are re-runnable, but this file had no
+    // nav-abort pre-migration; don't add one to a write path silently.
+  }, "uploadKycFile", { ...REG, timeout: UPLOAD_TIMEOUT, linkNavigation: false });
   if (!resp.ok) throw new Error(`Upload failed ${resp.status}`);
   const data = await resp.json();
   return data;
@@ -232,7 +174,7 @@ export async function submitRegistrationNecessities(logUname) {
   const url = `${getBaseUrl()}ServiceApis/registrationNecessities`;
   const headers = getHeadersJson();
   const body = JSON.stringify({ logUname });
-  const resp = await apiFetchWithTimeout(url, { method: "POST", headers, body }, API_TIMEOUT, "registrationNecessities");
+  const resp = await apiFetch(url, { method: "POST", headers, body }, "registrationNecessities", REG);
   if (!resp.ok) throw new Error(`registrationNecessities failed ${resp.status}`);
   const data = await resp.json();
   lsSet(cacheKey, data);
@@ -243,7 +185,7 @@ export async function getOnuHwDets(op_id, onumacid) {
   const url     = `${getBaseUrl()}ServiceApis/getonuhardwaredetails`;
   const headers = getHeadersJson();
   const body    = JSON.stringify({ client_id: op_id, macid: onumacid });
-  const resp    = await apiFetchWithTimeout(url, { method: "POST", headers, body }, API_TIMEOUT, "getOnuHwDets");
+  const resp    = await apiFetch(url, { method: "POST", headers, body }, "getOnuHwDets", REG);
   if (!resp.ok) throw new Error(`Failed ${resp.status}`);
   const data = await resp.json();
   return data;
@@ -252,7 +194,10 @@ export async function getOnuHwDets(op_id, onumacid) {
 export async function registerCustomer(payload) {
   const url     = `${getBaseUrl()}ServiceApis/custservregistration`;
   const headers = getHeadersJson();
-  const resp    = await apiFetchWithTimeout(url, { method: "POST", headers, body: JSON.stringify(payload) }, API_TIMEOUT, "registerCustomer");
+  // linkNavigation:false — creates a customer record. An aborted-but-delivered
+  // request leaves us unable to tell whether the customer exists, and the
+  // retry creates a duplicate. Preserves this file's pre-apiCore behavior.
+  const resp    = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "registerCustomer", { ...REG, linkNavigation: false });
   if (!resp.ok) throw new Error(`Customer registration failed ${resp.status}`);
   const data = await resp.json();
   return data;
@@ -269,7 +214,10 @@ export async function getPayDets(params) {
   // Use employee payment headers (same as paymentinfo + savePaymentApi)
   // so the backend sees appkeytype=employee and returns the correct
   // share-split / balance / total calculation for operator context.
-  const headers = getEmployeePaymentHeaders("application/x-www-form-urlencoded");
+  const headers = getHeaders({
+    profile: PROFILE.EMPLOYEE_PAYMENT,
+    contentType: "application/x-www-form-urlencoded",
+  });
 
   const body = new URLSearchParams({
     apiopid: params.apiopid,
@@ -277,11 +225,14 @@ export async function getPayDets(params) {
     apiuserid: params.apiuserid,
   }).toString();
 
-  const resp = await apiFetchWithTimeout(url, {
+  const resp = await apiFetch(url, {
     method: "POST",
     headers,
     body,
-  }, API_TIMEOUT, "getPayDets");
+    // linkNavigation:false — apis/makepayment registers a payment attempt
+    // server-side despite the read-ish name (Android calls this
+    // INTERNETPAYMENTINFO). Treat it as a mutation, not a fetch.
+  }, "getPayDets", { ...REG, linkNavigation: false });
 
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   return await resp.json();
@@ -295,9 +246,9 @@ export async function getPayDets(params) {
 // Endpoint: internet/paymentinfo (JSON)
 export async function getInternetPaymentInfo(params) {
   const url = `${getInternetPaymentBaseUrl()}internet/paymentinfo`;
-  const headers = getEmployeePaymentHeaders("application/json");
-  
-  // CRITICAL FIX (May 2026): Every internet renewal/registration must be 
+  const headers = getHeadersJson(PROFILE.EMPLOYEE_PAYMENT);
+
+  // CRITICAL FIX (May 2026): Every internet renewal/registration must be
   // exactly 1 month. We hardcode it as a Number to ensure the backend 
   // JSON parser doesn't default to a multi-month period.
   const forcedNoofMonth = 1;
@@ -353,11 +304,16 @@ export async function getInternetPaymentInfo(params) {
 
 
 
-  const resp = await apiFetchWithTimeout(url, {
+  const resp = await apiFetch(url, {
     method: "POST",
     headers,
     body,
-  }, PAYMENT_TIMEOUT, "getInternetPaymentInfo");
+    // linkNavigation:false — money in flight. Aborting the request does NOT
+    // roll back the server; it only means we never learn whether the payment
+    // landed, leaving the operator to retry and risk a double charge. This
+    // file had no nav-abort before the apiCore migration (apiCore defaults it
+    // on), so opting out here preserves the original, safer behavior.
+  }, "getInternetPaymentInfo", { ...REG, timeout: PAYMENT_TIMEOUT, linkNavigation: false });
 
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   const data = await resp.json();
@@ -384,8 +340,11 @@ export async function getInternetPaymentInfo(params) {
 //   payreceivedby, paymode, renewstatus, receivedremark
 export async function payNow(params) {
   const url = `${getInternetPaymentBaseUrl()}apis/savePaymentApi`;
-  const headers = getEmployeePaymentHeaders("application/x-www-form-urlencoded");
-  
+  const headers = getHeaders({
+    profile: PROFILE.EMPLOYEE_PAYMENT,
+    contentType: "application/x-www-form-urlencoded",
+  });
+
   // CRITICAL FIX (May 2026): Force exactly 1 month for all internet renewals.
   const forcedNoofMonth = 1;
 
@@ -426,11 +385,13 @@ export async function payNow(params) {
 
 
 
-  const resp = await apiFetchWithTimeout(url, {
+  const resp = await apiFetch(url, {
     method: "POST",
     headers,
     body,
-  }, PAYMENT_TIMEOUT, "payNow");
+    // linkNavigation:false — see getInternetPaymentInfo. This is the actual
+    // debit call; a cancelled-but-delivered request is the double-charge path.
+  }, "payNow", { ...REG, timeout: PAYMENT_TIMEOUT, linkNavigation: false });
 
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   const data = await resp.json();

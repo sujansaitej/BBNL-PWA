@@ -2,33 +2,7 @@
 import logger from "../utils/logger";
 import perfMonitor from "../utils/apiPerfMonitor";
 import { lsGet, lsSet } from "./lsCache";
-import { getServiceSignal, isBackgroundMode } from "./navigationController";
-
-function getBaseUrl() {
-    if (import.meta.env.PROD) return import.meta.env.VITE_API_BASE_URL;
-    return '/api/';
-}
-
-function getHeadersJson() {
-    return {
-        Authorization: import.meta.env.VITE_API_AUTH_KEY,
-        username: import.meta.env.VITE_API_USERNAME,
-        password: import.meta.env.VITE_API_PASSWORD,
-        appkeytype: localStorage.getItem('loginType') == "franchisee" ? import.meta.env.VITE_API_APP_USER_TYPE : import.meta.env.VITE_API_APP_USER_TYPE_CUST,
-        appversion: import.meta.env.VITE_API_APP_VERSION,
-        "Content-Type": "application/json",
-    };
-}
-
-function getHeadersForm() {
-    return {
-        Authorization: import.meta.env.VITE_API_AUTH_KEY,
-        username: import.meta.env.VITE_API_USERNAME,
-        password: import.meta.env.VITE_API_PASSWORD,
-        appkeytype: localStorage.getItem('loginType') == "franchisee" ? import.meta.env.VITE_API_APP_USER_TYPE : import.meta.env.VITE_API_APP_USER_TYPE_CUST,
-        appversion: import.meta.env.VITE_API_APP_VERSION,
-    };
-}
+import { apiFetch, getBaseUrl, getHeadersJson, UPLOAD_TIMEOUT } from "./apiCore";
 
 function getBasicAuthHeader() {
     return {
@@ -37,69 +11,17 @@ function getBasicAuthHeader() {
     };
 }
 
-// Matches generalApis.js — 30 s covers real-world 3G tail latency on
-// low-tier franchisee phones. 15 s was timing out before the server
-// could respond on slow networks.
-const API_TIMEOUT = 30000; // 30 seconds
+// Request layer (timeout, nav-abort, perf, logging) lives in apiCore.
+// Timeouts: apiCore.API_TIMEOUT (30 s) is the default.
+//
 // Submit-critical FoFi calls (upgradeRegistration, paymentinfo,
 // generateorder) hit heavy backend work — operator-sync, order
 // ledger writes — that legitimately runs past 30 s on slow franchisee
 // connections. QA (04 Jun 2026) saw "Request timed out" frequently on
 // an otherwise stable network where the submit "occasionally works":
-// the backend was simply answering between 30–60 s. A 60 s ceiling for
-// these specific calls removes the false timeout without masking a real
-// dead connection. Matches the 60 s upload timeout in generalApis.js.
-const API_TIMEOUT_LONG = 60000; // 60 seconds
-
-/** Fetch with AbortController timeout, perf monitoring, navigation abort, and structured logging */
-async function fofiApiFetch(url, options, label = "FoFi", timeoutMs = API_TIMEOUT) {
-    const method = options.method || "POST";
-    const endPerf = perfMonitor.start(method, url, "FoFi", label);
-    logger.debug("FoFi", `${label} → ${method} ${url}`);
-
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-
-    // Link to navigation controller — abort if user navigated to another page.
-    // Skip for background/prefetch requests so cache-warming isn't killed on navigation.
-    const _bg = isBackgroundMode();
-    let navSignal, onNavAbort;
-    if (!_bg) {
-        navSignal = getServiceSignal();
-        onNavAbort = () => ctrl.abort();
-        if (navSignal.aborted) {
-            clearTimeout(timer);
-            endPerf({ status: 0, error: "navigation cancelled" });
-            throw new Error("Request cancelled — navigated away.");
-        }
-        navSignal.addEventListener('abort', onNavAbort, { once: true });
-    }
-
-    try {
-        const resp = await fetch(url, { ...options, signal: ctrl.signal });
-        const entry = endPerf({ status: resp.status });
-        logger.api(method, url, resp.status, entry.duration);
-        if (resp.status === 401 || resp.status === 403) {
-            logger.security("FOFI_AUTH_REJECTED", { endpoint: url, status: resp.status, label });
-        }
-        return resp;
-    } catch (err) {
-        const isTimeout = err.name === "AbortError";
-        // Distinguish navigation abort from timeout
-        if (isTimeout && navSignal?.aborted) {
-            endPerf({ status: 0, error: "navigation cancelled" });
-            throw new Error("Request cancelled — navigated away.");
-        }
-        const errMsg = isTimeout ? "timeout" : `network error: ${err.message}`;
-        endPerf({ status: 0, error: errMsg });
-        logger.error("FoFi", `${label} ${errMsg}`, { method, url });
-        if (isTimeout) throw new Error("Request timed out. Please check your network and try again.");
-        throw err;
-    } finally {
-        clearTimeout(timer);
-        if (navSignal) navSignal.removeEventListener('abort', onNavAbort);
-    }
-}
+// the backend was simply answering between 30–60 s. Those three pass
+// `timeout: UPLOAD_TIMEOUT` (60 s) to remove the false timeout without
+// masking a real dead connection.
 
 /**
  * Generate FoFi Payment Order - Called when user clicks "PROCEED TO PAY"
@@ -143,11 +65,11 @@ export async function generateFofiOrder(payload) {
 
     logger.debug("FoFi", "generateFofiOrder request", { planid: orderPayload.planid, priceid: orderPayload.priceid, fofiboxid: orderPayload.fofiboxid });
 
-    const resp = await fofiApiFetch(url, {
+    const resp = await apiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(orderPayload),
-    }, "generateFofiOrder", API_TIMEOUT_LONG);
+    }, "generateFofiOrder", { group: "FoFi", timeout: UPLOAD_TIMEOUT });
 
     if (!resp.ok) {
         throw new Error(`Failed to generate FoFi order: HTTP ${resp.status}`);
@@ -175,11 +97,11 @@ export async function getSpecialInternetPlans(payload, options = {}) {
     const url = `${getBaseUrl()}ServiceApis/specialInternetPlans`;
     const headers = getHeadersJson();
 
-    const resp = await fofiApiFetch(url, {
+    const resp = await apiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    }, "getSpecialInternetPlans");
+    }, "getSpecialInternetPlans", { group: "FoFi" });
 
     if (!resp.ok) {
         throw new Error(`Failed to fetch special internet plans: HTTP ${resp.status}`);
@@ -207,11 +129,11 @@ export async function validateBeforeFofiBoxReg(payload, options = {}) {
 
     logger.debug("FoFi", "validateBeforeFofiBoxReg request", { username: payload.username });
 
-    const resp = await fofiApiFetch(url, {
+    const resp = await apiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    }, "validateBeforeFofiBoxReg");
+    }, "validateBeforeFofiBoxReg", { group: "FoFi" });
 
     if (!resp.ok) {
         throw new Error(`Failed to validate before FoFi Box registration: HTTP ${resp.status}`);
@@ -251,11 +173,11 @@ export async function getFofiUpgradePlans(payload) {
 
     logger.debug("FoFi", "getFofiUpgradePlans request", { userid: payload.userid, moduletype: payload.moduletype });
 
-    const resp = await fofiApiFetch(url, {
+    const resp = await apiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    }, "getFofiUpgradePlans");
+    }, "getFofiUpgradePlans", { group: "FoFi" });
 
     if (!resp.ok) {
         throw new Error(`Failed to fetch FoFi upgrade plans: HTTP ${resp.status}`);
@@ -282,11 +204,11 @@ export async function upgradeRegistration(payload) {
         userid: payload.userid || payload.username,
     });
 
-    const resp = await fofiApiFetch(url, {
+    const resp = await apiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    }, "upgradeRegistration", API_TIMEOUT_LONG);
+    }, "upgradeRegistration", { group: "FoFi", timeout: UPLOAD_TIMEOUT });
 
     if (!resp.ok) {
         throw new Error(`Failed to submit upgrade registration: HTTP ${resp.status}`);
@@ -308,11 +230,11 @@ export async function getFofiPaymentInfo(payload) {
 
     logger.debug("FoFi", "getFofiPaymentInfo request", { fofi_box_id: payload.fofi_box_id, planid: payload.planid });
 
-    const resp = await fofiApiFetch(url, {
+    const resp = await apiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    }, "getFofiPaymentInfo", API_TIMEOUT_LONG);
+    }, "getFofiPaymentInfo", { group: "FoFi", timeout: UPLOAD_TIMEOUT });
 
     if (!resp.ok) {
         throw new Error(`Failed to get FoFi payment info: HTTP ${resp.status}`);
@@ -334,11 +256,11 @@ export async function validateFoFiAsset(payload) {
 
     logger.debug("FoFi", "validateFoFiAsset request", { serialno: payload.serialno, mac_addr: payload.mac_addr, userid: payload.userid, boxid: payload.boxid });
 
-    const resp = await fofiApiFetch(url, {
+    const resp = await apiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    }, "validateFoFiAsset");
+    }, "validateFoFiAsset", { group: "FoFi" });
 
     // Try to parse the body even on !resp.ok — the backend returns
     // err_msg on 4xx too (e.g. "device not belongs op(BBNL_OP49)").
@@ -361,11 +283,11 @@ export async function linkFoFiBox(payload) {
     const url = `${getBaseUrl()}ServiceApis/freeOTAService`;
     const headers = getHeadersJson();
 
-    const resp = await fofiApiFetch(url, {
+    const resp = await apiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    }, "linkFoFiBox");
+    }, "linkFoFiBox", { group: "FoFi" });
 
     if (!resp.ok) {
         throw new Error(`Failed to link FoFi box: HTTP ${resp.status}`);
@@ -383,10 +305,10 @@ export async function getFoFiPlans() {
     const url = `${getBaseUrl()}ServiceApis/getFoFiPlans`;
     const headers = getHeadersJson();
 
-    const resp = await fofiApiFetch(url, {
+    const resp = await apiFetch(url, {
         method: "GET",
         headers,
-    }, "getFoFiPlans");
+    }, "getFoFiPlans", { group: "FoFi" });
 
     if (!resp.ok) {
         throw new Error(`Failed to fetch FoFi plans: HTTP ${resp.status}`);
@@ -407,11 +329,11 @@ export async function validateDeviceByQR(payload) {
     const url = `${getBaseUrl()}ServiceApis/validateDeviceByQR`;
     const headers = getHeadersJson();
 
-    const resp = await fofiApiFetch(url, {
+    const resp = await apiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    }, "validateDeviceByQR");
+    }, "validateDeviceByQR", { group: "FoFi" });
 
     if (!resp.ok) {
         throw new Error(`Failed to validate device by QR: HTTP ${resp.status}`);
@@ -447,11 +369,11 @@ export async function fetchMACBySerial(payload) {
     const url = `${getBaseUrl()}ServiceApis/fetchMACBySerial`;
     const headers = getHeadersJson();
 
-    const resp = await fofiApiFetch(url, {
+    const resp = await apiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    }, "fetchMACBySerial");
+    }, "fetchMACBySerial", { group: "FoFi" });
 
     if (!resp.ok) {
         throw new Error(`Failed to fetch MAC address: HTTP ${resp.status}`);
@@ -488,11 +410,11 @@ export async function validateDeviceAvailability(payload) {
     const url = `${getBaseUrl()}ServiceApis/validateDeviceAvailability`;
     const headers = getHeadersJson();
 
-    const resp = await fofiApiFetch(url, {
+    const resp = await apiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    }, "validateDeviceAvailability");
+    }, "validateDeviceAvailability", { group: "FoFi" });
 
     if (!resp.ok) {
         throw new Error(`Failed to validate device availability: HTTP ${resp.status}`);
@@ -531,11 +453,11 @@ export async function registerFoFiDevice(payload) {
     const url = `${getBaseUrl()}ServiceApis/registerFoFiDevice`;
     const headers = getHeadersJson();
 
-    const resp = await fofiApiFetch(url, {
+    const resp = await apiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    }, "registerFoFiDevice");
+    }, "registerFoFiDevice", { group: "FoFi" });
 
     if (!resp.ok) {
         throw new Error(`Failed to register FoFi device: HTTP ${resp.status}`);
@@ -570,11 +492,11 @@ export async function getFoFiDeviceDetails(payload) {
     const url = `${getBaseUrl()}ServiceApis/getFoFiDeviceDetails`;
     const headers = getHeadersJson();
 
-    const resp = await fofiApiFetch(url, {
+    const resp = await apiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    }, "getFoFiDeviceDetails");
+    }, "getFoFiDeviceDetails", { group: "FoFi" });
 
     if (!resp.ok) {
         throw new Error(`Failed to fetch FoFi device details: HTTP ${resp.status}`);
@@ -623,11 +545,11 @@ export async function changeFoFiPlan(payload) {
     const url = `${getBaseUrl()}ServiceApis/changeFoFiPlan`;
     const headers = getHeadersJson();
 
-    const resp = await fofiApiFetch(url, {
+    const resp = await apiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    }, "changeFoFiPlan");
+    }, "changeFoFiPlan", { group: "FoFi" });
 
     if (!resp.ok) {
         throw new Error(`Failed to change FoFi plan: HTTP ${resp.status}`);
@@ -667,11 +589,11 @@ export async function createFoFiPaymentOrder(payload) {
     const url = `${getBaseUrl()}ServiceApis/createFoFiPaymentOrder`;
     const headers = getHeadersJson();
 
-    const resp = await fofiApiFetch(url, {
+    const resp = await apiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    }, "createFoFiPaymentOrder");
+    }, "createFoFiPaymentOrder", { group: "FoFi" });
 
     if (!resp.ok) {
         throw new Error(`Failed to create payment order: HTTP ${resp.status}`);
@@ -709,11 +631,11 @@ export async function verifyFoFiPayment(payload) {
     const url = `${getBaseUrl()}ServiceApis/verifyFoFiPayment`;
     const headers = getHeadersJson();
 
-    const resp = await fofiApiFetch(url, {
+    const resp = await apiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    }, "verifyFoFiPayment");
+    }, "verifyFoFiPayment", { group: "FoFi" });
 
     if (!resp.ok) {
         throw new Error(`Failed to verify payment: HTTP ${resp.status}`);
@@ -752,11 +674,11 @@ export async function processFoFiBillPayment(payload) {
     const url = `${getBaseUrl()}ServiceApis/processFoFiBillPayment`;
     const headers = getHeadersJson();
 
-    const resp = await fofiApiFetch(url, {
+    const resp = await apiFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
-    }, "processFoFiBillPayment");
+    }, "processFoFiBillPayment", { group: "FoFi" });
 
     if (!resp.ok) {
         throw new Error(`Failed to process bill payment: HTTP ${resp.status}`);
@@ -798,10 +720,10 @@ export async function getFoFiPaymentHistory(payload) {
     const url = `${getBaseUrl()}ServiceApis/getFoFiPaymentHistory?${query}`;
     const headers = getHeadersJson();
 
-    const resp = await fofiApiFetch(url, {
+    const resp = await apiFetch(url, {
         method: "GET",
         headers,
-    }, "getFoFiPaymentHistory");
+    }, "getFoFiPaymentHistory", { group: "FoFi" });
 
     if (!resp.ok) {
         throw new Error(`Failed to fetch payment history: HTTP ${resp.status}`);
