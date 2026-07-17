@@ -57,6 +57,12 @@ export default function Dashboard() {
       if (fofiData?.status?.err_code === 0)
         setFofiWB((fofiData?.body?.wallet_balance ?? 0).toFixed(2));
     });
+    // Warm the cabletv wallet cache too (not displayed here). The cable
+    // Checkout screen reads walbal_*_cabletv; without this prefetch its first
+    // open is a cold miss and shows "Wallet Balance: Loading…" for the whole
+    // 4–45s round trip on the slow backend. Fire-and-forget — getWalBal lsSets
+    // the result, so Checkout paints instantly from cache.
+    getWalBal({ loginuname: logUname, servicekey: 'cabletv' }, skipCache).catch(() => null);
   }
 
   function refreshDashboardCounts(skipCache = false) {

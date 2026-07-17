@@ -2182,38 +2182,49 @@ function FoFiSmartBox() {
                 }
             }
 
-            if (fofiBoxId) {
-                const freshPlanDetails = await getMyPlanDetails(
-                    { servicekey: 'fofi', userid, fofiboxid: fofiBoxId, voipnumber: '' },
-                    true
-                ).catch(() => null);
-                if (freshPlanDetails?.body) {
-                    planDetailsSnapshot = freshPlanDetails;
-                    setFofiPlanDetailsRaw(freshPlanDetails);
-                    const fofiSvc = findFoFiSubscribedService(freshPlanDetails);
-                    if (fofiSvc) {
-                        setFofiServiceDetails(prev => prev ? {
-                            ...prev,
-                            planName: firstTrimmedValue(fofiSvc.planname, fofiSvc.plan_name, prev.planName),
-                            expiryDate: firstTrimmedValue(fofiSvc.expirydate, fofiSvc.expiry_date, fofiSvc.expdate, prev.expiryDate),
-                            ottPlanId: firstTrimmedValue(fofiSvc.internet_planid, fofiSvc.srvid, fofiSvc.planid, prev.ottPlanId),
-                            _rawFofiSvc: fofiSvc,
-                        } : prev);
-                    }
+            // Fire the plan-details refresh and the plan-catalog fetch
+            // CONCURRENTLY — they're independent (resolvePayBillPlanIds below
+            // consumes both, neither feeds the other), and each is SKIPPED when
+            // we already have the data:
+            //   • plan refresh: skipped when the mount already cached plan
+            //     details into state (planDetailsSnapshot.body present). The old
+            //     code re-fetched getMyPlanDetails on EVERY PAY BILL with
+            //     skipCache=true — a redundant network call that, on the slow
+            //     backend, is the bulk of the 10–15s wait when the operator
+            //     arrived straight from the overview (which already has it).
+            //   • catalog: skipped when upgradePlans is already populated.
+            // Warm path (arrived from overview) now fires nothing here.
+            const needPlanRefresh = !!fofiBoxId && !planDetailsSnapshot?.body;
+            const needCatalog = !(upgradePlans && upgradePlans.length > 0);
+            const [freshPlanDetails, plansResponse] = await Promise.all([
+                needPlanRefresh
+                    ? getMyPlanDetails({ servicekey: 'fofi', userid, fofiboxid: fofiBoxId, voipnumber: '' }, true).catch(() => null)
+                    : Promise.resolve(null),
+                needCatalog
+                    ? getFofiUpgradePlans({ logUname: loginuname, moduletype: "upgradation", userid }).catch(() => null)
+                    : Promise.resolve(null),
+            ]);
+
+            if (freshPlanDetails?.body) {
+                planDetailsSnapshot = freshPlanDetails;
+                setFofiPlanDetailsRaw(freshPlanDetails);
+                const fofiSvc = findFoFiSubscribedService(freshPlanDetails);
+                if (fofiSvc) {
+                    setFofiServiceDetails(prev => prev ? {
+                        ...prev,
+                        planName: firstTrimmedValue(fofiSvc.planname, fofiSvc.plan_name, prev.planName),
+                        expiryDate: firstTrimmedValue(fofiSvc.expirydate, fofiSvc.expiry_date, fofiSvc.expdate, prev.expiryDate),
+                        ottPlanId: firstTrimmedValue(fofiSvc.internet_planid, fofiSvc.srvid, fofiSvc.planid, prev.ottPlanId),
+                        _rawFofiSvc: fofiSvc,
+                    } : prev);
                 }
             }
 
-            // Load the purchasable-plan catalog UP FRONT (not just as a
-            // fallback). For an expired subscription the current plan must
-            // be resolved to a valid plan id BEFORE opening payment, and
-            // the catalog name-match is the reliable source for that.
+            // Resolve the purchasable-plan catalog. For an expired subscription
+            // the current plan must map to a valid plan id BEFORE opening
+            // payment, and the catalog name-match is the reliable source.
             let planCatalog = (upgradePlans && upgradePlans.length > 0) ? upgradePlans : [];
-            if (planCatalog.length === 0) {
-                const plansResponse = await getFofiUpgradePlans({
-                    logUname: loginuname,
-                    moduletype: "upgradation",
-                    userid,
-                }).catch(() => null);
+            if (planCatalog.length === 0 && plansResponse) {
                 const catalog = flattenFoFiPlanCatalog(plansResponse);
                 if (catalog.length > 0) {
                     const mappedCatalog = catalog.map((plan, idx) => ({

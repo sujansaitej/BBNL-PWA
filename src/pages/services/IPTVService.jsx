@@ -28,6 +28,7 @@ import { lsGet, lsSet, lsRemove, lsGetStale } from "../../services/lsCache";
 import { canonicalServiceKey } from "../../constants/services";
 import { getUser } from "../../services/safeStorage";
 import { extractBoxIdFromAssigned } from "../../utils/boxId";
+import { raceForFirstMatch } from "../../utils/raceForFirst";
 
 const getPackageId = (pkg, fallback = "") => String(pkg?.pkgid ?? pkg?.packageid ?? pkg?.id ?? fallback);
 const getPackageCode = (pkg) => String(pkg?.pkgcode ?? pkg?.pkgid ?? pkg?.packageid ?? "");
@@ -395,19 +396,26 @@ export default function IPTVService() {
     const _cachedLastSub = (_cachedBoxId && userid)
         ? lsGetStale(`iptvLastSub_${userid}_${_cachedBoxId}`, _STALE_TTL) : null;
     const _cachedWallet = logUname ? lsGetStale(`walbal_${logUname}_cabletv`, _STALE_TTL) : null;
-    // Plan-section is renderable without waiting when we have either:
-    //   1. Cached plan details with a real subscribed_services entry
-    //      (we can render the plan card instantly), OR
-    //   2. The authenticated usertype says this customer has no cable
-    //      (definitive "not opted" — no need to wait for plan).
-    // Otherwise the plan section is genuinely loading and the
-    // operator should see a spinner, not a misleading message.
+    // Plan-section is renderable without waiting ONLY when we have cached
+    // plan details with a real subscribed_services entry (render the plan
+    // card instantly). Otherwise the plan section is genuinely loading and
+    // the operator must see a SPINNER, not a "not opted" message.
+    //
+    // We deliberately do NOT treat "usertype != cable" as a definitive
+    // "not opted" shortcut anymore. That signal is unreliable: verified live
+    // that every customer in this operator's base carries usertype="internet"
+    // (never "cable"), including real cable/FoFi subscribers like `pwaram`.
+    // Trusting it painted an immediate "not opted" with no spinner on the
+    // FIRST visit — before the slow box-discovery fetch (4–41s, backend is
+    // wildly variable) resolved the box — so operators saw a false "not
+    // opted" and had to manually refresh. The plan card only appeared on the
+    // second visit once the box id was cached. Showing a spinner until the
+    // real fetch settles is the fix.
     const _cachedSubscribedService = pickCableSubscribedService(_cachedPlan?.data);
     const _cachedHasPlan = !!_cachedSubscribedService;
     const _cachedPlanLooksExpired = _cachedHasPlan && isExpiredDate(_cachedSubscribedService?.expirydate);
     const _cachedPlanDataForRender = _cachedPlanLooksExpired ? null : _cachedPlan?.data;
-    const _cachedDefinitelyNotOpted = !!customerData && !hasCableFromUsertype;
-    const _hasCachedPlanRender = (!!_cachedPlanDataForRender && _cachedHasPlan) || _cachedDefinitelyNotOpted;
+    const _hasCachedPlanRender = !!_cachedPlanDataForRender && _cachedHasPlan;
 
     // API states — overview
     const [planDetails, setPlanDetails] = useState(_cachedPlanDataForRender || null);
@@ -431,7 +439,7 @@ export default function IPTVService() {
     //                        details) settles. Gates ONLY the Plan
     //                        Details card content; the page is already
     //                        usable while it spins.
-    const [loading, setLoading] = useState(!_cachedBoxId && !_cachedDefinitelyNotOpted);
+    const [loading, setLoading] = useState(!_cachedBoxId);
     const [planSectionLoading, setPlanSectionLoading] = useState(!_hasCachedPlanRender);
     const [error, setError] = useState("");
 
@@ -543,7 +551,7 @@ export default function IPTVService() {
             // hydrated from cache the page is already painted — flipping
             // loading to true would cause a useless flash from data-back-
             // to-spinner-back-to-data on every revisit.
-            if (!_cachedBoxId && !_cachedDefinitelyNotOpted) setLoading(true);
+            if (!_cachedBoxId) setLoading(true);
             if (!_hasCachedPlanRender || _cachedPlanLooksExpired) setPlanSectionLoading(true);
             setError("");
 
@@ -593,71 +601,57 @@ export default function IPTVService() {
                 fofiPlanPromiseMaybe.then(d => { if (!cancelled && d) setFofiPlanDetails(d); }).catch(() => {});
             }
 
-            // R4 fix (2026-07-17): box discovery no longer fires all four
-            // servkeys concurrently. fofi is where the box lives in the common
-            // case, so fire it first (alongside the already-live plan/lastSub
-            // promises), and fan out to the multi/voip/internet fallbacks ONLY
-            // if fofi surfaces no box. Previously all four fired every cold
-            // start — 3 wasted concurrent requests on the common path. They are
-            // 5-min cached + deduped, so warm opens were already free; this
-            // trims the cold-start burst the operator sees. Cost: one extra RTT
-            // in the uncommon case where the box is classified outside "fofi".
-            const [
-                assignedFofiResult,
-                planResultMaybe,
-                lastSubResultMaybe,
-                fofiPlanResultMaybe,
-            ] = await Promise.allSettled([
-                getUserAssignedItems("fofi", userid),
-                planPromiseMaybe,
-                lastSubPromiseMaybe,
-                fofiPlanPromiseMaybe,
-            ]);
-
-            if (cancelled) return;
-            if (navCancelled(assignedFofiResult)) return;
-
             const _EMPTY_ASSIGNED = { status: "fulfilled", value: null };
-            let assignedCableResult = _EMPTY_ASSIGNED;
+            // Box-ID extraction is shared with prefetch.js via utils/boxId.js
+            // so the prefetch warm-up and this page resolve the SAME box and
+            // never cache conflicting values.
+            const extractBoxId = (result) => {
+                if (result?.status !== "fulfilled" || !result.value) return "";
+                return extractBoxIdFromAssigned(result.value, userid);
+            };
+
+            // Box discovery — FIRST-BOX-WINS race across the two authoritative
+            // servkeys (fofi + cabletv), fired CONCURRENTLY.
+            //
+            // Why not await one key first: the backend is wildly variable.
+            // Verified live for a real cable+FoFi customer (`pwaram`) that the
+            // SAME box returned in 4.2s via servkey="cabletv" but 41.7s via
+            // servkey="fofi". The old "await fofi, then fall back" made the
+            // whole page hostage to the slowest key — 41s of blank/"not opted"
+            // on the first visit. raceForFirstMatch caps discovery at the
+            // FASTEST key that carries a box (unit-tested in raceForFirst.test).
+            const _PRIMARY_KEYS = ["fofi", "cabletv"];
+            const primaryRaced = await raceForFirstMatch(
+                _PRIMARY_KEYS.map((k) => () => getUserAssignedItems(k, userid)),
+                (v) => !!v && !!extractBoxIdFromAssigned(v, userid)
+            );
+            if (cancelled) return;
+            const assignedFofiResult = primaryRaced[0] || _EMPTY_ASSIGNED;
+            const assignedCableResult = primaryRaced[1] || _EMPTY_ASSIGNED;
+            if (navCancelled(assignedFofiResult) || navCancelled(assignedCableResult)) return;
+
+            // Reconciliation needs the plan / lastSub results (fired as
+            // standalone promises above so they paint early). Collect them here
+            // without gating box discovery on them.
+            const [planResultMaybe, lastSubResultMaybe, fofiPlanResultMaybe] =
+                await Promise.allSettled([planPromiseMaybe, lastSubPromiseMaybe, fofiPlanPromiseMaybe]);
+            if (cancelled) return;
+
             let assignedMultiResult = _EMPTY_ASSIGNED;
             let assignedVoipResult = _EMPTY_ASSIGNED;
             let assignedInternetResult = _EMPTY_ASSIGNED;
-            const fofiHasBox = assignedFofiResult.status === "fulfilled" && assignedFofiResult.value
-                ? !!extractBoxIdFromAssigned(assignedFofiResult.value, userid)
-                : false;
-            if (!fofiHasBox) {
-                // servkey is a CONTENT FILTER, not a label: the backend returns
-                // only the items matching the requested key (verified live —
-                // servkey="fofi" omits the internet bucket entirely). Native's
-                // cable page queries servkey="cabletv" specifically
-                // (CustomerCompleteOverviewFragment: getUserConnections with
-                // servkey="cabletv"), and a cable-only customer's box can land
-                // under that key alone. The PWA never sent it, so we add it to
-                // the fan-out. This is a pure superset — a cached/deduped read
-                // that can only find MORE boxes, never fewer.
-                [assignedCableResult, assignedMultiResult, assignedVoipResult, assignedInternetResult] = await Promise.allSettled([
-                    getUserAssignedItems("cabletv", userid).catch(() => null),
+            // Only fan out to the secondary keys when NEITHER authoritative key
+            // surfaced a box — different backend user-state classifications
+            // occasionally file the box under multi/internet instead.
+            const primaryHasBox = !!(extractBoxId(assignedFofiResult) || extractBoxId(assignedCableResult));
+            if (!primaryHasBox) {
+                [assignedMultiResult, assignedVoipResult, assignedInternetResult] = await Promise.allSettled([
                     getUserAssignedItems("multi", userid).catch(() => null),
                     getUserAssignedItems("voip", userid).catch(() => null),
                     getUserAssignedItems("internet", userid).catch(() => null),
                 ]);
                 if (cancelled) return;
             }
-
-            // Box ID resolution — scan ALL servkey responses (fofi, cabletv,
-            // multi, voip, internet) and pick the first BBNL-/FOFI-/TV-shaped
-            // product_name we find. Different user-state classifications on the
-            // backend put the same box under different servkeys; trying all
-            // means we don't silently miss the box ID. cabletv is checked right
-            // after fofi because this is the cable page and native resolves the
-            // cable box from that key.
-            // Box-ID extraction is shared with prefetch.js via
-            // utils/boxId.js so the prefetch warm-up and this page resolve
-            // the SAME box and never cache conflicting values.
-            const extractBoxId = (result) => {
-                if (result?.status !== "fulfilled" || !result.value) return "";
-                return extractBoxIdFromAssigned(result.value, userid);
-            };
 
             let boxId = extractBoxId(assignedFofiResult) ||
                 extractBoxId(assignedCableResult) ||
@@ -1420,7 +1414,13 @@ export default function IPTVService() {
         };
 
         try {
-            const fresh = await getWalBal({ loginuname: logUname, servicekey: "cabletv" }, true);
+            // Checkout-OPEN (debitAmount === 0) only needs to DISPLAY the
+            // balance — read the 5-min cache first so it paints instantly
+            // instead of blocking on a 4–45s network round trip (the "Wallet
+            // Balance: Loading…" that hung on this slow backend). Warmed by the
+            // dashboard prefetch. POST-PAYMENT (debitAmount > 0) must confirm
+            // the debit landed, so it forces a fresh fetch.
+            const fresh = await getWalBal({ loginuname: logUname, servicekey: "cabletv" }, debitAmount > 0);
             const freshAmount = applyFreshWallet(fresh);
 
             if (expectedAmount === null || freshAmount === null || freshAmount <= expectedAmount + 0.01) {
@@ -1548,7 +1548,10 @@ export default function IPTVService() {
             lsRemove(`iptvLastSub_${userid}_${fofiBoxId}`);
             lsRemove(`uai_fofi_${userid}`);
             lsRemove(`uai_cabletv_${userid}`);
-            lsRemove(`walbal_${logUname}_cabletv`);
+            // NOTE: intentionally do NOT clear walbal_*_cabletv here. The
+            // refresh below fetches fresh (skipCache=true → getWalBal lsSets
+            // the post-debit balance), so the cache is left warm+correct for
+            // the next checkout instead of cold → "Wallet Balance: Loading…".
         } catch (_) { /* cache clear is best-effort */ }
 
         refreshCableWalletBalance({
