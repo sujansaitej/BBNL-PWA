@@ -8,13 +8,22 @@
 FROM node:22-slim AS builder
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+# package-lock.json is gitignored in this repo (.gitignore:21), so it is never
+# in the build context — hence `npm install`, not `npm ci`. The trailing glob
+# picks the lockfile up automatically if that policy ever changes, without
+# failing the COPY while it doesn't exist.
+COPY package.json package-lock.json* ./
 
-# ngrok is a dev-tunnel tool pulled in as a devDependency. Its postinstall
-# downloads a binary and is the one script here that can fail the image build
-# while contributing nothing to it. Skip scripts, then let vite's own toolchain
-# (esbuild/rollup) resolve its platform binaries from the lockfile.
-RUN npm ci --no-audit --no-fund --ignore-scripts
+# --ignore-scripts skips ngrok's postinstall, which downloads a dev-tunnel
+# binary this image has no use for. esbuild and rollup are unaffected: their
+# linux binaries come from optional dependencies (@esbuild/linux-x64,
+# @rollup/rollup-linux-x64-gnu) that npm installs directly and both resolve at
+# runtime rather than from a postinstall step.
+RUN if [ -f package-lock.json ]; then \
+      npm ci --no-audit --no-fund --ignore-scripts; \
+    else \
+      npm install --no-audit --no-fund --ignore-scripts; \
+    fi
 
 COPY . .
 
