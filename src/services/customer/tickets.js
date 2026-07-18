@@ -42,7 +42,7 @@
 // (service_user_id) and `operid` is the OPERATOR id. That inversion is the
 // backend's, confirmed in RaiseNewTicketsFragment — kept as-is on purpose.
 
-import { apiFetch, getBaseUrl, readEnvelopeRaw } from "../apiCore";
+import { apiFetch, getBaseUrl, readEnvelopeRaw, dedupe } from "../apiCore";
 import { lsGet, lsSet } from "../lsCache";
 import perfMonitor from "../../utils/apiPerfMonitor";
 
@@ -70,6 +70,15 @@ const contains = (v, needle) =>
 // Runs first when the raise screen opens. Android keeps the form disabled
 // until err_code === 0. Returns { open, message }.
 export async function checkMaintenance({ apiopid, cid, servicekey }) {
+  // DEDUPED, NOT CACHED. This endpoint pings the customer's line server-side
+  // and takes ~2.4s on production (~12s on staging) — by far the slowest call
+  // in the customer flow. Anything that mounts the raise screen twice (React
+  // StrictMode in dev, a fast tab switch, a retry tap) otherwise fires two
+  // full round trips. dedupe() collapses concurrent identical calls.
+  //
+  // Deliberately NOT cached: a stale "under maintenance" verdict is worse
+  // than a slow one.
+  return dedupe(`custtkt_maint_${apiopid}_${cid}_${servicekey}`, async () => {
   const url = `${getBaseUrl()}apis/maintenance/`;
   const body = new URLSearchParams({
     apiopid: apiopid || "",
@@ -104,6 +113,7 @@ export async function checkMaintenance({ apiopid, cid, servicekey }) {
     message: errMsg,   // diagnostic only — do not render this to customers
     raw: data,
   };
+  });
 }
 
 // ── 2. Subjects dropdown (GET · apis/subjects/ · APIS) ───────────────

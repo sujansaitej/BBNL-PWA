@@ -63,6 +63,11 @@ const UploadDocuments = lazyRetry(() => import("../pages/UploadDocuments"));
 const FofiPayment = lazyRetry(() => import("../pages/FofiPayment"));
 const CustomerDashboard = lazyRetry(() => import("../pages/customer/Dashboard"));
 const CustomerTickets = lazyRetry(() => import("../pages/customer/Tickets"));
+const CustomerInternet = lazyRetry(() => import("../pages/customer/InternetLink"));
+const CustomerServiceHome = lazyRetry(() => import("../pages/customer/ServiceHome"));
+const CustomerRaiseTicket = lazyRetry(() => import("../pages/customer/RaiseTicket"));
+const CustomerDataUsage = lazyRetry(() => import("../pages/customer/DataUsage"));
+const CustomerPayments = lazyRetry(() => import("../pages/customer/CustomerPayments"));
 const OTTHub = lazyRetry(() => import("../pages/customer/OTTHub"));
 const OTTPlayer = lazyRetry(() => import("../pages/customer/OTTPlayer"));
 const LiveTvPage = lazyRetry(() => import("../pages/iptv/LiveTvPage"));
@@ -185,6 +190,46 @@ export default function AppRoutes() {
           element={
             <PrivateRoute>
               <CustomerTickets />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/cust/internet"
+          element={
+            <PrivateRoute>
+              <CustomerInternet />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/cust/internet/home"
+          element={
+            <PrivateRoute>
+              <CustomerServiceHome />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/cust/internet/raise-ticket"
+          element={
+            <PrivateRoute>
+              <CustomerRaiseTicket />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/cust/internet/usage"
+          element={
+            <PrivateRoute>
+              <CustomerDataUsage />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/cust/internet/payments"
+          element={
+            <PrivateRoute>
+              <CustomerPayments />
             </PrivateRoute>
           }
         />

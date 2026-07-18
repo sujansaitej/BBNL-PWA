@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useSearchParams } from "react-router-dom";
 import Layout from "../../layout/Layout";
 import {
   Loader,
@@ -11,22 +11,15 @@ import {
 import { useToast } from "@/components/ui/Toast";
 import { getUser } from "../../services/safeStorage";
 import { getMyPlanDetails } from "../../services/generalApis";
+import { getTickets } from "../../services/customer/tickets";
 import {
-  checkMaintenance,
-  checkPendingTickets,
-  getSubjects,
-  raiseTicket,
-  getTickets,
-  getParticularTicketStatus,
-  closeTicket,
-} from "../../services/customer/tickets";
-import {
-  decideCloseFlow,
   statusLabel,
   statusTone,
   isNewConnection,
   isResolved,
 } from "../../services/customer/ticketFlow";
+import { getActiveAccount } from "../../services/customer/linkAccount";
+import { useRaiseGate, useRaiseSubmit, useTicketClose } from "../../hooks/useTicketFlow";
 import {
   ClipboardList,
   RefreshCw,
@@ -62,12 +55,28 @@ export default function CustomerTickets() {
   }
 
   const toast = useToast();
+  const [searchParams] = useSearchParams();
   const user = getUser();
-  const customerId = user?.username || "";
-  const custName = `${user?.firstname || ""} ${user?.lastname || ""}`.trim() || customerId;
-  const custMobile = user?.mobileno || "";
 
-  const [tab, setTab] = useState(RAISE);
+  // A linked service account, when one has been chosen, is the BETTER source
+  // of identity than the app login: it carries a real `opid` and `address`
+  // straight from the backend, whereas the login response has neither
+  // (op_id is frequently empty for customer logins). Where it is present we
+  // prefer it, and fall back to the plan-derived values otherwise.
+  const account = getActiveAccount();
+  const customerId = account?.userid || user?.username || "";
+  const custName =
+    account?.name ||
+    `${user?.firstname || ""} ${user?.lastname || ""}`.trim() ||
+    customerId;
+  const custMobile = account?.mobileno || user?.mobileno || "";
+
+  // ?tab=status lands straight on the list — the service home's "Ticket
+  // Status" icon uses it, mirroring Android's two separate entry points into
+  // the same subsystem.
+  const [tab, setTab] = useState(
+    searchParams.get("tab") === "status" ? LIST : RAISE
+  );
 
   // Services
   const [services, setServices] = useState([]);
@@ -79,30 +88,17 @@ export default function CustomerTickets() {
     [services, selectedKey]
   );
 
-  // Raise-flow gate state
-  const [gateLoading, setGateLoading] = useState(false);
-  const [gateState, setGateState] = useState(null); // 'maintenance' | 'pending' | 'ready' | 'error'
-  const [gateMessage, setGateMessage] = useState("");
-  const [existing, setExisting] = useState(null);
+  // Duplicate-complaint dialog visibility (the gate itself lives in the hook)
   const [existingDialogOpen, setExistingDialogOpen] = useState(false);
-  const [subjects, setSubjects] = useState([]);
 
   // Raise form
   const [subject, setSubject] = useState("");
   const [comment, setComment] = useState("");
-  const [submitting, setSubmitting] = useState(false);
 
   // List + detail
   const [tickets, setTickets] = useState([]);
   const [listLoading, setListLoading] = useState(false);
   const [detail, setDetail] = useState(null); // ticket object, or null for the list
-
-  // Close / re-raise pipeline:
-  //   confirm dialog → status probe → (rating dialog) → closeTicket
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [pendingAction, setPendingAction] = useState(null); // { ticket, action: 'close'|'reraise' }
-  const [rateOpen, setRateOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
 
   // ── Load the customer's subscribed services once ───────────────────
   useEffect(() => {
@@ -117,10 +113,28 @@ export default function CustomerTickets() {
         const raw = Array.isArray(body?.subscribed_services) ? body.subscribed_services : [];
         const list = raw
           .map((s) => normalizeService(s, body, user))
-          .filter((s) => s.servicekey);
+          .filter((s) => s.servicekey)
+          // Fill gaps from the linked account. The plan rows often carry no
+          // opid or address at all, and both are required by raiseTicket —
+          // `operid` (the operator) and the customer's address. The linked
+          // account got them from the backend at link time, so it wins where
+          // the derived value is empty.
+          .map((s) =>
+            account && s.servicekey === account.servicekey
+              ? {
+                  ...s,
+                  opid: s.opid || account.opid || "",
+                  address: s.address || account.address || "",
+                  servid: s.servid || account.servid || "",
+                }
+              : s
+          );
         setServices(list);
-        if (list.length > 0) setSelectedKey(list[0].servicekey);
-        else setSvcError("No active services found on your account.");
+        if (list.length > 0) {
+          // Prefer the service the customer actually picked upstream.
+          const preferred = list.find((s) => s.servicekey === account?.servicekey);
+          setSelectedKey((preferred || list[0]).servicekey);
+        } else setSvcError("No active services found on your account.");
       } catch (err) {
         if (!cancelled) setSvcError("Couldn't load your services. Please try again.");
       } finally {
@@ -131,92 +145,39 @@ export default function CustomerTickets() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId]);
 
-  // ── Run the raise-flow gate whenever the selected service changes ──
-  const runGate = async (svc) => {
-    if (!svc) return;
-    setGateLoading(true);
-    setGateState(null);
-    setGateMessage("");
-    setExisting(null);
-    setExistingDialogOpen(false);
-    setSubjects([]);
-    setSubject("");
-    try {
-      const maint = await checkMaintenance({ apiopid: svc.opid, cid: customerId, servicekey: svc.servicekey });
-      if (!maint.open) {
-        // Never surface maint.message — it is a backend diagnostic
-        // ("Error Pinging"), not something to show a customer.
-        setGateState(maint.pingFailed ? "unreachable" : "maintenance");
-        setGateMessage(
-          maint.pingFailed
-            ? "We couldn't reach your connection just now."
-            : "This service is under maintenance. Please try again shortly."
-        );
-        return;
-      }
-      const pend = await checkPendingTickets({ userid: customerId, servicekey: svc.servicekey });
-      if (pend.hasPending) {
-        setGateState("pending");
-        setExisting(pend.existing);
-        // Android surfaces this as a blocking dialog over the disabled form.
-        if (pend.existing) setExistingDialogOpen(true);
-        return;
-      }
-      // Ready to raise — load subjects.
-      const subs = await getSubjects({ apiopid: svc.opid, cid: customerId, servid: svc.servid });
-      setSubjects(subs);
-      setGateState("ready");
-    } catch (err) {
-      setGateState("error");
-      setGateMessage(err?.message || "Something went wrong. Please try again.");
-    } finally {
-      setGateLoading(false);
-    }
-  };
+  // ── Raise-flow gate + submit — shared with the dedicated Raise Ticket
+  // screen via hooks/useTicketFlow, so both run identical logic.
+  const gate = useRaiseGate({
+    service: selectedService,
+    customerId,
+    enabled: tab === RAISE && !!selectedService,
+  });
 
+  const { submit, submitting } = useRaiseSubmit({
+    service: selectedService,
+    identity: { customerId, custName, custMobile },
+    subjectsLoaded: gate.subjects.length > 0,
+    onRaised: () => {
+      setTab(LIST);
+      loadTickets(selectedService);
+    },
+  });
+
+  // Android shows the duplicate-complaint dialog over the disabled form.
   useEffect(() => {
-    if (tab === RAISE && selectedService) runGate(selectedService);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKey, tab]);
+    setExistingDialogOpen(gate.state === "pending" && !!gate.existing);
+  }, [gate.state, gate.existing]);
 
-  // ── Submit a new ticket ────────────────────────────────────────────
   const handleSubmit = async () => {
-    if (!selectedService) return;
-    if (!subject) { toast.add("Please select a complaint from the list.", { type: "error" }); return; }
-    if (!comment.trim()) { toast.add("Please comment on the issue.", { type: "error" }); return; }
-    if (submitting) return;
-
-    setSubmitting(true);
-    try {
-      const res = await raiseTicket({
-        opid: customerId,                 // backend inversion: opid = customer id
-        name: custName,
-        sub: subject,
-        mobile: custMobile,
-        comment: comment.trim(),
-        address: selectedService.address,
-        operid: selectedService.opid,     // operid = operator id
-        servicekey: selectedService.servicekey,
-      });
-      if (res.status === "success") {
-        toast.add("Complaint raised successfully.", { type: "success" });
-        setComment("");
-        setSubject("");
-        setTab(LIST);
-        loadTickets(selectedService);
-      } else if (res.status === "pending") {
-        toast.add("Sorry, we can't process this — your previous ticket is still pending.", { type: "error" });
-        runGate(selectedService);
-      } else if (res.status === "invalid") {
-        toast.add(res.message || "Invalid complaint. Please check the details.", { type: "error" });
-      } else {
-        toast.add(res.message || "Could not raise the complaint. Please try again.", { type: "error" });
-      }
-    } catch (err) {
-      toast.add(err?.message || "Could not raise the complaint. Please try again.", { type: "error" });
-    } finally {
-      setSubmitting(false);
+    const res = await submit({ subject, comment });
+    if (res.ok) {
+      setSubject("");
+      setComment("");
+      toast.add(res.message, { type: "success" });
+      return;
     }
+    toast.add(res.message, { type: "error" });
+    if (res.reGate) gate.refresh();
   };
 
   // ── Load / refresh tickets ─────────────────────────────────────────
@@ -242,89 +203,29 @@ export default function CustomerTickets() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedKey, tab]);
 
-  // ── Close / re-raise pipeline ──────────────────────────────────────
-  // Step 1 — ask for confirmation ("Close Your Ticket!" / "Re-Raise same
-  // Ticket!"). Mirrors CloseTicketDialogFragment.
-  const askAction = (ticket, action) => {
-    setPendingAction({ ticket, action });
-    setConfirmOpen(true);
-  };
-
-  // Step 2 — probe the ticket's live status to decide whether the engineer
-  // should be rated (Apis/getParticularTicketStatus/), then either open the
-  // rating dialog or close straight away.
-  const onConfirmed = async () => {
-    setConfirmOpen(false);
-    if (!pendingAction || !selectedService) return;
-    const { ticket, action } = pendingAction;
-
-    // A re-raise never needs the live status — decideCloseFlow short-circuits
-    // it — so skip the probe entirely.
-    if (action === "reraise") {
-      const d = decideCloseFlow({ action });
-      await performClose({ ticket, rating: d.rating, status: d.status });
-      return;
-    }
-
-    setBusy(true);
-    let decision;
-    try {
-      const { state } = await getParticularTicketStatus({
-        ticketid: ticket.tid,
-        servicekey: selectedService.servicekey,
-      });
-      decision = decideCloseFlow({ action, probeState: state });
-    } catch (err) {
-      decision = decideCloseFlow({ action, probeFailed: true });
-    } finally {
-      setBusy(false);
-    }
-
-    if (decision.rate) setRateOpen(true);
-    else await performClose({ ticket, rating: decision.rating, status: decision.status });
-  };
-
-  // Step 3 — the actual close/re-raise request.
-  const performClose = async ({ ticket, rating, status }) => {
-    if (!selectedService) return;
-    setBusy(true);
-    try {
-      const res = await closeTicket({
-        custid: customerId,
-        ticketid: ticket.tid,
-        engr_rating: String(rating),
-        status,
-        servicekey: selectedService.servicekey,
-      });
-      if (res.result === "closed") {
-        toast.add("Your complaint is closed successfully.", { type: "success" });
-      } else if (res.result === "pending") {
-        toast.add("Your ticket has been re-raised successfully.", { type: "success" });
-      } else if (res.result === "error") {
-        toast.add(res.message || "Error closing the ticket.", { type: "error" });
-      } else {
-        toast.add(res.message || "Could not update the complaint.", { type: "error" });
-      }
-
-      // Refresh whichever surface the action came from.
+  // ── Close / re-raise pipeline (shared hook) ────────────────────────
+  const close = useTicketClose({
+    service: selectedService,
+    customerId,
+    onDone: () => {
       setDetail(null);
-      if (tab === RAISE) runGate(selectedService);
+      // Refresh whichever surface the action came from.
+      if (tab === RAISE) gate.refresh();
       else loadTickets(selectedService);
-    } catch (err) {
-      toast.add(err?.message || "Could not update the complaint.", { type: "error" });
-    } finally {
-      setBusy(false);
-      setRateOpen(false);
-      setPendingAction(null);
-    }
-  };
+    },
+  });
 
-  const onRated = ({ rating }) => {
-    if (!pendingAction) return;
-    performClose({ ticket: pendingAction.ticket, rating: String(rating), status: "yes" });
-  };
+  // Surface the hook's outcome through the page's existing toast channel.
+  useEffect(() => {
+    if (!close.result) return;
+    toast.add(close.result.message, { type: close.result.ok ? "success" : "error" });
+    close.clearResult();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [close.result]);
 
-  const actionTicket = pendingAction?.ticket || null;
+  const askAction = close.ask;
+  const busy = close.busy;
+  const actionTicket = close.ticket;
 
   return (
     <Layout>
@@ -379,37 +280,18 @@ export default function CustomerTickets() {
             {/* ── RAISE TAB ── */}
             {tab === RAISE && (
               <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 space-y-4">
-                {gateLoading ? (
+                {gate.loading ? (
                   <div className="py-8 flex justify-center"><Loader size="md" color="indigo" text="Fetching connection details…" /></div>
-                ) : gateState === "maintenance" ? (
+                ) : gate.state === "maintenance" ? (
                   <div className="text-center py-6 space-y-3">
                     <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto" />
-                    <p className="text-sm text-gray-700 dark:text-gray-300">{gateMessage}</p>
+                    <p className="text-sm text-gray-700 dark:text-gray-300">{gate.message}</p>
                     <div className="flex gap-2">
-                      <button onClick={() => runGate(selectedService)} className="flex-1 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium">Retry</button>
+                      <button onClick={gate.refresh} className="flex-1 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium">Retry</button>
                       <button onClick={() => setTab(LIST)} className="flex-1 py-2 rounded-lg border border-indigo-600 text-indigo-600 text-sm font-medium">View ticket status</button>
                     </div>
                   </div>
-                ) : gateState === "unreachable" ? (
-                  // The backend could not ping the customer's connection. This
-                  // is NOT maintenance — and it is the single most likely state
-                  // for someone who wants to report an outage, so it must not
-                  // dead-end. Explain it plainly and always offer a way on.
-                  <div className="text-center py-6 space-y-3">
-                    <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto" />
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{gateMessage}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        If your connection is down, that may be why. Please retry, or call
-                        your operator to report the outage.
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button onClick={() => runGate(selectedService)} className="flex-1 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium">Retry</button>
-                      <button onClick={() => setTab(LIST)} className="flex-1 py-2 rounded-lg border border-indigo-600 text-indigo-600 text-sm font-medium">View ticket status</button>
-                    </div>
-                  </div>
-                ) : gateState === "pending" ? (
+                ) : gate.state === "pending" ? (
                   <div className="space-y-3">
                     <div className="flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 p-3">
                       <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
@@ -417,17 +299,17 @@ export default function CustomerTickets() {
                         A complaint already exists. Please close the previously raised complaint to open a new one.
                       </p>
                     </div>
-                    {existing && (
+                    {gate.existing && (
                       <div className="text-sm space-y-1 border rounded-lg p-3 dark:border-gray-700">
-                        {existing.tid && <Row label="Ticket Id" value={existing.tid} />}
-                        {existing.subject && <Row label="Subject" value={existing.subject} />}
-                        {existing.status && <Row label="Status" value={statusLabel(existing.status)} />}
-                        {existing.assigned && <Row label="Assigned To" value={existing.assigned} />}
-                        {existing.risedtime && <Row label="Raised Time" value={existing.risedtime} />}
+                        {gate.existing.tid && <Row label="Ticket Id" value={gate.existing.tid} />}
+                        {gate.existing.subject && <Row label="Subject" value={gate.existing.subject} />}
+                        {gate.existing.status && <Row label="Status" value={statusLabel(gate.existing.status)} />}
+                        {gate.existing.assigned && <Row label="Assigned To" value={gate.existing.assigned} />}
+                        {gate.existing.risedtime && <Row label="Raised Time" value={gate.existing.risedtime} />}
                       </div>
                     )}
                     <div className="flex gap-2">
-                      {existing && (
+                      {gate.existing && (
                         <button
                           onClick={() => setExistingDialogOpen(true)}
                           className="flex-1 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium"
@@ -440,19 +322,26 @@ export default function CustomerTickets() {
                       </button>
                     </div>
                   </div>
-                ) : gateState === "error" ? (
+                ) : gate.state === "error" ? (
                   <div className="text-center py-6 space-y-2">
                     <AlertTriangle className="w-8 h-8 text-red-500 mx-auto" />
-                    <p className="text-sm text-gray-700 dark:text-gray-300">{gateMessage}</p>
-                    <button onClick={() => runGate(selectedService)} className="text-sm font-medium text-indigo-600">Retry</button>
+                    <p className="text-sm text-gray-700 dark:text-gray-300">{gate.message}</p>
+                    <button onClick={gate.refresh} className="text-sm font-medium text-indigo-600">Retry</button>
                   </div>
-                ) : gateState === "ready" ? (
+                ) : gate.state === "ready" ? (
                   <>
+                    {/* Line unreachable — informational only, form stays usable. */}
+                    {gate.warning && (
+                      <div className="flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 p-3">
+                        <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                        <p className="text-sm text-amber-800 dark:text-amber-200">{gate.warning}</p>
+                      </div>
+                    )}
                     <div>
                       <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Select Ticket</label>
                       <div className="mt-1">
                         <SubjectCombobox
-                          subjects={subjects}
+                          subjects={gate.subjects}
                           value={subject}
                           onChange={setSubject}
                         />
@@ -551,36 +440,34 @@ export default function CustomerTickets() {
       {/* Blocking duplicate-complaint dialog over the raise form */}
       <ComplaintExistsDialog
         open={existingDialogOpen}
-        ticket={existing}
+        ticket={gate.existing}
         busy={busy}
         onClose={() => setExistingDialogOpen(false)}
-        onCloseTicket={() => { setExistingDialogOpen(false); askAction(existing, "close"); }}
-        onRaiseBack={() => { setExistingDialogOpen(false); askAction(existing, "reraise"); }}
+        onCloseTicket={() => { setExistingDialogOpen(false); askAction(gate.existing, "close"); }}
+        onRaiseBack={() => { setExistingDialogOpen(false); askAction(gate.existing, "reraise"); }}
       />
 
       {/* Step 1 — close / re-raise confirmation */}
       <ConfirmDialog
-        open={confirmOpen}
-        title={pendingAction?.action === "reraise" ? "Re-Raise same Ticket!" : "Close Your Ticket!"}
+        open={close.confirmOpen}
+        title={close.action === "reraise" ? "Re-Raise same Ticket!" : "Close Your Ticket!"}
         message={
-          pendingAction
-            ? pendingAction.action === "reraise"
-              ? "Are you sure? You want to Re-Raise the same ticket?"
-              : "Are you sure? You want to close the ticket?"
-            : ""
+          close.action === "reraise"
+            ? "Are you sure? You want to Re-Raise the same ticket?"
+            : "Are you sure? You want to close the ticket?"
         }
-        onConfirm={onConfirmed}
-        onCancel={() => { setConfirmOpen(false); setPendingAction(null); }}
+        onConfirm={close.confirm}
+        onCancel={close.cancel}
       />
 
       {/* Step 2 — engineer rating (only on close, only when an engineer was engaged) */}
       <RateEngineerDialog
-        open={rateOpen}
+        open={close.rateOpen}
         engineerName={actionTicket?.empname || actionTicket?.assigned || ""}
         engineerImg={actionTicket?.empimg || ""}
         submitting={busy}
-        onConfirm={onRated}
-        onCancel={() => { setRateOpen(false); setPendingAction(null); }}
+        onConfirm={close.rate}
+        onCancel={close.cancel}
       />
     </Layout>
   );

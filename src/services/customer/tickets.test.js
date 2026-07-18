@@ -268,6 +268,46 @@ describe("checkMaintenance", () => {
     fetchMock.mockResolvedValue(mockResponse(MAINTENANCE_OPEN));
     expect((await checkMaintenance({})).pingFailed).toBe(false);
   });
+
+  test("concurrent identical calls collapse into ONE request", async () => {
+    const { checkMaintenance } = await import("./tickets.js");
+    fetchMock.mockResolvedValue(mockResponse(MAINTENANCE_OPEN));
+    const args = { apiopid: "OP1", cid: "dedupe-test", servicekey: "internet" };
+
+    // This endpoint pings the customer's line and is the slowest call in the
+    // flow (~2.4s prod, ~12s staging). React StrictMode double-mounts effects
+    // in dev, and a retry tap can double-fire in prod — without dedupe that
+    // is two full round trips.
+    const before = fetchMock.mock.calls.length;
+    const [a, b] = await Promise.all([checkMaintenance(args), checkMaintenance(args)]);
+    expect(fetchMock.mock.calls.length).toBe(before + 1);
+    // Both callers still get a real result.
+    expect(a.open).toBe(true);
+    expect(b.open).toBe(true);
+  });
+
+  test("different services are NOT deduped together", async () => {
+    const { checkMaintenance } = await import("./tickets.js");
+    fetchMock.mockResolvedValue(mockResponse(MAINTENANCE_OPEN));
+    const before = fetchMock.mock.calls.length;
+    await Promise.all([
+      checkMaintenance({ apiopid: "OP1", cid: "c", servicekey: "internet" }),
+      checkMaintenance({ apiopid: "OP1", cid: "c", servicekey: "cabletv" }),
+    ]);
+    expect(fetchMock.mock.calls.length).toBe(before + 2);
+  });
+
+  test("the result is NOT cached — a later call re-checks", async () => {
+    const { checkMaintenance } = await import("./tickets.js");
+    fetchMock.mockResolvedValue(mockResponse(MAINTENANCE_OPEN));
+    const args = { apiopid: "OP1", cid: "nocache-test", servicekey: "internet" };
+    await checkMaintenance(args);
+    const after = fetchMock.mock.calls.length;
+    await checkMaintenance(args);
+    // A stale "under maintenance" verdict is worse than a slow one, so this
+    // must dedupe concurrent calls only — never serve a remembered answer.
+    expect(fetchMock.mock.calls.length).toBe(after + 1);
+  });
 });
 
 describe("getSubjects", () => {

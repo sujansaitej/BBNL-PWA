@@ -36,6 +36,10 @@ export function AuthProvider({ children }) {
             localStorage.removeItem("addrproofIds");
             localStorage.removeItem("idcardIds");
             localStorage.removeItem("filerefid");
+            // Linked service account — holds the customer's name, mobile and
+            // address. Must not survive into the next session on a shared
+            // device (this ships as an installed PWA on family phones).
+            localStorage.removeItem("custActiveAccount");
             lsClearAll();
             logger.security("SESSION_EXPIRED", {
               username: parsed.username,
@@ -92,6 +96,9 @@ export function AuthProvider({ children }) {
     localStorage.removeItem("addrproofIds");
     localStorage.removeItem("idcardIds");
     localStorage.removeItem("filerefid");
+    // Linked service account — carries the customer's name, mobile and
+    // address, so it must not outlive the session on a shared device.
+    localStorage.removeItem("custActiveAccount");
     lsClearAll();
     logger.security("LOGOUT", { username: prev });
   };
