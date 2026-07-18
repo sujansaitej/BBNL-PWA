@@ -63,8 +63,12 @@ const OrderDetail = lazyRetry(() => import("../pages/OrderDetail"));
 const UploadDocuments = lazyRetry(() => import("../pages/UploadDocuments"));
 const FofiPayment = lazyRetry(() => import("../pages/FofiPayment"));
 const CustomerDashboard = lazyRetry(() => import("../pages/customer/Dashboard"));
-const CustomerInternet = lazyRetry(() => import("../pages/customer/InternetLink"));
+const CustomerServiceLink = lazyRetry(() => import("../pages/customer/ServiceLink"));
 const CustomerServiceHome = lazyRetry(() => import("../pages/customer/ServiceHome"));
+const CustomerOrderHistory = lazyRetry(() => import("../pages/customer/OrderHistory"));
+const CustomerPaymentSummary = lazyRetry(() => import("../pages/customer/PaymentSummary"));
+const CustomerPaymentStatus = lazyRetry(() => import("../pages/customer/PaymentStatus"));
+const CustomerInternetPayment = lazyRetry(() => import("../pages/customer/InternetPaymentSummary"));
 const CustomerRaiseTicket = lazyRetry(() => import("../pages/customer/RaiseTicket"));
 const CustomerTicketStatus = lazyRetry(() => import("../pages/customer/TicketStatus"));
 const CustomerDataUsage = lazyRetry(() => import("../pages/customer/DataUsage"));
@@ -190,7 +194,7 @@ export default function AppRoutes() {
           path="/cust/internet"
           element={
             <PrivateRoute>
-              <CustomerInternet />
+              <CustomerServiceLink keyword="internet" />
             </PrivateRoute>
           }
         />
@@ -199,6 +203,106 @@ export default function AppRoutes() {
           element={
             <PrivateRoute>
               <CustomerServiceHome />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/cust/internet/pay"
+          element={
+            <PrivateRoute>
+              <CustomerInternetPayment />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/cust/internet/pay/status"
+          element={
+            <PrivateRoute>
+              <CustomerPaymentStatus />
+            </PrivateRoute>
+          }
+        />
+
+        {/* ── FoFi Smart Box (servicekey: fofi) ── */}
+        <Route
+          path="/cust/fofi"
+          element={
+            <PrivateRoute>
+              <CustomerServiceLink keyword="fofi" />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/cust/fofi/home"
+          element={
+            <PrivateRoute>
+              <CustomerServiceHome />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/cust/fofi/orders"
+          element={
+            <PrivateRoute>
+              <CustomerOrderHistory />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/cust/fofi/pay"
+          element={
+            <PrivateRoute>
+              <CustomerPaymentSummary />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/cust/fofi/pay/status"
+          element={
+            <PrivateRoute>
+              <CustomerPaymentStatus />
+            </PrivateRoute>
+          }
+        />
+
+        {/* ── IPTV (servicekey: cabletv) ── */}
+        <Route
+          path="/cust/iptv"
+          element={
+            <PrivateRoute>
+              <CustomerServiceLink keyword="cabletv" />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/cust/iptv/home"
+          element={
+            <PrivateRoute>
+              <CustomerServiceHome />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/cust/iptv/orders"
+          element={
+            <PrivateRoute>
+              <CustomerOrderHistory />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/cust/iptv/pay"
+          element={
+            <PrivateRoute>
+              <CustomerPaymentSummary />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/cust/iptv/pay/status"
+          element={
+            <PrivateRoute>
+              <CustomerPaymentStatus />
             </PrivateRoute>
           }
         />

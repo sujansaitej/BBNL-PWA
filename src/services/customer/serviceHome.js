@@ -221,3 +221,16 @@ export function serviceTitle(servicekey) {
 export function showsInternetActions(servicekey) {
   return String(servicekey || "").toLowerCase() === "internet";
 }
+
+/**
+ * Route base for a service's customer screens. IPTV's machine key is
+ * `cabletv` but its route lives at /cust/iptv, so this cannot be derived from
+ * the key by string alone. Single source of truth for the keyword→path map,
+ * shared by ServiceLink, ServiceHome and OrderHistory so they never drift.
+ */
+export function serviceRouteBase(servicekey) {
+  const key = String(servicekey || "").toLowerCase();
+  if (key === "fofi") return "/cust/fofi";
+  if (key === "cabletv") return "/cust/iptv";
+  return "/cust/internet";
+}

@@ -598,11 +598,21 @@ export default function FofiPayment() {
       // Do not fall back to oprtrshare: the base pack can return
       // deduction.totalamount = "0.00" while oprtrshare is non-zero.
       walletDeduction = refreshedAmountDeductable;
-      paidAmount = walletDeduction;
+      // Native parity: generateorder.paidamount is ALWAYS the full total_amt
+      // from paymentinfo, for EVERY plan — never the wallet deductible. Verified
+      // across all three native employee paths:
+      //   RegistrationPaymentOverviewActivity.java:287/372  setPaidamount(total_amt)
+      //   CablePaymentInfoFragment.java:986                 setPaidamount(total_amt)
+      //   AtomPaymentFragment.java:352/648 (ATV)            setPaidamount(billAmount=total)
+      // Sending the deductible here recorded the order (and the receipt) at the
+      // undercharged wallet-share amount instead of the customer bill — the same
+      // class of bug already fixed for internet's cashpaid. walletDeduction stays
+      // the operator wallet debit, used for display + the overview only.
+      paidAmount = refreshedTotal;
 
       console.log('🔵 Total Amount (review):', totalAmount);
-      console.log('🔵 Paid Amount (paidamount):', paidAmount);
-      console.log('🔵 Wallet Deduction (cashpaid):', walletDeduction);
+      console.log('🔵 Paid Amount (paidamount = total_amt):', paidAmount);
+      console.log('🔵 Wallet Deduction (display only):', walletDeduction);
       console.log('🔵 Transaction ID:', transactionId);
 
       // Build the order payload matching the exact API structure
@@ -648,14 +658,10 @@ export default function FofiPayment() {
       // never attaches the plan). The prior code skipped generateorder when the
       // deductible was 0 and ran a dead no-op (pendingActivation is never set), so
       // "Payment Success" showed but the FTA plan was never attached.
-      const isFreeUpgrade = walletDeduction <= 0;
-      // Order amount: a free/FTA plan must send the full total_amt (non-zero, like
-      // native); a paid plan keeps its existing deductible-based amount unchanged.
-      const orderPaidAmount = isFreeUpgrade
-        ? (Number(refreshedTotal) || Number(paidAmount) || 0)
-        : Number(paidAmount);
-
-      const orderResponse = await generateFofiOrder({ ...orderPayload, paidamount: orderPaidAmount });
+      // paidamount is the full total_amt for every plan (native parity, see above),
+      // so no free/FTA special-case is needed — the server still gets a non-zero
+      // order for FTA plans because total_amt already carries the real bill.
+      const orderResponse = await generateFofiOrder({ ...orderPayload, paidamount: Number(paidAmount) });
       if (orderResponse?.status?.err_code !== 0 && orderResponse?.error !== 0) {
         // The backend explicitly rejected the order, so nothing was charged —
         // a clean failure the operator can safely retry.

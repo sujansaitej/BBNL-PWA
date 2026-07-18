@@ -17,6 +17,8 @@ import {
 } from "../../services/customer/linkAccount";
 import {
   GlobeAltIcon,
+  TvIcon,
+  CpuChipIcon,
   UserCircleIcon,
   CheckCircleIcon,
   TrashIcon,
@@ -26,24 +28,53 @@ import {
   DocumentArrowUpIcon,
 } from "@heroicons/react/24/outline";
 
-const SERVICE_KEYWORD = "internet";
+/**
+ * Per-service UI + routing. Keyed by the machine `servicekey` (the value the
+ * backend switches on), NOT the display path — IPTV's key is `cabletv` but its
+ * route base is `/cust/iptv`. Everything service-specific to the LINK screen
+ * lives here so the component below is identical for all three services.
+ */
+const SERVICE_UI = {
+  internet: {
+    title: "Internet",
+    basePath: "/cust/internet",
+    historyPath: "/cust/internet/payments",
+    Icon: GlobeAltIcon,
+  },
+  fofi: {
+    title: "FoFi Smart Box",
+    basePath: "/cust/fofi",
+    historyPath: "/cust/fofi/orders",
+    Icon: CpuChipIcon,
+  },
+  cabletv: {
+    title: "IPTV",
+    basePath: "/cust/iptv",
+    historyPath: "/cust/iptv/orders",
+    Icon: TvIcon,
+  },
+};
 
 /**
- * Internet — link a service account.
+ * Link a service account (Internet / FoFi Smart Box / IPTV).
  *
- * Port of Android's LinkCableAccounts_Fragment. A customer's app login carries
- * no service identity, so before anything service-specific works they enter
- * their Internet user id here. A successful link yields the userid / servid /
- * opid / address that every downstream service call needs.
+ * Port of Android's LinkCableAccounts_Fragment — one screen shared by every
+ * service, switched by `servicekey`. A customer's app login carries no service
+ * identity, so before anything service-specific works they enter their user id
+ * here. A successful link yields the userid / servid / opid / address that every
+ * downstream service call needs.
  *
  * The backend decides whether an OTP is required (body.otpstatus === "yes").
  * Until that OTP is verified NOTHING is linked, so the two-step path is not
  * optional — accounts configured for OTP simply cannot link without it.
  */
-export default function InternetLink() {
+export default function ServiceLink({ keyword = "internet" }) {
   if (localStorage.getItem("loginType") !== "customer") {
     return <Navigate to="/" replace />;
   }
+
+  const ui = SERVICE_UI[keyword] || SERVICE_UI.internet;
+  const homePath = `${ui.basePath}/home`;
 
   const navigate = useNavigate();
   const toast = useToast();
@@ -81,10 +112,10 @@ export default function InternetLink() {
       setSvcLoading(true);
       setSvcError("");
       try {
-        const svc = await resolveService(SERVICE_KEYWORD);
+        const svc = await resolveService(keyword);
         if (cancelled) return;
         if (!svc) {
-          setSvcError("Internet service is not available on your account right now.");
+          setSvcError(`${ui.title} service is not available on your account right now.`);
           return;
         }
         setService(svc);
@@ -97,7 +128,7 @@ export default function InternetLink() {
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [keyword]);
 
   const loadAccounts = async (svc) => {
     const s = svc || service;
@@ -284,6 +315,8 @@ export default function InternetLink() {
     }
   };
 
+  const FallbackIcon = ui.Icon;
+
   return (
     <Layout>
       <div className="px-4 py-4 space-y-4 max-w-2xl mx-auto w-full">
@@ -315,11 +348,11 @@ export default function InternetLink() {
                 />
               ) : (
                 <div className="w-11 h-11 rounded-lg bg-white/20 flex items-center justify-center flex-shrink-0">
-                  <GlobeAltIcon className="w-6 h-6 text-white" />
+                  <FallbackIcon className="w-6 h-6 text-white" />
                 </div>
               )}
               <div className="min-w-0">
-                <h1 className="text-lg font-semibold text-white">{service?.title || "Internet"}</h1>
+                <h1 className="text-lg font-semibold text-white">{service?.title || ui.title}</h1>
                 {service?.description && (
                   <p className="text-xs text-white/80 break-words">{service.description}</p>
                 )}
@@ -466,7 +499,7 @@ export default function InternetLink() {
             Icon={HomeIcon}
             label="Home Page"
             primary
-            onClick={() => goWithAccount(sheetFor, "/cust/internet/home")}
+            onClick={() => goWithAccount(sheetFor, homePath)}
           />
           <SheetButton
             Icon={TrashIcon}
@@ -478,7 +511,7 @@ export default function InternetLink() {
           <SheetButton
             Icon={BanknotesIcon}
             label="Payment History"
-            onClick={() => goWithAccount(sheetFor, "/cust/internet/payments")}
+            onClick={() => goWithAccount(sheetFor, ui.historyPath)}
           />
           <SheetButton
             Icon={DocumentArrowUpIcon}

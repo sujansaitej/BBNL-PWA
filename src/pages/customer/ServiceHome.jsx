@@ -24,6 +24,7 @@ import {
   isRenewEnabled,
   serviceTitle,
   showsInternetActions,
+  serviceRouteBase,
 } from "../../services/customer/serviceHome";
 import {
   TicketIcon,
@@ -160,6 +161,11 @@ export default function ServiceHome() {
   const title = serviceTitle(servicekey);
   const showActions = showsInternetActions(servicekey);
   const canRenew = isRenewEnabled(plan);
+  const routeBase = serviceRouteBase(servicekey);
+  // Every service now opens its live payment screen at {base}/pay. Internet →
+  // InternetPaymentSummary (makepayment/savePaymentApi); FoFi/IPTV →
+  // PaymentSummary (paymentinfo/generateorder). Both share the Easebuzz layer.
+  const proceedPath = `${routeBase}/pay`;
 
   const doResetMac = async () => {
     setConfirmMac(false);
@@ -209,7 +215,7 @@ export default function ServiceHome() {
     <Layout>
       <div className="px-4 py-4 space-y-4 max-w-2xl mx-auto w-full">
         <button
-          onClick={() => navigate("/cust/internet")}
+          onClick={() => navigate(routeBase)}
           className="flex items-center gap-1 text-sm font-medium text-indigo-600"
         >
           <ChevronLeftIcon className="w-4 h-4" /> Accounts
@@ -349,7 +355,11 @@ export default function ServiceHome() {
 
           {canRenew && (
             <button
-              onClick={() => navigate("/cust/internet/payments")}
+              onClick={() => navigate(proceedPath, {
+                // FoFi/IPTV summary needs the selected box + plan; internet's
+                // history screen ignores state.
+                state: { fofiboxid: selectedConn, planid: plan?.planid, priceid: plan?.priceid },
+              })}
               className="mt-4 w-full py-2.5 rounded-lg bg-orange-500 text-white text-sm font-semibold"
             >
               Proceed
