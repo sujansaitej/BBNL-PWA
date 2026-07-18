@@ -344,13 +344,14 @@ describe("getSubjects", () => {
     expect(subs).toHaveLength(1);
   });
 
-  test("forwards apiopid/cid/servid unchanged, with no retry (native parity)", async () => {
+  test("forwards apiopid/cid/servid unchanged when the operator resolves (single request)", async () => {
     const { getSubjects } = await import("./tickets.js");
     fetchMock.mockResolvedValue(mockResponse(SUBJECTS_OK));
     await getSubjects({ apiopid: "BBNL_OP49", cid: "cust1", servid: "7" });
 
-    // RaiseNewTicketsFragment: GetSubjects(operatorID, userId, serviceId).
-    // One request, operator id included — no un-scoped retry, no fallback.
+    // RaiseNewTicketsFragment: GetSubjects(operatorID, userId, serviceId). When
+    // the operator id resolves (non-empty catalogue) it is the only request —
+    // the un-scoped fallback fires ONLY when a non-blank opid comes back empty.
     expect(fetchMock.mock.calls.length).toBe(1);
     expect(lastQuery()).toEqual({ apiopid: "BBNL_OP49", cid: "cust1", servid: "7" });
   });
@@ -383,17 +384,45 @@ describe("getSubjects", () => {
     expect(new URL(fetchMock.mock.calls[0][0]).searchParams.get("apiopid")).toBe("BBNL_OP981");
   });
 
-  test("an empty catalogue is returned as-is, with no second attempt", async () => {
+  test("a non-blank apiopid that returns empty retries UN-SCOPED and recovers the catalogue", async () => {
     const { getSubjects } = await import("./tickets.js");
-    // A blank or unrecognised apiopid yields 0 rows ("Host details for X Not
-    // Available"). Native shows an empty dropdown; we do the same and log a
-    // warning so the cause is visible in the console.
-    fetchMock.mockResolvedValue(
-      mockResponse({ status: { err_code: 1, err_msg: "Host details for BOGUS Not Available" }, body: [] })
-    );
-    const subs = await getSubjects({ apiopid: "BOGUS", cid: "c", servid: "empty-test" });
+    // VERIFIED ON PRODUCTION: the catalogue is operator-INDEPENDENT — a real
+    // operator AND a blank apiopid both return the full 389-row list; only an
+    // UNRECOGNISED non-empty apiopid returns 0 rows ("Host details for <x> Not
+    // Available"). Native reads a valid operator id from SharedPreferences so
+    // it never hits this, but the PWA's linked-account opid is frequently a
+    // non-operator value (the customer id, or getServRegCastNos' opid:null).
+    // So an empty result for a non-blank opid must fall back to the un-scoped
+    // catalogue instead of leaving the dropdown blank.
+    const EMPTY = mockResponse({
+      status: { err_code: 1, err_msg: "Host details for pwaram Not Available" },
+      body: [],
+    });
+    fetchMock.mockResolvedValueOnce(EMPTY).mockResolvedValue(mockResponse(SUBJECTS_OK));
+    const subs = await getSubjects({ apiopid: "pwaram", cid: "c", servid: "retry-test" });
+    expect(fetchMock.mock.calls.length).toBe(2);
+    expect(new URL(fetchMock.mock.calls[0][0]).searchParams.get("apiopid")).toBe("pwaram");
+    expect(new URL(fetchMock.mock.calls[1][0]).searchParams.get("apiopid")).toBe("");
+    expect(subs).toEqual([
+      { id: "1", subject: "internet access" },
+      { id: "2", subject: "olt fw upgradation" },
+    ]);
+  });
+
+  test("a BLANK apiopid that returns empty does NOT retry (the retry would be identical)", async () => {
+    const { getSubjects } = await import("./tickets.js");
+    fetchMock.mockResolvedValue(mockResponse({ status: { err_code: 1 }, body: [] }));
+    const subs = await getSubjects({ apiopid: "", cid: "c", servid: "blank-empty-test" });
     expect(subs).toEqual([]);
     expect(fetchMock.mock.calls.length).toBe(1);
+  });
+
+  test("if the un-scoped retry ALSO returns empty, there is no third attempt", async () => {
+    const { getSubjects } = await import("./tickets.js");
+    fetchMock.mockResolvedValue(mockResponse({ status: { err_code: 1 }, body: [] }));
+    const subs = await getSubjects({ apiopid: "BOGUS", cid: "c", servid: "retry-empty-test" });
+    expect(subs).toEqual([]);
+    expect(fetchMock.mock.calls.length).toBe(2);
   });
 
   test("caches per servid and does not refetch", async () => {

@@ -187,7 +187,18 @@ export default function RaiseTicket() {
                   <p className="text-sm text-amber-800 dark:text-amber-200">{gate.warning}</p>
                 </div>
               )}
-              <div>
+              {/*
+                contentVisibility/contain reset is load-bearing. This block is
+                a direct child of the `space-y-4` sheet, and index.css applies
+                `content-visibility: auto` to `.space-y-*  > *` (a list-perf
+                optimization). That implies `contain: …paint`, which CLIPS the
+                combobox's absolutely-positioned dropdown to this block's box —
+                the dropdown opens below the input, over the Comments area, so
+                it was being clipped away entirely (the "dropdown not visible"
+                bug). Inline style because that index.css rule is unlayered and
+                would otherwise out-cascade a utility class.
+              */}
+              <div style={{ contentVisibility: "visible", contain: "none" }}>
                 <label className="text-sm font-medium text-teal-600 dark:text-teal-400">
                   Select Ticket
                 </label>

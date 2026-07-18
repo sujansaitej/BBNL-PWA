@@ -180,22 +180,39 @@ export async function getSubjects({ apiopid, cid, servid }) {
     };
   }
 
-  // NATIVE PARITY: the operator id IS sent, exactly as
-  // RaiseNewTicketsFragment does — GetSubjects(operatorID, userId, serviceId)
-  // with operatorID from prefs "operatior_id".
+  // The operator id is sent as native does — RaiseNewTicketsFragment calls
+  // GetSubjects(operatorID, userId, serviceId) with operatorID from prefs.
   //
-  // Be aware of how this endpoint behaves (measured against production):
-  //   apiopid="BBNL_OP49" → 389 rows  ("Subject Details Fetched Successfully")
-  //   apiopid=""          → 389 rows  — the same full catalogue
-  //   apiopid=<unknown>   →   0 rows  ("Host details for <x> Not Available")
+  // How this endpoint actually behaves (VERIFIED against production):
+  //   apiopid="BBNL_OP49" / "BBNL_OP981" → 389 rows (the full catalogue)
+  //   apiopid=""                         → 389 rows (the SAME full catalogue)
+  //   apiopid="pwaram" / "null" / <any unrecognised> → 0 rows
+  //                                        ("Host details for <x> Not Available")
   //
-  // It is a host lookup, not a filter: a valid operator and no operator
-  // return the SAME list, and an unrecognised one returns nothing. So an
-  // empty dropdown here almost always means a bad/blank operator id reached
-  // this call, not a backend outage. The log line below reports exactly what
-  // was sent and what came back, so that is diagnosable at a glance instead
-  // of presenting as a mysteriously empty list.
-  const { subjects, message } = await fetchSubjects(apiopid);
+  // It is a host lookup, NOT a filter: the catalogue is operator-independent,
+  // so sending the operator id can only ever EMPTY the list, never change it.
+  // Native survives because SharedPreferences hands it a real operator id.
+  // The PWA's linked-account opid is not reliably an operator id at all —
+  // ServiceApis/getServRegCastNos returns rows with opid:null and other
+  // non-operator values (the customer id has been observed), and safeOpid
+  // only rescues the literal tokens "null"/"undefined".
+  //
+  // SELF-HEAL: if a non-blank opid comes back empty, retry once un-scoped.
+  // Blank always returns the full catalogue and loses nothing, since the list
+  // does not depend on the operator. This turns "mysteriously empty dropdown,
+  // ticket-raising impossible" into "works". The retry is bounded to one and
+  // is skipped when we already sent blank (that would be identical).
+  let { subjects, message } = await fetchSubjects(apiopid);
+
+  if (subjects.length === 0 && safeOpid(apiopid) !== "") {
+    logger.warn("API", "getSubjects: operator id did not resolve, retrying un-scoped", {
+      apiopid: safeOpid(apiopid),
+      cid,
+      servid,
+      backendMessage: message,
+    });
+    ({ subjects, message } = await fetchSubjects(""));
+  }
 
   if (subjects.length === 0) {
     logger.warn("API", "getSubjects returned an EMPTY catalogue", {
@@ -203,7 +220,7 @@ export async function getSubjects({ apiopid, cid, servid }) {
       cid,
       servid,
       backendMessage: message,
-      hint: "A blank or unrecognised apiopid yields 0 rows; check the linked account's opid.",
+      hint: "Even a blank apiopid returned no rows — likely a backend outage, not a bad operator id.",
     });
   } else {
     logger.debug("API", `getSubjects: ${subjects.length} subjects`, { apiopid: apiopid || "(blank)", servid });
