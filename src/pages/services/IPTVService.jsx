@@ -2121,7 +2121,7 @@ export default function IPTVService() {
                             </div>
                         )}
                         <div className="flex justify-between text-sm">
-                            <span className="text-gray-500">Amount Paid</span>
+                            <span className="text-gray-500">Total Amount</span>
                             <span className="font-bold text-emerald-600">₹ {Number(successOrder.paidAmount).toFixed(2)}</span>
                         </div>
                         {successOrder.walletDebited > 0 && (
@@ -3249,7 +3249,7 @@ export default function IPTVService() {
                                 </div>
                             )}
                             <div className="flex justify-between text-sm">
-                                <span className="text-gray-500">Amount Paid</span>
+                                <span className="text-gray-500">Total Amount</span>
                                 <span className="font-bold text-emerald-600">₹ {Number(successOrder.paidAmount).toFixed(2)}</span>
                             </div>
                             {successOrder.walletDebited > 0 && (
