@@ -67,6 +67,33 @@ function apisHeaders(contentType) {
 const contains = (v, needle) =>
   typeof v === "string" && v.toLowerCase().includes(needle.toLowerCase());
 
+/**
+ * Guard an operator id before it reaches a query string.
+ *
+ * VERIFIED AGAINST PRODUCTION — apis/subjects/ answers:
+ *   apiopid="BBNL_OP981" → 389 rows   (a real operator)
+ *   apiopid="BBNL_OP49"  → 389 rows   (a real operator)
+ *   apiopid=""           → 389 rows   (blank is fine — it is a host lookup,
+ *                                      not a filter, so it returns the same
+ *                                      full catalogue)
+ *   apiopid="null"       →   0 rows   "Host details for null Not Available"
+ *   apiopid="undefined"  →   0 rows   "Host details for undefined Not Available"
+ *
+ * So the ONLY way to get an empty complaint catalogue — which makes raising a
+ * ticket impossible — is to send the literal string "null" or "undefined".
+ * And that is reachable: ServiceApis/getServRegCastNos genuinely returns rows
+ * with `opid: null` (observed on production, alongside "BBNL_OP981"). Any
+ * String(...) of that value anywhere in the chain produces "null".
+ *
+ * Collapsing those two tokens to blank is not a behavioural divergence: the
+ * native app reads this from SharedPreferences, which returns "" for a
+ * missing key, so it can never send them either.
+ */
+function safeOpid(opid) {
+  const v = String(opid ?? "").trim();
+  return v === "null" || v === "undefined" ? "" : v;
+}
+
 // ── 1. Maintenance gate (POST · apis/maintenance/ · APIS) ────────────
 // Runs first when the raise screen opens. Android keeps the form disabled
 // until err_code === 0. Returns { open, message }.
@@ -131,7 +158,7 @@ export async function getSubjects({ apiopid, cid, servid }) {
 
   async function fetchSubjects(opid) {
     const query = new URLSearchParams({
-      apiopid: opid || "",
+      apiopid: safeOpid(opid),
       cid: cid || "",
       servid: servid || "",
     }).toString();

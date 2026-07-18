@@ -355,6 +355,34 @@ describe("getSubjects", () => {
     expect(lastQuery()).toEqual({ apiopid: "BBNL_OP49", cid: "cust1", servid: "7" });
   });
 
+  test("a null/undefined operator id is sent as blank, never as a literal token", async () => {
+    const { getSubjects } = await import("./tickets.js");
+    fetchMock.mockResolvedValue(mockResponse(SUBJECTS_OK));
+
+    // VERIFIED ON PRODUCTION: apiopid="null" and apiopid="undefined" each
+    // return 0 rows ("Host details for null Not Available"), while a real
+    // operator AND a blank one both return the full 389-row catalogue. So
+    // these two tokens are the ONLY way to empty the dropdown — and they are
+    // reachable, because getServRegCastNos really does return rows with
+    // opid: null (observed alongside "BBNL_OP981").
+    const bad = [null, undefined, "null", "undefined", "  null  "];
+    for (let i = 0; i < bad.length; i++) {
+      fetchMock.mockClear();
+      // servid must be unique per case — it is the cache key, and a repeat
+      // would be served from the 30-min cache without issuing a request.
+      await getSubjects({ apiopid: bad[i], cid: "c", servid: `guard-${i}` });
+      expect(fetchMock.mock.calls.length, `case ${i}`).toBe(1);
+      expect(new URL(fetchMock.mock.calls[0][0]).searchParams.get("apiopid"), String(bad[i])).toBe("");
+    }
+  });
+
+  test("a real operator id is forwarded untouched", async () => {
+    const { getSubjects } = await import("./tickets.js");
+    fetchMock.mockResolvedValue(mockResponse(SUBJECTS_OK));
+    await getSubjects({ apiopid: "BBNL_OP981", cid: "c", servid: "real-op" });
+    expect(new URL(fetchMock.mock.calls[0][0]).searchParams.get("apiopid")).toBe("BBNL_OP981");
+  });
+
   test("an empty catalogue is returned as-is, with no second attempt", async () => {
     const { getSubjects } = await import("./tickets.js");
     // A blank or unrecognised apiopid yields 0 rows ("Host details for X Not
