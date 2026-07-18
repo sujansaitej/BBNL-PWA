@@ -5175,8 +5175,11 @@ function FoFiSmartBox() {
                         <button
                             onClick={handleFetchMAC}
                             disabled={isLoading || !boxId}
-                            className={`bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-bold py-3 px-10 rounded-full transition-shadow duration-200 uppercase text-sm shadow-md hover:shadow-lg ${isLoading || !boxId ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            className={`bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-bold py-3 px-10 rounded-full transition-shadow duration-200 uppercase text-sm shadow-md hover:shadow-lg inline-flex items-center justify-center gap-2 ${isLoading || !boxId ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
+                            {isLoading && (
+                                <span className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                            )}
                             {isLoading ? 'Getting MAC...' : 'GET MAC ID'}
                         </button>
                     </div>
@@ -5250,15 +5253,11 @@ function FoFiSmartBox() {
                 </div>
                 )}
 
-                {/* Loading overlay during device validation */}
-                {isLoading && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-                        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 flex flex-col items-center max-w-xs mx-4">
-                            <div className="w-10 h-10 rounded-full border-4 border-gray-200 border-t-gray-600 animate-spin mb-4"></div>
-                            <p className="text-gray-700 dark:text-gray-300 text-sm font-medium text-center">Validating device...</p>
-                        </div>
-                    </div>
-                )}
+                {/* Loading is shown INLINE on the action buttons (spinner +
+                    label). The previous fullscreen "Validating device…" overlay
+                    was removed — it blocked the whole screen and blurred the
+                    form, which operators found jarring and left the app looking
+                    frozen. In-screen button spinners match every other flow. */}
 
                 {/* Validation errors render inline below the SUBMIT
                     button (see further down). No fullscreen popup —
@@ -5296,9 +5295,12 @@ function FoFiSmartBox() {
                     <button
                         onClick={handleLinkFoFiBox}
                         disabled={isLoading || !boxId || !macAddress || !selectedPlan}
-                        className={`bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-bold py-4 px-12 rounded-full transition-shadow duration-200 uppercase text-sm shadow-lg hover:shadow-xl tracking-wide ${isLoading || !boxId || !macAddress || !selectedPlan ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        className={`bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-bold py-4 px-12 rounded-full transition-shadow duration-200 uppercase text-sm shadow-lg hover:shadow-xl tracking-wide inline-flex items-center justify-center gap-2 ${isLoading || !boxId || !macAddress || !selectedPlan ? 'opacity-50 cursor-not-allowed' : ''}`}
                         title={!selectedPlan ? 'Please select a plan first' : !boxId ? 'Please scan or enter FOFI Box ID' : !macAddress ? 'Please get MAC ID first' : (isLinkedDeviceSubscription ? 'Subscribe this package' : 'Link this box')}
                     >
+                        {isLoading && (
+                            <span className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                        )}
                         {isLoading
                             ? (isLinkedDeviceSubscription ? 'Subscribing…' : 'Linking…')
                             : (isLinkedDeviceSubscription ? 'PROCEED TO PAYMENT' : 'LINK FO-FI BOX')}
