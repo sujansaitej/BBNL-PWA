@@ -671,7 +671,7 @@ export default function FofiPayment() {
       // Payment is now done. Any later step that throws must NOT turn this into a
       // "Failed" (would risk a double charge).
       orderGenerated = true;
-      console.log('FoFi order generated.', { paidamount: orderPaidAmount, amountDeductable: walletDeduction, isFreeUpgrade });
+      console.log('FoFi order generated.', { paidamount: Number(paidAmount), amountDeductable: walletDeduction });
       // Activation (link / upgrade registration), if any was deferred.
       try {
         await runPendingFoFiActivation();
