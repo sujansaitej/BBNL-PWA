@@ -313,19 +313,16 @@ export default function PaymentHistory() {
           }
         }
 
-        // Fetch payment history through the service-aware selector.
-        //
-        // - For FoFi (with fofiboxid): hits the dedicated
-        //   /ServiceApis/cabletv/orderhistory endpoint that the
-        //   backend already filters by servid=3. Falls back to the
-        //   generic endpoint on error/empty so operators are never
-        //   left with a blank screen.
-        // - For Internet/Cable: hits the generic /apis/custpayhistory
-        //   which returns ALL payments; we filter client-side below
-        //   using the central service registry (constants/services.js).
+        // Fetch payment history through the service-aware selector
+        // (mirrors native, see orderApis.getOrderHistoryFor):
+        // - FoFi / Cable TV → /ServiceApis/ordersList keyed on the customer
+        //   id + servid; already server-filtered, rows tagged authoritative.
+        // - Internet → generic /apis/custpayhistory (ALL payments), filtered
+        //   client-side below via the central service registry.
         try {
           const userid = customerData?.username || customerData?.customer_id || cid;
-          const apiCtx = { apiopid, cid, userid, fofiboxid, cableboxid };
+          // username = operator app_username (native sends this to ordersList).
+          const apiCtx = { apiopid, cid, userid, username: user?.username };
           console.log("🔵 [PaymentHistory] Fetching for serviceType:", serviceType, "ctx:", apiCtx);
           const custPayData = await getOrderHistoryFor(serviceType, apiCtx);
           setRawResponse(custPayData);

@@ -79,7 +79,7 @@ export async function getOrderHistory({ apiopid, cid, servicekey }) {
  * @param {string} p.boxid   box id (unused on the wire — ordersList keys on servid)
  * @param {string} p.servid  '3' = FoFi, '1' = Cable TV / IPTV
  */
-export async function getServiceOrderHistory({ userid, boxid, servid }) {
+export async function getServiceOrderHistory({ userid, username, boxid, servid }) {
   const timestamp = Date.now();
   const url = `${getBaseUrl()}ServiceApis/ordersList?_t=${timestamp}`;
 
@@ -99,7 +99,9 @@ export async function getServiceOrderHistory({ userid, boxid, servid }) {
   // empty (report 6.15). `username` is the employee; `userid` is the customer.
   const payload = {
     userid: userid || '',
-    username: import.meta.env.VITE_API_USERNAME || 'superadmin',
+    // Native sends the operator's app_username here (scopes the customer's
+    // orders to this operator). Fall back to the env user only if unknown.
+    username: username || import.meta.env.VITE_API_USERNAME || 'superadmin',
     servid: String(servid || '3'),
     ordernumber: '',
     txndatefrom: '',
@@ -145,85 +147,47 @@ function getHistoryRows(response) {
 }
 
 /**
- * Service-aware order history selector.
+ * Service-aware order history selector — mirrors the native app exactly.
  *
- * Routes to the most accurate endpoint available for the requested
- * service. Returns the SAME shape as getOrderHistory — `{ status, body }`
- * — so callers do not need to know which endpoint produced the result.
+ * Native (CustomerCompleteOverviewFragment) branches on service type:
+ * - Internet → POST /apis/custpayhistory  { apiopid, cid } — all customer
+ *   payments, rendered with the full plan/tax breakdown.
+ * - FoFi (servid=3) & Cable TV (servid=1) → POST /ServiceApis/ordersList
+ *   { userid: customerId, username: operator, servid } — keyed on the
+ *   CUSTOMER id (never a box id), already server-filtered by servid. Native
+ *   shows exactly these rows: no generic merge, no client-side filtering.
  *
- * - FoFi (servid=3) and Cable TV / IPTV (servid=1) with a box id →
- *   dedicated /ServiceApis/cabletv/orderhistory (server-side filtered by
- *   servid). Every row is authoritatively that service, so we tag it with
- *   `_authoritativeService` and the registry resolver trusts it — older
- *   records are never dropped by client-side classification. On any
- *   failure or empty body we still merge the generic endpoint so operators
- *   are never left with a blank screen during a backend hiccup.
- * - All other services → generic /apis/custpayhistory (returns ALL
- *   payments; caller must filter client-side via the registry resolver).
+ * The old PWA gated the ordersList call on a box id that callers usually
+ * passed as '' (so it never fired), then merged generic rows the client
+ * filter later discarded as "unclassified" — which is why FoFi/Cable showed
+ * "No payment history". This restores the native behaviour.
+ *
+ * ordersList rows use OrderDetails field names; we normalize the few the
+ * detail card reads (date / order id / payment mode / cid) and tag each row
+ * `_authoritativeService` so the registry resolver keeps it. Plan name and
+ * per-tax split are absent from ordersList (native's Order List doesn't show
+ * them either) → the card shows N/A there.
  */
-export async function getOrderHistoryFor(serviceType, { apiopid, cid, userid, fofiboxid, cableboxid } = {}) {
+const SERVID_BY_TYPE = { fofi: '3', cabletv: '1' };
+
+export async function getOrderHistoryFor(serviceType, { apiopid, cid, userid, username } = {}) {
   const normType = String(serviceType || '').toLowerCase();
+  const servid = SERVID_BY_TYPE[normType];
 
-  // Map service → dedicated cabletv-namespace fetch params. Both FoFi and
-  // Cable TV register orders through ServiceApis/cabletv/* under distinct
-  // servids; the box id scopes the lookup to this customer's device.
-  const dedicatedSpec = (() => {
-    if (normType === 'fofi' && fofiboxid) {
-      return { servid: '3', boxid: fofiboxid, source: 'fofi-dedicated', service: 'fofi' };
-    }
-    if (normType === 'cabletv' && (cableboxid || fofiboxid)) {
-      return { servid: '1', boxid: cableboxid || fofiboxid, source: 'cabletv-dedicated', service: 'cabletv' };
-    }
-    return null;
-  })();
-
-  let dedicated = null;
-  if (dedicatedSpec) {
-    try {
-      const resp = await getServiceOrderHistory({
-        userid: userid || cid,
-        boxid: dedicatedSpec.boxid,
-        servid: dedicatedSpec.servid,
-      });
-      const hasUsableBody = Array.isArray(resp?.body) && resp.body.length > 0;
-      const noServerError = (resp?.status?.err_code ?? 0) === 0;
-      if (hasUsableBody || noServerError) {
-        dedicated = { ...resp, _source: dedicatedSpec.source };
-      }
-      if (!hasUsableBody || !noServerError) {
-        logger.warn("Order", `${dedicatedSpec.source} endpoint returned no usable rows; generic history will also be checked`, {
-          errCode: resp?.status?.err_code,
-          bodyLen: Array.isArray(resp?.body) ? resp.body.length : null,
-          servid: dedicatedSpec.servid,
-        });
-      }
-    } catch (err) {
-      logger.warn("Order", `${dedicatedSpec.source} endpoint failed, falling back to generic`, { err: err?.message });
-    }
+  if (servid) {
+    const resp = await getServiceOrderHistory({ userid: userid || cid, username, servid });
+    const rows = getHistoryRows(resp).map((row) => ({
+      ...row,
+      orderid: row.ordernumber ?? row.orderid,
+      payment_date: row.orderdate || row.txndate || row.payment_date,
+      pymt_mode: row.paymentmode ?? row.pymt_mode,
+      cid: cid || userid,
+      _authoritativeService: normType,
+      _source: `${normType}-ordersList`,
+    }));
+    return { ...resp, body: rows, _source: `${normType}-ordersList` };
   }
 
   const generic = await getOrderHistory({ apiopid, cid, servicekey: serviceType });
-  if (dedicated) {
-    return {
-      ...generic,
-      body: [
-        // Dedicated rows are server-filtered by servid → definitively this
-        // service. `_authoritativeService` makes the registry resolver
-        // return that service so the row is kept under the right tab and
-        // never dropped as "unclassified".
-        ...getHistoryRows(dedicated).map((row) => ({
-          ...row,
-          _source: dedicatedSpec.source,
-          _authoritativeService: dedicatedSpec.service,
-        })),
-        ...getHistoryRows(generic).map((row) => ({ ...row, _source: 'generic' })),
-      ],
-      _source: `${dedicatedSpec.source}+generic`,
-      _sources: {
-        dedicatedCount: getHistoryRows(dedicated).length,
-        genericCount: getHistoryRows(generic).length,
-      },
-    };
-  }
   return { ...generic, _source: 'generic' };
 }

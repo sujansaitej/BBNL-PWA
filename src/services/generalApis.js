@@ -1,7 +1,7 @@
 // General API services
 import logger from "../utils/logger";
 import perfMonitor from "../utils/apiPerfMonitor";
-import { lsGet, lsSet } from "./lsCache";
+import { lsGet, lsSet, lsRemoveByPrefix } from "./lsCache";
 import {
   getBaseUrl,
   getHeadersJson,
@@ -282,6 +282,9 @@ export async function pickTicket(allParams = {}, action = '') {
   const body = new URLSearchParams({ ...allParams }).toString();
   const resp = await apiFetch(url, { method: "POST", headers: TICKET_FORM_HEADERS, body }, `pickTicket(${action || 'pick'})`);
   if (!resp.ok) throw new Error(`Failed to ${action || 'pick'} ticket ${resp.status}`);
+  // Mutation applied on the backend → drop all cached ticket lists so the next
+  // getTickets() hits the server fresh (native has no cache; every re-fetch is live).
+  lsRemoveByPrefix('tkts_');
   return resp.json();
 }
 

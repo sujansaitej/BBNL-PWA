@@ -90,7 +90,6 @@ const Tickets = () => {
   }
 
   const deptInitRef = useRef(true);
-  const dialogInitRef = useRef(true);
 
   // Reset department filter, search term, and fetch fresh tickets when tab changes
   useEffect(() => {
@@ -98,12 +97,6 @@ const Tickets = () => {
     setSearchTerm('');
     getTkts(activeTab, '');
   }, [activeTab]);
-
-  // Re-fetch after dialog closes (ticket picked/closed/transferred) — preserve department filter
-  useEffect(() => {
-    if (dialogInitRef.current) { dialogInitRef.current = false; return; }
-    getTkts(activeTab);
-  }, [dialogOpen, tktdialogOpen]);
 
   // Re-fetch when department filter changes
   useEffect(() => {
@@ -176,7 +169,12 @@ const Tickets = () => {
         toast.add(data?.status?.err_msg, { type: "error", duration: 3000 });
         // console.error("Failed to pick ticket:", data?.status?.err_msg || "Unknown error");
       }
+      // Mutation resolved (backend committed, list cache cleared in pickTicket) →
+      // refresh the current tab from a fresh server call. Deterministic: runs after
+      // the await, not off a dialog-state flag, so no stale-cache / race.
+      setDialogOpen(false);
       setTktdialogOpen(false);
+      getTkts(activeTab);
     } catch (err) {
       console.error("Error in getting tickets:", err);
     }
