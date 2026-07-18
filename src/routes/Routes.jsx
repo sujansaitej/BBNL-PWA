@@ -59,6 +59,7 @@ const VoiceService = lazyRetry(() => import("../pages/services/VoiceService"));
 const FoFiSmartBox = lazyRetry(() => import("../pages/services/FoFiSmartBox"));
 const IPTVService = lazyRetry(() => import("../pages/services/IPTVService"));
 const PaymentHistory = lazyRetry(() => import("../pages/PaymentHistory"));
+const OrderDetail = lazyRetry(() => import("../pages/OrderDetail"));
 const UploadDocuments = lazyRetry(() => import("../pages/UploadDocuments"));
 const FofiPayment = lazyRetry(() => import("../pages/FofiPayment"));
 const CustomerDashboard = lazyRetry(() => import("../pages/customer/Dashboard"));
@@ -287,6 +288,14 @@ export default function AppRoutes() {
           element={
             <PrivateRoute>
               <PaymentHistory />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/payment-history/order"
+          element={
+            <PrivateRoute>
+              <OrderDetail />
             </PrivateRoute>
           }
         />

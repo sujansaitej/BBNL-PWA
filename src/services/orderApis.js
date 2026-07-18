@@ -191,3 +191,57 @@ export async function getOrderHistoryFor(serviceType, { apiopid, cid, userid, us
   const generic = await getOrderHistory({ apiopid, cid, servicekey: serviceType });
   return { ...generic, _source: 'generic' };
 }
+
+// --- Order view mapping (native parity) -----------------------------------
+// Both backends (ordersList for FoFi/Cable, custpayhistory for Internet) are
+// collapsed into ONE display shape via field aliases, exactly the set the
+// native Order List + Order Details screens render. ponytail: alias OR-chain
+// covers both schemas, no per-service branching needed.
+
+const _num = (...vals) => {
+  for (const v of vals) {
+    if (v === null || v === undefined || v === "") continue;
+    const n = Number(String(v).replace(/[^\d.-]/g, ""));
+    if (Number.isFinite(n)) return n;
+  }
+  return 0;
+};
+
+const _txt = (...vals) => {
+  for (const v of vals) {
+    if (v === null || v === undefined) continue;
+    const s = String(v).trim();
+    if (s) return s;
+  }
+  return "";
+};
+
+/**
+ * Map a raw order row (either endpoint) to the native detail/list shape.
+ * @returns {{orderNumber,orderDate,totalAmount,taxAmount,discountAmount,otherCharges,paymentMode,status}}
+ */
+export function mapOrderView(order = {}) {
+  const subtaxSum = Array.isArray(order.subtaxes)
+    ? order.subtaxes.reduce((s, t) => s + _num(t?.value, t?.amount, t?.tax_amount), 0)
+    : 0;
+  return {
+    orderNumber: _txt(order.ordernumber, order.orderid, order.order_id, order.orderno, order.order_no),
+    orderDate: _txt(order.orderdate, order.payment_date, order.txndate, order.paymentdate),
+    totalAmount: _num(order.totalamount, order.grandtotal, order.payable_amt, order.paid_amt,
+      order.totalpaid, order.total_amt, order.total_amount, order.paidamount, order.subtotal),
+    taxAmount: _num(order.taxamount, order.tax_amt, order.taxamt) || (_num(order.cgst) + _num(order.sgst)) || subtaxSum,
+    discountAmount: _num(order.discountamount, order.discount, order.discount_amt),
+    otherCharges: _num(order.othercharges, order.other_charges, order.other_amt),
+    paymentMode: _txt(order.paymentmode, order.pymt_mode, order.payment_mode),
+    // Internet's custpayhistory rows are historical successful payments with no
+    // status field → default SUCCESS, matching the native "Internet" tab.
+    status: _txt(order.txnstatus, order.pymt_status, order.status) || "SUCCESS",
+  };
+}
+
+// Native opens these server URLs in the browser (no auth, billnum = order no).
+// Constants.CONGIF_DOWNLOAD_{Reciept,Invoice}_VALUE → prod/cable/{receipt,invoice}.
+export const getReceiptUrl = (orderNumber) =>
+  `${getBaseUrl()}cable/receipt?billnum=${encodeURIComponent(orderNumber || "")}`;
+export const getInvoiceUrl = (orderNumber) =>
+  `${getBaseUrl()}cable/invoice?billnum=${encodeURIComponent(orderNumber || "")}`;
