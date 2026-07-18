@@ -204,6 +204,17 @@ export function isRenewEnabled(planBody) {
   return String(planBody?.other_service_renewal?.btn_status || "").toLowerCase() === "enable";
 }
 
+/**
+ * cabletv-only: some boxes renew via PACKAGE selection rather than
+ * other_service_renewal. For those, getMyPlanDetails returns
+ * other_service_renewal.btn_status = null but chnls_pkgs_selection.btn_status =
+ * "enable". Without this, the Proceed button never showed for such boxes even
+ * though paymentinfo/cabletv accepts a package renewal.
+ */
+export function isPkgSelectionEnabled(planBody) {
+  return String(planBody?.chnls_pkgs_selection?.btn_status || "").toLowerCase() === "enable";
+}
+
 /** Android's per-service display names for the header and the orange label. */
 const SERVICE_TITLES = {
   internet: "Internet",

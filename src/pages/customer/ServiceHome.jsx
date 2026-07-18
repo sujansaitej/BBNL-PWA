@@ -22,6 +22,7 @@ import {
   planRowFor,
   formatExpiry,
   isRenewEnabled,
+  isPkgSelectionEnabled,
   serviceTitle,
   showsInternetActions,
   serviceRouteBase,
@@ -160,7 +161,9 @@ export default function ServiceHome() {
   const planRow = useMemo(() => planRowFor(plan, servicekey), [plan, servicekey]);
   const title = serviceTitle(servicekey);
   const showActions = showsInternetActions(servicekey);
-  const canRenew = isRenewEnabled(plan);
+  // cabletv can renew via package selection even when other_service_renewal is
+  // not "enable" (its Proceed button was never appearing for such boxes).
+  const canRenew = isRenewEnabled(plan) || (servicekey === "cabletv" && isPkgSelectionEnabled(plan));
   const routeBase = serviceRouteBase(servicekey);
   // Every service now opens its live payment screen at {base}/pay. Internet →
   // InternetPaymentSummary (makepayment/savePaymentApi); FoFi/IPTV →

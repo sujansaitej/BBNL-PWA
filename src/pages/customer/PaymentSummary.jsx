@@ -93,11 +93,20 @@ export default function PaymentSummary() {
           try {
             const last = await getIptvLastSubscribed({ userid: account.userid, itemid: c.fofiBoxId });
             const b = last?.body || {};
-            c.channelid = Array.isArray(b.channelid) ? b.channelid : [];
-            c.packageid = Array.isArray(b.packageid) ? b.packageid : [];
-            c.lcochid = Array.isArray(b.lcochid) ? b.lcochid : [];
-            c.pkgcode = Array.isArray(b.pkgcode) ? b.pkgcode : [];
-          } catch { /* best-effort — renewal can proceed with empty lists */ }
+            const packageid = Array.isArray(b.packageid) ? b.packageid : [];
+            const channelid = Array.isArray(b.channelid) ? b.channelid : [];
+            c.packageid = packageid;
+            // IPTV: package codes ARE the package ids ("package ids and package
+            // codes are same in IPTV"). iptvLastSubscribedinfo has no pkgcode.
+            c.pkgcode = packageid;
+            // The backend renews by PACKAGE. iptvLastSubscribedinfo ALSO returns
+            // the expanded channel list of those packages, but re-submitting it
+            // is rejected ("Invalid channel id's") — verified live: packages-only
+            // succeeds, channels+packages fails. So send channels ONLY for an
+            // a-la-carte box (one with no packages).
+            c.channelid = packageid.length > 0 ? [] : channelid;
+            c.lcochid = [];
+          } catch { /* best-effort — paymentinfo will report if nothing renewable */ }
           try {
             const ext = await getPlanExtensionPeriods({ userid: account.userid, itemid: c.fofiBoxId });
             c.cblextenperiod = ext?.body?.days_range?.max || "";
