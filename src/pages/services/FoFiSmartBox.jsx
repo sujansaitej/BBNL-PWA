@@ -31,7 +31,7 @@ import { getMyPlanDetails, getCustKYCPreview, getUserAssignedItems } from "../..
 // Box-identity logic (extractBoxFromItem + linked-TV detection) lives in
 // utils/boxId.js so this page, IPTVService, and prefetch all resolve a box
 // the SAME way and can never diverge on "opted vs not opted".
-import { extractBoxFromItem, detectLinkedTvType, getLinkedTvIdentifier, extractBoxIdFromAssigned, isFofiAndroidBoxId } from "../../utils/boxId";
+import { extractBoxFromItem, detectLinkedTvType, getLinkedTvIdentifier, extractBoxIdFromAssigned, isFofiAndroidBoxId, findAndboxBoxId } from "../../utils/boxId";
 import { raceForFirstMatch } from "../../utils/raceForFirst";
 import { findLinkFofiboxSrvid } from "../../utils/specialPlans";
 import { lsRemove, lsGetStale, lsSet, lsGet } from "../../services/lsCache";
@@ -345,7 +345,6 @@ function findFoFiSubscribedService(planResponse) {
 }
 
 const FOFI_MAC_RE = /[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}/;
-const FOFI_BOX_ID_RE = /\b(bbnl[-_][A-Za-z0-9_-]+|BBNL[-_][A-Za-z0-9_-]+)\b/i;
 const FOFI_SERIAL_RE = /\bFOFI[0-9]{6,}\b/i;
 
 // Robustly extract the MAC + serial from a scanned "Scan From TV" QR.
@@ -568,9 +567,11 @@ function extractFoFiBoxId(response, fallback = '') {
     );
     if (fromBody) return fromBody;
 
+    // ANDBOX-format only — an "already assigned" message may carry the real box
+    // id, but "device not belongs op(BBNL_OP981)" carries an OPERATOR id that a
+    // broad /BBNL[-_].../ would wrongly load into the Box ID field.
     const msg = String(response?.status?.err_msg || '');
-    const match = msg.match(FOFI_BOX_ID_RE);
-    return firstTrimmedValue(match?.[1], fallback);
+    return firstTrimmedValue(findAndboxBoxId(msg), fallback);
 }
 
 function classifyFoFiValidationMessage(message) {
@@ -3384,28 +3385,6 @@ function FoFiSmartBox() {
             // formats (bbnl-*, BBNL_*) — never the FOFI<digits>
             // serial pattern, even though it appears in some err_msg
             // strings.
-            const BOX_ID_PATTERN = /\b(bbnl[-_][A-Za-z0-9_-]+|BBNL[-_][A-Za-z0-9_-]+)\b/i;
-            const deepFindBoxId = (obj, depth = 0) => {
-                if (obj == null || depth > 6) return '';
-                if (typeof obj === 'string') {
-                    const m = obj.match(BOX_ID_PATTERN);
-                    return (m && m[1]) || '';
-                }
-                if (typeof obj !== 'object') return '';
-                if (Array.isArray(obj)) {
-                    for (const item of obj) {
-                        const found = deepFindBoxId(item, depth + 1);
-                        if (found) return found;
-                    }
-                    return '';
-                }
-                for (const key of Object.keys(obj)) {
-                    const found = deepFindBoxId(obj[key], depth + 1);
-                    if (found) return found;
-                }
-                return '';
-            };
-
             // Pull the Box ID from named fields on the response body.
             // We trust whatever the named field carries (no pattern
             // gate here) — the API is authoritative for what the Box
@@ -3425,7 +3404,9 @@ function FoFiSmartBox() {
             // embed the canonical ID in the "already assigned"
             // message; that's still the authoritative Box ID.
             if (!apiBoxId && response) {
-                apiBoxId = deepFindBoxId(response) || '';
+                // Only an ANDBOX-format id — never an operator id (BBNL_OP…) that
+                // an error message like "device not belongs op(BBNL_OP981)" carries.
+                apiBoxId = findAndboxBoxId(response) || '';
                 if (apiBoxId) console.log('🔎 [QR] Box ID via deep search:', apiBoxId);
             }
 
@@ -3752,9 +3733,11 @@ function FoFiSmartBox() {
                 // serial. So we keep the regex strictly to
                 // box-ID-shaped tokens.
                 if (!extractedBoxId && response?.status?.err_msg) {
-                    const boxMatch = String(response.status.err_msg).match(/\b(bbnl[-_][A-Za-z0-9_-]+|BBNL[-_][A-Za-z0-9_-]+)\b/i);
-                    if (boxMatch && boxMatch[1]) {
-                        extractedBoxId = boxMatch[1];
+                    // ANDBOX-format only — never an operator id (BBNL_OP…) that the
+                    // "device not belongs op(BBNL_OP981)" message embeds.
+                    const boxMatch = findAndboxBoxId(String(response.status.err_msg));
+                    if (boxMatch) {
+                        extractedBoxId = boxMatch;
                         console.log('✅ [GET MAC ID] Extracted Box ID from message:', extractedBoxId);
                     }
                 }
@@ -3785,8 +3768,8 @@ function FoFiSmartBox() {
                             if (!extractedBoxId) extractedBoxId = d?.boxid || d?.box_id || d?.fofiboxid || d?.fofi_box_id || '';
                         }
                         if (!extractedBoxId && detailResp?.status?.err_msg) {
-                            const m = String(detailResp.status.err_msg).match(/\b(bbnl[-_][A-Za-z0-9_-]+|BBNL[-_][A-Za-z0-9_-]+)\b/i);
-                            if (m && m[1]) extractedBoxId = m[1];
+                            const m = findAndboxBoxId(String(detailResp.status.err_msg));
+                            if (m) extractedBoxId = m;
                         }
                     } catch (e) {
                         console.warn('⚠️ [GET MAC ID] Detail call failed (non-fatal):', e.message);

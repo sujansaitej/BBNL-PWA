@@ -36,3 +36,38 @@ describe("isFofiAndroidBoxId — FoFi upgrade-registration box gate", () => {
         expect(isFofiAndroidBoxId("bbnl-andbox-1")).toBe(false);
     });
 });
+
+import { findAndboxBoxId } from "./boxId.js";
+
+// Regression for the scan bug: validateAsset's "device not belongs op(BBNL_OP981)"
+// error embeds an OPERATOR id that a broad /BBNL[-_].../ matched and loaded into
+// the Box ID field. findAndboxBoxId must match ONLY real ANDBOX box ids.
+describe("findAndboxBoxId — never mistakes an operator id for a box id", () => {
+  test("does NOT match an operator id in an error message", () => {
+    const resp = { status: { err_code: 1, err_msg: "device not belongs op(BBNL_OP981)" }, body: [] };
+    expect(findAndboxBoxId(resp)).toBe("");
+  });
+
+  test("does NOT match bare operator ids", () => {
+    expect(findAndboxBoxId("BBNL_OP981")).toBe("");
+    expect(findAndboxBoxId("BBNL-OP49")).toBe("");
+  });
+
+  test("matches a real BBNL-ANDBOX box id in a named field", () => {
+    const resp = { status: { err_code: 0 }, body: [{ boxid: "BBNL-ANDBOX-08190156", mac_addr: "68:1D:EF:23:9D:7F" }] };
+    expect(findAndboxBoxId(resp)).toBe("BBNL-ANDBOX-08190156");
+  });
+
+  test("matches an ANDBOX id embedded in an 'already assigned' message", () => {
+    const resp = { status: { err_code: 1, err_msg: "Device already assigned to BBNL-ANDBOX-02200004" } };
+    expect(findAndboxBoxId(resp)).toBe("BBNL-ANDBOX-02200004");
+  });
+
+  test("matches AUG-ANDBOX ids too", () => {
+    expect(findAndboxBoxId("AUG-ANDBOX-02180016")).toBe("AUG-ANDBOX-02180016");
+  });
+
+  test("does NOT match a FOFI serial", () => {
+    expect(findAndboxBoxId("FOFI20190729000335")).toBe("");
+  });
+});

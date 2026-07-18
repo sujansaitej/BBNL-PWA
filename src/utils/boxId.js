@@ -18,6 +18,37 @@
 
 const _BBNL_BOX_RE = /^(bbnl[-_]andbox[-_]|BBNL[-_]ANDBOX[-_])/i;
 
+// A FoFi box id is AUG-ANDBOX-… or BBNL-ANDBOX-… (the backend's chk__fofiboxid
+// gate). Deliberately NOT a broad /BBNL[-_].../ — that ALSO matches an operator
+// id like "BBNL_OP981", which validateAsset's "device not belongs op(BBNL_OP981)"
+// error embeds. The broad pattern loaded the OPERATOR id into the Box ID field
+// after a failed scan.
+const _ANDBOX_ID_RE = /\b((?:bbnl|aug)[-_]andbox[-_][A-Za-z0-9-]+)\b/i;
+
+/**
+ * Deep-search a validateAsset response (or any value) for a real ANDBOX box id
+ * — the named field, a nested body, or one embedded in an "already assigned
+ * to …" err_msg. Returns '' when none is found, so an OPERATOR id (BBNL_OP…)
+ * inside an error message is never mistaken for a box id.
+ * @param {*} obj
+ * @param {number} depth
+ * @returns {string}
+ */
+export function findAndboxBoxId(obj, depth = 0) {
+    if (obj == null || depth > 6) return '';
+    if (typeof obj === 'string') {
+        const m = obj.match(_ANDBOX_ID_RE);
+        return (m && m[1]) || '';
+    }
+    if (typeof obj !== 'object') return '';
+    const values = Array.isArray(obj) ? obj : Object.values(obj);
+    for (const v of values) {
+        const found = findAndboxBoxId(v, depth + 1);
+        if (found) return found;
+    }
+    return '';
+}
+
 /**
  * Does this box id belong to a real FoFi Android box (vs a unicast/ATV device)?
  *
