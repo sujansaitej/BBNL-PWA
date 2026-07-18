@@ -33,7 +33,7 @@ import { getMyPlanDetails, getCustKYCPreview, getUserAssignedItems } from "../..
 // the SAME way and can never diverge on "opted vs not opted".
 import { extractBoxFromItem, detectLinkedTvType, getLinkedTvIdentifier, extractBoxIdFromAssigned, isFofiAndroidBoxId, findAndboxBoxId } from "../../utils/boxId";
 import { raceForFirstMatch } from "../../utils/raceForFirst";
-import { findLinkFofiboxSrvid } from "../../utils/specialPlans";
+import { findLinkFofiboxSrvid, findSpecialPlanSrvid } from "../../utils/specialPlans";
 import { lsRemove, lsGetStale, lsSet, lsGet } from "../../services/lsCache";
 import { refreshServiceController } from "../../services/navigationController";
 import { loadKycWithRetry } from "../../utils/kycRetry";
@@ -766,21 +766,6 @@ function mapInternetOriginPlan(plan, idx) {
         _selectId: `internet_${selection.planid || idx}`,
         _uniqueKey: `internet_${selection.planid || idx}_${planName}`,
     };
-}
-
-// Resolve the LINK_FOFIBOX special-plan srvid from specialInternetPlans.
-// Native's FreeOTTlinkFragment builds a serv_name→srvid map and sends the
-// selected plan's srvid to freeOTAService; for a unicast / linked-TV device
-// the backend (FreeOTTPaidChannels.php:54-81) accepts ONLY the LINK_FOFIBOX
-// plan. The PWA's fofi-upgrade `planid` is not a special-plan srvid, which is
-// what produced "Requested plan not found". Returns the srvid string, or ''.
-async function resolveLinkFofiboxSrvid(logUname) {
-    try {
-        const resp = await getSpecialInternetPlans({ logUname, isKiranastore: "no" }, { skipCache: false });
-        return findLinkFofiboxSrvid(getInternetOriginPlanRows(resp));
-    } catch (_) {
-        return '';
-    }
 }
 
 function normalizeFoFiPlanName(value) {
@@ -2766,39 +2751,45 @@ function FoFiSmartBox() {
         // FTA plans legitimately have ₹0 price — allow them to proceed
         setSelectedPlan(plan);
 
-        // Check if this is an existing FoFi user (has service already)
-        if (hasConfirmedFofiService && fofiServiceDetails) {
-            // EXISTING USER - Show subscription confirmation screen with auto-detected Box ID
-            console.log('🔵 [UPGRADE] Existing user - showing subscription confirmation screen...');
-            console.log('🔵 [UPGRADE] Plan Name:', plan?.planname || plan?.serv_name);
-            console.log('🔵 [UPGRADE] Plan ID:', planIdentifier);
-            console.log('🔵 [UPGRADE] Box ID:', fofiServiceDetails.boxId);
+        // A FoFi box that is ALREADY LINKED goes straight to the Services
+        // Subscription → payment flow — native runs the IDENTICAL
+        // UPGRADE PLAN → SUBMIT → paymentinfo path whether or not the box
+        // currently has an active plan (verified: the same user/box with a
+        // blank plan still reaches Review → PROCEED TO PAY → success, with no
+        // freeOTAService / upgradeRegistration / validateAsset).
+        //
+        // "Already linked" = a confirmed service (has active plan) OR a
+        // linked-device-with-no-plan (the box exists in getUserAssignedItems
+        // but has no active plan → fofiServiceDetails was nulled at overview
+        // load and the box stashed in linkedDeviceNoPlan). BOTH must use
+        // subscription-confirm; only a genuinely NEW box (never linked) uses
+        // the freeOTAService link path.
+        const linkedNoPlanBox = (!hasConfirmedFofiService && linkedDeviceNoPlan &&
+            isMeaningfulFoFiValue(linkedDeviceNoPlan.boxId || linkedDeviceNoPlan.macAddress))
+            ? linkedDeviceNoPlan : null;
 
-            // Navigate to subscription confirmation view
+        if ((hasConfirmedFofiService && fofiServiceDetails) || linkedNoPlanBox) {
+            // EXISTING / already-linked box → Services Subscription screen.
+            console.log('🔵 [UPGRADE] Linked box (active plan:', hasConfirmedFofiService, ') → subscription-confirm');
+            if (!fofiServiceDetails && linkedNoPlanBox) {
+                // No active plan → fofiServiceDetails is null. Seed it from the
+                // linked box so the confirm screen shows the Box ID and
+                // handleSubscriptionSubmit has box/mac/serial to send to
+                // paymentinfo. hasFofiService stays false, so the overview and
+                // hasConfirmedFofiService are unaffected (no active plan seeded).
+                setFofiServiceDetails({
+                    boxId: linkedNoPlanBox.boxId || '',
+                    macAddress: linkedNoPlanBox.macAddress || '',
+                    serialNumber: linkedNoPlanBox.serialNumber || '',
+                    deviceType: linkedNoPlanBox.deviceType || null,
+                    _rawFofiItem: {},
+                });
+            }
             setIsLinkedDeviceSubscription(false);
             enterSubView('subscription-confirm');
         } else {
-            // NEW USER - Navigate to link-fofi view with selected plan.
-            // If the customer already has a device linked (e.g. an Android
-            // TV that logged into the ATV app), pre-fill the Box ID + TV
-            // MAC so the operator sees the MAC for the package subscription
-            // instead of an empty form. The submit path (handleLinkFoFiBox)
-            // still re-validates the device, so this is display/convenience
-            // only and cannot bypass backend checks.
-            if (linkedDeviceNoPlan && isMeaningfulFoFiValue(linkedDeviceNoPlan.boxId || linkedDeviceNoPlan.macAddress)) {
-                if (isMeaningfulFoFiValue(linkedDeviceNoPlan.boxId)) setBoxId(linkedDeviceNoPlan.boxId);
-                if (isMeaningfulFoFiValue(linkedDeviceNoPlan.macAddress)) setMacAddress(linkedDeviceNoPlan.macAddress);
-                if (isMeaningfulFoFiValue(linkedDeviceNoPlan.serialNumber)) setSerialNumber(linkedDeviceNoPlan.serialNumber);
-                // The device is already linked — render link-fofi as a
-                // read-only "confirm & subscribe" screen (no re-scan / GET MAC),
-                // per operator feedback that a linked device must go straight
-                // to package subscription.
-                setIsLinkedDeviceSubscription(true);
-            } else {
-                // Cable-TV / genuinely-new box: operator still needs the entry
-                // form to scan / enter the box, so keep the full link flow.
-                setIsLinkedDeviceSubscription(false);
-            }
+            // GENUINELY NEW box (never linked) → link-fofi entry/scan flow.
+            setIsLinkedDeviceSubscription(false);
             setIsUpgradeLinkContinuation(true);
             enterSubView('link-fofi');
         }
@@ -2939,27 +2930,8 @@ function FoFiSmartBox() {
             console.log('🔵 [SUBSCRIPTION] Box details - boxId:', fofiBoxId, 'mac:', fofiMac, 'serial:', fofiSerial);
             
             // =====================================================
-            // STEP 1: Call upgradeRegistration API
-            // =====================================================
-            const upgradePayload = {
-                fofiboxid: fofiBoxId,
-                fofimac: fofiMac,
-                fofiserailnumber: fofiSerial,
-                loginuname: loginuname,
-                plan_id: planId,
-                planid: planId,
-                priceid: priceId,
-                servid: servId,
-                servapptype: "crmapp",
-                userid: username,
-                ...registrationFields,
-                username: username
-            };
-            
-            // =====================================================
-            // STEP 1+2: Fire upgradeRegistration + paymentinfo in PARALLEL
-            // (saves ~500-1000ms vs sequential calls)
-            // Customer details already fetched on page load — skip redundant calls
+            // Existing-box upgrade → go straight to paymentinfo (native parity;
+            // no upgradeRegistration — see the call site below).
             // =====================================================
             const paymentPayload = {
                 fofi_box_id: fofiBoxId,
@@ -2983,33 +2955,17 @@ function FoFiSmartBox() {
 
             console.log('🔵 [PAYMENTINFO] Calling paymentinfo before deferred upgrade activation...');
 
-            let upgradeResponse, paymentResponse;
+            let paymentResponse;
             try {
-                // upgradeRegistration REGISTERS A NEW FoFi box association and the
-                // backend only accepts an AUG-/BBNL-ANDBOX box id (chk__fofiboxid);
-                // a unicast/ATV device ('TV-<hash>') is always rejected with "Wrong
-                // Fofi box ID!" (proven via live probes, every id/mac/serial shape).
-                //
-                // Native only calls upgradeRegistration when ADDING A NEW box; for
-                // an already-linked box it skips straight to payment
-                // (ServiceSubscriptionsActivity.java:740-751 — intent_fofi_id present
-                // → GotoUpgradePayment(), NO upgradeRegistration). An ATV device is
-                // always an existing unicast registration, so we skip it too and go
-                // straight to paymentinfo — which DOES accept the 'TV-' box
-                // (verified: returns the correct price + a valid transaction id).
-                if (isFofiAndroidBoxId(fofiBoxId)) {
-                    upgradeResponse = await upgradeRegistration(upgradePayload);
-                    if (upgradeResponse?.status?.err_code !== 0) {
-                        const errorMsg = upgradeResponse?.status?.err_msg || 'Failed to register upgrade';
-                        console.error('Upgrade registration failed:', errorMsg);
-                        toast.add('Failed to register upgrade: ' + errorMsg, { type: 'error' });
-                        setIsLoading(false);
-                        return;
-                    }
-                } else {
-                    console.log('🔶 [SUBSCRIPTION] Non-ANDBOX (ATV/unicast) box — skipping upgradeRegistration, matching native existing-box flow:', fofiBoxId);
-                    upgradeResponse = { status: { err_code: 0 } };
-                }
+                // Native: an already-linked box upgrading its plan goes STRAIGHT to
+                // payment. ServiceSubscriptionsActivity SUBMIT with an existing
+                // intent_fofi_id calls GotoUpgradePayment() → service/paymentinfo,
+                // with NO upgradeRegistration and NO box re-validation (verified in
+                // all three native audits). This screen is only ever reached for an
+                // existing FoFi customer (hasConfirmedFofiService + _rawFofiItem), so
+                // upgradeRegistration is skipped entirely — calling it re-registers an
+                // already-registered box and the backend returns "Requested plan not
+                // found, please contact bbnl noc team".
                 paymentResponse = await getFofiPaymentInfo(paymentPayload);
             } catch (stepErr) {
                 console.error('❌ API network error:', stepErr);
@@ -3018,16 +2974,7 @@ function FoFiSmartBox() {
                 return;
             }
 
-            console.log('🟢 Upgrade Response:', upgradeResponse);
             console.log('🟢 Payment Info Response:', paymentResponse);
-
-            if (upgradeResponse?.status?.err_code !== 0) {
-                const errorMsg = upgradeResponse?.status?.err_msg || 'Failed to register upgrade';
-                console.error('❌ Upgrade registration failed:', errorMsg);
-                toast.add('Failed to register upgrade: ' + errorMsg, { type: 'error' });
-                setIsLoading(false);
-                return;
-            }
 
             if (paymentResponse?.status?.err_code !== 0) {
                 const errorMsg = paymentResponse?.status?.err_msg || 'Failed to get payment info';
@@ -3507,6 +3454,22 @@ function FoFiSmartBox() {
             setDeviceValidated(false);
             setShowValidationSuccess(false);
 
+            // Native mimic: validateAsset (FoFi box validation) applies ONLY to real
+            // FoFi Android boxes (AUG-/BBNL-ANDBOX). A non-ANDBOX id is an ATV/unicast
+            // device — native never FoFi-validates it (the FoFi box UI is never shown
+            // for a non-FoFi device), it goes straight to payment. So skip the
+            // validateAsset MAC lookup, accept the typed id, and let LINK proceed via
+            // the unicast LINK_FOFIBOX → paymentinfo path (which accepts a 'TV-' id and
+            // needs no FoFi MAC).
+            if (!isFofiAndroidBoxId(boxId.trim())) {
+                console.log('🔶 [GET MAC ID] Non-ANDBOX (ATV/unicast) id — skipping FoFi validateAsset, matching native:', boxId.trim());
+                setDeviceInfo({ boxId: boxId.trim(), macAddress: '', serialNumber: '' });
+                setDeviceValidated(true);
+                setValidationError('');
+                setIsLoading(false);
+                return;
+            }
+
             // Manual flow has NO QR fallback — if validateAsset rejects,
             // the user can't get the MAC. So we try multiple userid
             // values and use whichever the backend accepts. Production
@@ -3587,6 +3550,12 @@ function FoFiSmartBox() {
             let ownershipBlocker = null;
             let bestMacAcrossAttempts = '';
 
+            // Candidates are tried SEQUENTIALLY, breaking on the first clean
+            // success. Do NOT parallelize/race these: the backend serializes
+            // concurrent validateAsset calls for the SAME box (a per-box lock),
+            // so firing all candidates at once causes contention — measured 30s
+            // (timeout) vs ~675ms for all four in series. Sequential is optimal
+            // here; each call is ~170ms and a success usually lands on the first.
             for (const candidate of useridCandidates) {
                 try {
                     console.log(`🔵 [GET MAC ID] Trying userid="${candidate}"...`);
@@ -3836,7 +3805,9 @@ function FoFiSmartBox() {
                 setIsLoading(false);
                 return;
             }
-            if (!macAddress || !macAddress.trim()) {
+            // ATV/unicast devices carry no FoFi MAC — native links them without one.
+            // Only require a MAC for real FoFi Android (ANDBOX) boxes.
+            if (isFofiAndroidBoxId(boxId) && (!macAddress || !macAddress.trim())) {
                 setValidationError('MAC ID is missing — click GET MAC ID or scan the QR');
                 setIsLoading(false);
                 return;
@@ -3907,40 +3878,41 @@ function FoFiSmartBox() {
             // the payment review page, matching the CRM flow.
             // =====================================================
             if (!hasConfirmedFofiService) {
-                // Native parity: for an already-linked TV / unicast device, the
-                // freeOTAService plan_id MUST be the LINK_FOFIBOX special-plan
-                // srvid (the fofi-upgrade planid is not a special srvid → the
-                // backend "Requested plan not found"). Native's FreeOTTlinkFragment
-                // sends the selected special plan's srvid; for such a device the
-                // only valid one is LINK_FOFIBOX, with services ["ott"].
-                let linkPlanId = planId;
-                let linkServices = registrationFields.services;
-                // Only a unicast / linked-TV device (non-ANDBOX id) is forced to
-                // LINK_FOFIBOX — that's the plan the backend requires for unicast
-                // (FreeOTTPaidChannels.php:57-81). An ANDBOX box must NOT be
-                // force-subscribed to LINK_FOFIBOX; it needs a real special plan
-                // (see note below — that path still sends a fofi planid and is a
-                // separate gap).
-                const isUnicastTvDevice = isLinkedDeviceSubscription && !isFofiAndroidBoxId(finalBoxIdForSubmit);
-                if (isUnicastTvDevice) {
-                    const linkSrvid = await resolveLinkFofiboxSrvid(loginuname);
-                    if (!linkSrvid) {
-                        setValidationError('Could not resolve the LINK_FOFIBOX plan from the server. Please retry.');
-                        setIsLoading(false);
-                        return;
-                    }
-                    linkPlanId = linkSrvid;
-                    linkServices = ['ott'];
+                // Native FreeOTTlinkFragment: the freeOTAService `plan_id` is the
+                // SELECTED plan's srvid from specialInternetPlans — native builds a
+                // serv_name → srvid map from that endpoint and sends the chosen
+                // srvid. A registrationNecessities fofi `planid` is NOT a special-plan
+                // srvid, which is exactly what produces "Requested plan not found".
+                // Resolve the srvid the same way: by plan name for a normal FoFi
+                // (ANDBOX) box, or the LINK_FOFIBOX plan for a unicast / ATV device
+                // (the only srvid the backend accepts for those — FreeOTTPaidChannels.php).
+                // Native's link body is exactly { fofiboxid, fofimac, fofiserailnumber,
+                // loginuname, username(=customerid), plan_id, services:["ott"] }.
+                const isUnicastTvDevice = !isFofiAndroidBoxId(finalBoxIdForSubmit);
+                const specialRows = getInternetOriginPlanRows(
+                    await getSpecialInternetPlans({ logUname: loginuname, isKiranastore: "no" }).catch(() => null)
+                );
+                const selectedPlanName = firstTrimmedValue(
+                    selectedPlan?.planname, selectedPlan?.plan_name, selectedPlan?.serv_name, selectedPlan?.name
+                );
+                const linkPlanId = isUnicastTvDevice
+                    ? findLinkFofiboxSrvid(specialRows)
+                    : findSpecialPlanSrvid(specialRows, selectedPlanName);
+                if (!linkPlanId) {
+                    setValidationError(isUnicastTvDevice
+                        ? 'Could not resolve the LINK_FOFIBOX plan from the server. Please retry.'
+                        : `Could not resolve the selected plan "${selectedPlanName}" in the server plan list. Please retry.`);
+                    setIsLoading(false);
+                    return;
                 }
                 const linkPayload = {
                     fofiboxid: finalBoxIdForSubmit,
                     fofimac: finalMacForSubmit,
                     fofiserailnumber: finalSerialForSubmit,
                     loginuname: loginuname,
-                    plan_id: linkPlanId,
-                    ...registrationFields,
-                    services: linkServices,
                     username: username,
+                    plan_id: linkPlanId,
+                    services: ['ott'],
                 };
                 console.log('🔵 [LINK] Calling freeOTAService…', linkPayload);
                 const linkResp = await linkFoFiBox(linkPayload);
@@ -5175,8 +5147,11 @@ function FoFiSmartBox() {
                         <button
                             onClick={handleFetchMAC}
                             disabled={isLoading || !boxId}
-                            className={`bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-bold py-3 px-10 rounded-full transition-shadow duration-200 uppercase text-sm shadow-md hover:shadow-lg ${isLoading || !boxId ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            className={`bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-bold py-3 px-10 rounded-full transition-shadow duration-200 uppercase text-sm shadow-md hover:shadow-lg inline-flex items-center justify-center gap-2 ${isLoading || !boxId ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
+                            {isLoading && (
+                                <span className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                            )}
                             {isLoading ? 'Getting MAC...' : 'GET MAC ID'}
                         </button>
                     </div>
@@ -5250,15 +5225,11 @@ function FoFiSmartBox() {
                 </div>
                 )}
 
-                {/* Loading overlay during device validation */}
-                {isLoading && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-                        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 flex flex-col items-center max-w-xs mx-4">
-                            <div className="w-10 h-10 rounded-full border-4 border-gray-200 border-t-gray-600 animate-spin mb-4"></div>
-                            <p className="text-gray-700 dark:text-gray-300 text-sm font-medium text-center">Validating device...</p>
-                        </div>
-                    </div>
-                )}
+                {/* Loading is shown INLINE on the action buttons (spinner +
+                    label). The previous fullscreen "Validating device…" overlay
+                    was removed — it blocked the whole screen and blurred the
+                    form, which operators found jarring and left the app looking
+                    frozen. In-screen button spinners match every other flow. */}
 
                 {/* Validation errors render inline below the SUBMIT
                     button (see further down). No fullscreen popup —
@@ -5296,9 +5267,12 @@ function FoFiSmartBox() {
                     <button
                         onClick={handleLinkFoFiBox}
                         disabled={isLoading || !boxId || !macAddress || !selectedPlan}
-                        className={`bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-bold py-4 px-12 rounded-full transition-shadow duration-200 uppercase text-sm shadow-lg hover:shadow-xl tracking-wide ${isLoading || !boxId || !macAddress || !selectedPlan ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        className={`bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white font-bold py-4 px-12 rounded-full transition-shadow duration-200 uppercase text-sm shadow-lg hover:shadow-xl tracking-wide inline-flex items-center justify-center gap-2 ${isLoading || !boxId || !macAddress || !selectedPlan ? 'opacity-50 cursor-not-allowed' : ''}`}
                         title={!selectedPlan ? 'Please select a plan first' : !boxId ? 'Please scan or enter FOFI Box ID' : !macAddress ? 'Please get MAC ID first' : (isLinkedDeviceSubscription ? 'Subscribe this package' : 'Link this box')}
                     >
+                        {isLoading && (
+                            <span className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                        )}
                         {isLoading
                             ? (isLinkedDeviceSubscription ? 'Subscribing…' : 'Linking…')
                             : (isLinkedDeviceSubscription ? 'PROCEED TO PAYMENT' : 'LINK FO-FI BOX')}
