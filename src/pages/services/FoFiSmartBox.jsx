@@ -3587,6 +3587,12 @@ function FoFiSmartBox() {
             let ownershipBlocker = null;
             let bestMacAcrossAttempts = '';
 
+            // Candidates are tried SEQUENTIALLY, breaking on the first clean
+            // success. Do NOT parallelize/race these: the backend serializes
+            // concurrent validateAsset calls for the SAME box (a per-box lock),
+            // so firing all candidates at once causes contention — measured 30s
+            // (timeout) vs ~675ms for all four in series. Sequential is optimal
+            // here; each call is ~170ms and a success usually lands on the first.
             for (const candidate of useridCandidates) {
                 try {
                     console.log(`🔵 [GET MAC ID] Trying userid="${candidate}"...`);
