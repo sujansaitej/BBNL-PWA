@@ -5,7 +5,14 @@ import { Loader, ConfirmDialog, RateEngineerDialog, Alert } from "@/components/u
 import { useToast } from "@/components/ui/Toast";
 import { getActiveAccount } from "../../services/customer/linkAccount";
 import { getTickets } from "../../services/customer/tickets";
-import { statusLabel, statusTone, isNewConnection, isResolved } from "../../services/customer/ticketFlow";
+import {
+  statusLabel,
+  statusTone,
+  isNewConnection,
+  isResolved,
+  isJobDone,
+  assigneeName,
+} from "../../services/customer/ticketFlow";
 import { useTicketClose } from "../../hooks/useTicketFlow";
 import {
   ChevronLeftIcon,
@@ -13,6 +20,7 @@ import {
   UserCircleIcon,
   PhoneIcon,
   ClipboardDocumentListIcon,
+  CheckCircleIcon,
 } from "@heroicons/react/24/outline";
 
 /**
@@ -46,10 +54,15 @@ export default function TicketStatus() {
     ? { servicekey: account.servicekey || "internet", servid: account.servid, opid: account.opid }
     : null;
 
-  const load = useCallback(async () => {
+  /**
+   * @param {boolean} silent - background refresh: don't show the page loader
+   *   and don't blank the list on failure. A visible spinner every poll would
+   *   yank the list out from under someone mid-read, and a transient network
+   *   blip must not wipe tickets that are already on screen.
+   */
+  const load = useCallback(async (silent = false) => {
     if (!account?.userid) { setLoading(false); return; }
-    setLoading(true);
-    setError("");
+    if (!silent) { setLoading(true); setError(""); }
     try {
       const rows = await getTickets({
         userid: account.userid,
@@ -57,23 +70,56 @@ export default function TicketStatus() {
         servicekey: service.servicekey,
       });
       setTickets(rows);
+      setError("");
     } catch (err) {
       // Android logs network failures and shows nothing at all — the screen
       // just sits on its empty state. Always say what happened.
-      setError(err?.message || "Could not load your tickets.");
-      setTickets([]);
+      if (!silent) {
+        setError(err?.message || "Could not load your tickets.");
+        setTickets([]);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [account?.userid, account?.mobileno, service?.servicekey]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(false); }, [load]);
+
+  // ── Keep the ticket live ───────────────────────────────────────────
+  // A ticket's assignee and status change on the OPERATOR's side: an
+  // employee picks it (available → pending), transfers it (→ transfered,
+  // new engineer), or marks it done (→ jobdone). Android has no polling and
+  // no push, so a customer sees none of that until they pull to refresh.
+  //
+  // The customer is explicitly expected to see the engineer's details appear
+  // once the ticket is picked, so we refresh: whenever the tab regains
+  // focus, and on a slow poll while it is open. gettickets is cheap
+  // (~200-600ms measured on production) so this is not an expensive loop.
+  const POLL_MS = 45000;
+  useEffect(() => {
+    if (!account?.userid) return;
+
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") load(true);   // silent
+    };
+    // Don't poll a backgrounded tab — it wastes the customer's data and the
+    // backend's capacity for a screen nobody is looking at.
+    const id = setInterval(refreshIfVisible, POLL_MS);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    window.addEventListener("focus", refreshIfVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+      window.removeEventListener("focus", refreshIfVisible);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account?.userid, load]);
 
   const close = useTicketClose({
     service,
     customerId: account?.userid || "",
-    onDone: () => load(),
+    onDone: () => load(false),
   });
 
   useEffect(() => {
@@ -121,7 +167,7 @@ export default function TicketStatus() {
           </div>
           {/* Android uses pull-to-refresh; a button is the web equivalent. */}
           <button
-            onClick={load}
+            onClick={() => load(false)}
             disabled={loading}
             className="flex items-center gap-1 text-sm text-indigo-600 flex-shrink-0 disabled:opacity-50"
           >
@@ -136,7 +182,7 @@ export default function TicketStatus() {
         ) : error ? (
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-6 text-center space-y-3">
             <p className="text-sm text-red-500">{error}</p>
-            <button onClick={load} className="text-sm font-medium text-indigo-600">Retry</button>
+            <button onClick={() => load(false)} className="text-sm font-medium text-indigo-600">Retry</button>
           </div>
         ) : tickets.length === 0 ? (
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-8 text-center text-sm text-gray-500 dark:text-gray-400">
@@ -188,7 +234,7 @@ function TicketCard({ t, busy, onClose, onReraise }) {
   // Re-raise appears only for "jobdone" — the engineer says it's fixed and the
   // customer disagrees. (Android leaks this button onto other rows through
   // ListView recycling; keying off the status directly avoids that.)
-  const jobDone = String(t.status || "").toLowerCase() === "jobdone";
+  const jobDone = isJobDone(t);
   const canClose = !isNewConnection(t) && !isResolved(t);
 
   return (
@@ -211,7 +257,9 @@ function TicketCard({ t, busy, onClose, onReraise }) {
           <div className="flex gap-2">
             <span className="w-20 flex-shrink-0 text-white/70">Assigned To</span>
             <span className="text-white font-medium break-words min-w-0">
-              {t.empname || "Not Available"}
+              {/* Falls back to `assigned` — a picked ticket often has that set
+                  while empname is still empty. */}
+              {assigneeName(t)}
             </span>
           </div>
           <div className="flex gap-2 items-center">
@@ -244,6 +292,21 @@ function TicketCard({ t, busy, onClose, onReraise }) {
         />
         <Row label="Raised Time" value={t.risedtime || "Not Available"} />
         <Row label="Time Taken" value={t.solvedtime || "Not Available"} />
+
+        {/* Job done — the decision point. The engineer says it's fixed; the
+            customer either accepts (close) or disagrees (re-raise). The
+            backend auto-closes after a window if they do neither, but it
+            exposes no deadline timestamp, so we prompt rather than count
+            down — see the note in this file's header. */}
+        {jobDone && (
+          <div className="mt-3 flex items-start gap-2 rounded-lg bg-blue-50 dark:bg-blue-900/20 p-3">
+            <CheckCircleIcon className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-blue-800 dark:text-blue-200">
+              Your engineer has marked this resolved. Please close the ticket if you're
+              satisfied, or re-raise it if the problem is still there.
+            </p>
+          </div>
+        )}
 
         {canClose ? (
           <div className="flex gap-2 pt-3">

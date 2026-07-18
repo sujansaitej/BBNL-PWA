@@ -52,6 +52,36 @@ export function statusTone(status) {
   return "bg-orange-500"; // pending / available / unknown
 }
 
+/**
+ * Who the ticket is assigned to.
+ *
+ * `empname` and `assigned` are NOT the same field. A real captured response
+ * has `assigned: "BBNL_OP49"` with `empname`, `empmobile` and `empimg` all
+ * empty — i.e. the ticket IS taken, but the employee's display name hasn't
+ * propagated. Android reads only `empname` and therefore tells the customer
+ * "Not available" on a ticket that is demonstrably assigned.
+ *
+ * Falling back to `assigned` is what makes "assigned to should be shown"
+ * actually hold as soon as an employee picks the ticket.
+ */
+export function assigneeName(t) {
+  const name = String(t?.empname || "").trim();
+  if (name) return name;
+  const assigned = String(t?.assigned || "").trim();
+  if (assigned) return assigned;
+  return "Not Available";
+}
+
+/** True once an employee has picked the ticket up. */
+export function isAssigned(t) {
+  return Boolean(String(t?.empname || "").trim() || String(t?.assigned || "").trim());
+}
+
+/** After job done the customer must choose: accept (close) or re-raise. */
+export function isJobDone(t) {
+  return String(t?.status || "").toLowerCase() === "jobdone";
+}
+
 export const isNewConnection = (t) =>
   String(t?.subject || "").toLowerCase().includes("new connection");
 

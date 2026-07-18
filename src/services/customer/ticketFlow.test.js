@@ -21,6 +21,9 @@ import {
   statusTone,
   isNewConnection,
   isResolved,
+  isJobDone,
+  isAssigned,
+  assigneeName,
   decideCloseFlow,
 } from "./ticketFlow.js";
 
@@ -210,6 +213,76 @@ describe("status presentation", () => {
     expect(statusTone("transfered")).toBe("bg-purple-500");
     expect(statusTone("pending")).toBe("bg-orange-500");
     expect(statusTone(undefined)).toBe("bg-orange-500");
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════
+//  Lifecycle: available → pending → (transfered) → jobdone → resolved
+// ══════════════════════════════════════════════════════════════════════
+describe("ticket lifecycle", () => {
+  test("every operator-written status renders a human label", async () => {
+    const { statusLabel } = await import("./ticketFlow.js");
+    // The operator side writes these via pickTicket / transferTicket /
+    // crmCloseTicket. None of them may leak a raw token to the customer.
+    expect(statusLabel("available")).toBe("Available");
+    expect(statusLabel("pending")).toBe("Pending");
+    expect(statusLabel("transfered")).toBe("Transferred");
+    expect(statusLabel("jobdone")).toBe("Job Done");
+    expect(statusLabel("resolved")).toBe("Resolved");
+  });
+
+  test("status matching is case-insensitive — Android's PENDING/pending split", async () => {
+    const { statusLabel, statusTone } = await import("./ticketFlow.js");
+    // Android compares "PENDING" in its list renderer but "pending" in its
+    // status probe, in the SAME file. At most one of those is right. We
+    // lower-case everything so both spellings land on the same state.
+    expect(statusLabel("PENDING")).toBe(statusLabel("pending"));
+    expect(statusLabel("JobDone")).toBe(statusLabel("jobdone"));
+    expect(statusTone("PENDING")).toBe(statusTone("pending"));
+  });
+
+  test("assignee falls back to `assigned` when empname is empty", () => {
+    // Captured production shape: a ticket IS assigned (assigned:"BBNL_OP49")
+    // while empname/empmobile/empimg are still empty. Android reads only
+    // empname and tells the customer "Not available" on an assigned ticket.
+    expect(assigneeName({ empname: "", assigned: "BBNL_OP49" })).toBe("BBNL_OP49");
+    expect(assigneeName({ empname: "Demo demo", assigned: "BBNL_OP49" })).toBe("Demo demo");
+    expect(assigneeName({ empname: "   ", assigned: "BBNL_OP49" })).toBe("BBNL_OP49");
+    expect(assigneeName({ empname: "", assigned: "" })).toBe("Not Available");
+    expect(assigneeName(null)).toBe("Not Available");
+  });
+
+  test("isAssigned is true as soon as an employee picks it up", () => {
+    expect(isAssigned({ empname: "", assigned: "BBNL_OP49" })).toBe(true);
+    expect(isAssigned({ empname: "Demo", assigned: "" })).toBe(true);
+    expect(isAssigned({ empname: "", assigned: "" })).toBe(false);
+    expect(isAssigned({})).toBe(false);
+  });
+
+  test("close + re-raise are offered together ONLY at jobdone", () => {
+    // The spec: after job done the customer has exactly two options.
+    // Before job done there is nothing to accept or dispute yet.
+    expect(isJobDone({ status: "jobdone" })).toBe(true);
+    expect(isJobDone({ status: "JobDone" })).toBe(true);
+    for (const s of ["available", "pending", "transfered", "resolved", ""]) {
+      expect(isJobDone({ status: s }), s).toBe(false);
+    }
+  });
+
+  test("a resolved ticket is terminal — no further customer action", () => {
+    // Auto-close (backend, ~8h after job done) lands here. Once resolved the
+    // customer must not be offered close or re-raise.
+    expect(isResolved({ status: "resolved" })).toBe(true);
+    expect(isJobDone({ status: "resolved" })).toBe(false);
+  });
+
+  test("a transferred ticket is still open and still actionable", () => {
+    // Transfer moves it to a new engineer; it must NOT read as resolved or
+    // as job done, and the customer keeps the ability to close it.
+    expect(isResolved({ status: "transfered" })).toBe(false);
+    expect(isJobDone({ status: "transfered" })).toBe(false);
+    // And the probe treats transfered like pending — an engineer to rate.
+    expect(decideCloseFlow({ action: "close", probeState: "transfered" })).toEqual({ rate: true });
   });
 });
 
