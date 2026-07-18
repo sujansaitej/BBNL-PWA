@@ -38,9 +38,26 @@ export default function SubjectCombobox({
   const meetsThreshold = query.trim().length >= THRESHOLD;
   const showList = open && (meetsThreshold || forceOpen);
 
-  // Keep the visible text in step when the parent resets the selection
+  // Keep the visible text in step when the PARENT resets the selection
   // (e.g. after a successful submit or a service switch).
-  useEffect(() => setQuery(value), [value]);
+  //
+  // The ref guard is load-bearing. Typing calls onChange("") to invalidate a
+  // previous selection; that comes straight back as a changed `value` prop,
+  // and without this the effect would overwrite `query` with "" — wiping the
+  // characters mid-keystroke and, because the threshold is then unmet,
+  // closing the dropdown. That is the "typing shows no suggestions" bug.
+  // Only echo values we did NOT emit ourselves.
+  const lastEmitted = useRef(value);
+  useEffect(() => {
+    if (value === lastEmitted.current) return;
+    lastEmitted.current = value;
+    setQuery(value);
+  }, [value]);
+
+  const emit = (next) => {
+    lastEmitted.current = next;
+    onChange?.(next);
+  };
 
   const matches = useMemo(() => filterSubjects(subjects, query), [subjects, query]);
 
@@ -60,7 +77,7 @@ export default function SubjectCombobox({
     setQuery(subject);
     setOpen(false);
     setForceOpen(false);
-    onChange?.(subject);
+    emit(subject);
   };
 
   const handleType = (text) => {
@@ -69,15 +86,16 @@ export default function SubjectCombobox({
     setOpen(true);
     setForceOpen(false);   // typing returns to threshold behaviour
     // Free text is never a valid selection — drop it until an option is
-    // picked, so the submit button stays correctly disabled.
-    if (value) onChange?.("");
+    // picked, so the submit button stays correctly disabled. Routed through
+    // emit() so the echoed prop change does not clobber what was typed.
+    if (value) emit("");
   };
 
   const clear = () => {
     setQuery("");
     setOpen(false);
     setForceOpen(false);
-    onChange?.("");
+    emit("");
   };
 
   const onKeyDown = (e) => {
