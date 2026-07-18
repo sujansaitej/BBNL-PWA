@@ -3932,7 +3932,14 @@ function FoFiSmartBox() {
                 // only valid one is LINK_FOFIBOX, with services ["ott"].
                 let linkPlanId = planId;
                 let linkServices = registrationFields.services;
-                if (isLinkedDeviceSubscription) {
+                // Only a unicast / linked-TV device (non-ANDBOX id) is forced to
+                // LINK_FOFIBOX — that's the plan the backend requires for unicast
+                // (FreeOTTPaidChannels.php:57-81). An ANDBOX box must NOT be
+                // force-subscribed to LINK_FOFIBOX; it needs a real special plan
+                // (see note below — that path still sends a fofi planid and is a
+                // separate gap).
+                const isUnicastTvDevice = isLinkedDeviceSubscription && !isFofiAndroidBoxId(finalBoxIdForSubmit);
+                if (isUnicastTvDevice) {
                     const linkSrvid = await resolveLinkFofiboxSrvid(loginuname);
                     if (!linkSrvid) {
                         setValidationError('Could not resolve the LINK_FOFIBOX plan from the server. Please retry.');
