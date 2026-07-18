@@ -39,28 +39,47 @@ Conversely the SAME `TV-…` id is **accepted** by the cabletv endpoints:
 - `service/paymentinfo/cabletv` with the `TV-…` box → reaches package selection
   ("choose one or more channels"), **no box-id rejection**.
 
-Native has no ATV-specific code (traced: `product_name → selectedFofiId →
-setFofiboxid`, verbatim); it "works" only because cabletv customers go through
-the cabletv flow, never `upgradeRegistration`.
+### Native's actual behavior — it SKIPS upgradeRegistration for existing boxes
 
-### Fix (client-side routing, `src/pages/services/FoFiSmartBox.jsx`)
+`ServiceSubscriptionsActivity.java:740-751` (the plan-upgrade submit):
 
-New pure helper `isFofiAndroidBoxId(id)` in `src/utils/boxId.js` mirrors the
-backend gate exactly (11-char `AUG-ANDBOX-` / `BBNL-ANDBOX` prefix). Two guards:
-- `handleUpgradeClick`: if the customer already has a non-ANDBOX box, route to
-  the Cable TV flow (`/service/iptv`) instead of opening the FoFi plan picker.
-- `handleSubscriptionSubmit`: backstop — if the resolved box is non-ANDBOX,
-  route to Cable TV instead of firing the doomed `upgradeRegistration`.
+```java
+if (intent_fofi_id != null && !intent_fofi_id.equals("")) {
+    GotoUpgradePayment();          // EXISTING box → straight to payment, NO registration
+} else {
+    requesrServerPlanUpgradation();  // NEW box → upgradeRegistration
+}
+```
 
-A brand-new customer with no box has an empty id → guard is skipped → stays on
-the add-FoFi-box path (unchanged). Unit-tested: `src/utils/boxId.test.js`.
+`upgradeRegistration` is called ONLY when adding a brand-new box. For an
+already-linked box (`intent_fofi_id` present), native goes straight to
+`GotoUpgradePayment()` (`:841` — paymentinfo + generateorder with the existing
+box id, planid, priceid), never touching `upgradeRegistration`. This is not
+ATV-specific: native skips registration for ANY existing box. The PWA's bug was
+firing `upgradeRegistration` unconditionally — redundant for existing FoFi boxes,
+fatal for the ATV box.
 
-### Still open (backend / product)
-Routing sends the operator to the Cable TV subscription surface, which the ATV
-device is compatible with. Whether that surface fully supports buying the
-specific FTA plan the operator intended is a separate existing concern; the
-guard's job is to stop the guaranteed FoFi-path failure and point at the flow
-the backend accepts.
+### Fix (`src/pages/services/FoFiSmartBox.jsx`, `handleSubscriptionSubmit`)
+
+The FoFi upgrade UI flow is unchanged (same plan picker → confirm → payment
+screen — no redirect, no popup). Only the payment-area call changes: gate
+`upgradeRegistration` on `isFofiAndroidBoxId(fofiBoxId)` (pure helper in
+`utils/boxId.js` mirroring the backend's 11-char ANDBOX prefix). For a
+non-ANDBOX (ATV/unicast) box it is SKIPPED — exactly as native skips it for an
+existing box — and the flow proceeds to `getFofiPaymentInfo` →
+`generateFofiOrder` (`cabletv/generateorder`), both of which accept the `TV-`
+box. A real new FoFi box (ANDBOX id) still calls `upgradeRegistration` as before.
+`FofiPayment` calls `upgradeRegistration` only via `runPendingFoFiActivation`,
+which this flow never triggers (no `pendingActivation`). Unit-tested:
+`utils/boxId.test.js`.
+
+### Verified end-to-end (read-only, no order placed)
+- `paymentinfo/fofi` with the `TV-` box + FTA plan (planid 51) → err=0, total
+  ₹153.40, valid txnid — the ATV box is accepted once registration is skipped.
+- Cabletv package path also accepts the box (BBNL FTA Package, ₹153.40) — same
+  price, corroborating the plan mapping.
+- Only `cabletv/generateorder` + wallet debit remain (real mutations, not fired);
+  needs a live in-app tap to confirm the final order.
 
 ## Issue B — post-payment overview showed "not opted" until manual refresh
 

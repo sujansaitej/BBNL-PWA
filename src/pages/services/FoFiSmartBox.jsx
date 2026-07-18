@@ -2385,27 +2385,6 @@ function FoFiSmartBox() {
         const userid = customerData?.username || customerData?.customer_id;
         const user = getUser();
         const logUname = user?.username || 'superadmin';
-
-        // ATV / unicast guard — if this customer ALREADY has a non-ANDBOX box
-        // (an Android TV device, id 'TV-<hash>'), the FoFi upgrade-registration
-        // path fails server-side ("Wrong Fofi box ID"). Route straight to the
-        // Cable TV flow, which accepts the device. A brand-new customer with no
-        // box has an empty id here and correctly stays on the add-FoFi-box path.
-        const existingBoxId = firstTrimmedValue(
-            fofiServiceDetails?.boxId,
-            linkedDeviceNoPlan?.boxId,
-            optimisticFofiBoxId
-        );
-        if (existingBoxId && !isFofiAndroidBoxId(existingBoxId)) {
-            console.warn('🔶 [FoFi] Existing non-ANDBOX (ATV/unicast) box — routing upgrade to Cable TV:', existingBoxId);
-            toast.add('This is an Android TV (cable) device. Opening the Cable TV subscription flow.', { type: 'info' });
-            navigate(`/customer/${customerData.customer_id}/service/iptv`, {
-                replace: true,
-                state: { customer: customerData, services: servicesFromState },
-            });
-            return;
-        }
-
         const isRetryableOperatorSyncError = (response) => {
             const msg = String(response?.status?.err_msg || '').toLowerCase();
             return msg.includes('operator is disabled') ||
@@ -2845,22 +2824,6 @@ function FoFiSmartBox() {
                 return;
             }
 
-            // ATV / unicast device guard — the backend's upgradeRegistration
-            // only accepts AUG-/BBNL-ANDBOX box ids (chk__fofiboxid); a unicast
-            // ATV device ('TV-<hash>') is rejected with "Wrong Fofi box ID!" no
-            // matter how the id/mac/serial are shaped (proven via live probes).
-            // The SAME device IS accepted by the Cable TV endpoints, so route it
-            // there instead of firing a call that always fails.
-            if (!isFofiAndroidBoxId(fofiBoxId)) {
-                console.warn('🔶 [SUBSCRIPTION] Non-ANDBOX (ATV/unicast) box — routing to Cable TV flow:', fofiBoxId);
-                toast.add('This is an Android TV (cable) device. Opening the Cable TV subscription flow.', { type: 'info' });
-                setIsLoading(false);
-                navigate(`/customer/${customerData.customer_id}/service/iptv`, {
-                    replace: true,
-                    state: { customer: customerData, services: servicesFromState },
-                });
-                return;
-            }
 
             // Log ALL plan fields exhaustively to find planid like "55"
             console.log('🔵 [SUBSCRIPTION] ========== FULL PLAN ANALYSIS ==========');
@@ -3005,13 +2968,30 @@ function FoFiSmartBox() {
 
             let upgradeResponse, paymentResponse;
             try {
-                upgradeResponse = await upgradeRegistration(upgradePayload);
-                if (upgradeResponse?.status?.err_code !== 0) {
-                    const errorMsg = upgradeResponse?.status?.err_msg || 'Failed to register upgrade';
-                    console.error('Upgrade registration failed:', errorMsg);
-                    toast.add('Failed to register upgrade: ' + errorMsg, { type: 'error' });
-                    setIsLoading(false);
-                    return;
+                // upgradeRegistration REGISTERS A NEW FoFi box association and the
+                // backend only accepts an AUG-/BBNL-ANDBOX box id (chk__fofiboxid);
+                // a unicast/ATV device ('TV-<hash>') is always rejected with "Wrong
+                // Fofi box ID!" (proven via live probes, every id/mac/serial shape).
+                //
+                // Native only calls upgradeRegistration when ADDING A NEW box; for
+                // an already-linked box it skips straight to payment
+                // (ServiceSubscriptionsActivity.java:740-751 — intent_fofi_id present
+                // → GotoUpgradePayment(), NO upgradeRegistration). An ATV device is
+                // always an existing unicast registration, so we skip it too and go
+                // straight to paymentinfo — which DOES accept the 'TV-' box
+                // (verified: returns the correct price + a valid transaction id).
+                if (isFofiAndroidBoxId(fofiBoxId)) {
+                    upgradeResponse = await upgradeRegistration(upgradePayload);
+                    if (upgradeResponse?.status?.err_code !== 0) {
+                        const errorMsg = upgradeResponse?.status?.err_msg || 'Failed to register upgrade';
+                        console.error('Upgrade registration failed:', errorMsg);
+                        toast.add('Failed to register upgrade: ' + errorMsg, { type: 'error' });
+                        setIsLoading(false);
+                        return;
+                    }
+                } else {
+                    console.log('🔶 [SUBSCRIPTION] Non-ANDBOX (ATV/unicast) box — skipping upgradeRegistration, matching native existing-box flow:', fofiBoxId);
+                    upgradeResponse = { status: { err_code: 0 } };
                 }
                 paymentResponse = await getFofiPaymentInfo(paymentPayload);
             } catch (stepErr) {
