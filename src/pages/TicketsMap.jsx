@@ -180,9 +180,11 @@ const TicketsMap = () => {
     setActionSuccess(false);
     var params = {};
     if(tkt.action === 'close')
-      params = { apiopid: userdet?.username, ticketid: tkt.tid, empname: userdet?.username, empcontact: tkt.mobile, opid: userdet?.op_id, reason: tkt.reason };
+      // Native crmCloseTicket: { ticketid, apiopid, empname, reason, opid }.
+      params = { ticketid: tkt.tid, apiopid: userdet?.username, empname: userdet?.username, reason: tkt.reason, opid: userdet?.op_id };
     else
-      params = { apiopid: userdet?.username, ticketid: tkt.tid, empname: userdet?.username, empcontact: tkt.mobile };
+      // Native pickTicket: { ticketid, apiopid, empname, empcontact }.
+      params = { ticketid: tkt.tid, apiopid: userdet?.username, empname: userdet?.username, empcontact: tkt.mobile };
     // console.log(params);return;
     try {
       const data = await pickTicket(params, tkt.action);
@@ -276,11 +278,11 @@ const TicketsMap = () => {
                     </div>
                     <p>
                       <span className="font-semibold">Customer ID:</span>{" "}
-                      {formatCustomerId(selectedMarkerData.customername)}
+                      {formatCustomerId(selectedMarkerData.cid)}
                     </p>
                     <p>
                       <span className="font-semibold">Name:</span>{" "}
-                      {selectedMarkerData.cid}
+                      {selectedMarkerData.customername}
                     </p>
                     <p>
                       <span className="font-semibold">Mobile:</span>{" "}

@@ -5,6 +5,7 @@ const TicketDialog = ({
   type = "close", // "close" | "transfer"
   ticket = {},
   employees = [],
+  employeesLoading = false,
   onSubmit,
   onCancel,
 }) => {
@@ -35,10 +36,14 @@ const TicketDialog = ({
     setError("");
     setLoading(true);
     try {
+      // Transfer: return native's employee fields from the selected row
+      // (selectedEmp is the employee's loginid). pickTkt maps these to
+      // toEmpname / toEmpLoginId / toEmpMob for transferTicket.
+      const sel = employees.find((e) => String(e.loginid) === String(selectedEmp));
       await onSubmit(
         type === "close"
           ? { reason }
-          : { employeeId: selectedEmp }
+          : { toEmpname: sel?.empname || '', toEmpLoginId: sel?.loginid || '', toEmpMob: sel?.empmobile || '' }
       );
     } catch (e) {
       console.error("Submission failed:", e);
@@ -118,12 +123,14 @@ const TicketDialog = ({
                 }`}
                 value={selectedEmp}
                 onChange={(e) => { setSelectedEmp(e.target.value); setError(""); }}
-                disabled={loading}
+                disabled={loading || employeesLoading}
               >
-                <option value="">Select Employee</option>
+                <option value="">
+                  {employeesLoading ? "Loading employees…" : "Select Employee"}
+                </option>
                 {employees.map((emp) => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.name}
+                  <option key={emp.loginid || emp.id} value={emp.loginid}>
+                    {emp.empname}
                   </option>
                 ))}
               </select>

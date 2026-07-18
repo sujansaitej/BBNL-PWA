@@ -212,15 +212,26 @@ export async function getMyPlanDetails(params, skipCache = false) {
   });
 }
 
-/* Ticket APIs */
+/* ─── Ticket APIs — BYTE-IDENTICAL to the native franchise app ─────────
+ * Native's //Ticket block (ApiInterface.java) hits `prod/Apis/<method>` as
+ * @POST @FormUrlEncoded with NO auth headers (no Authorization/username/
+ * password/appkeytype/appversion). Verified live: getDepartments / getEmployee
+ * / jobDoneList / pendingTickets all return data with zero auth headers.
+ * Success envelope: { status:{err_code,err_msg}, body:[...] }; the OPEN list
+ * uniquely uses `ticketstatus` instead of `status`.
+ *
+ * Departments come from getDepartments; the first/default entry is the literal
+ * string "Departments" (means "all"), sent back as `newcon` on the list calls.
+ */
+const TICKET_FORM_HEADERS = { "Content-Type": "application/x-www-form-urlencoded" };
+
 export async function getTktDepartments() {
   const cacheKey = 'tktdepts';
   const cached = lsGet(cacheKey, 30 * 60 * 1000); // 30 min TTL
   if (cached) { perfMonitor.recordCacheHit("General", "getTktDepartments", cacheKey); return cached; }
-  const url = `${getBaseUrl()}apis/getDepartments`;
-  const headers = getHeadersJson();
-  const resp = await apiFetch(url, { method: "GET", headers }, "getTktDepartments");
-  if (!resp.ok) throw new Error(`Failed to get ticket stats ${resp.status}`);
+  const url = `${getBaseUrl()}Apis/getDepartments`;
+  const resp = await apiFetch(url, { method: "GET", headers: {} }, "getTktDepartments");
+  if (!resp.ok) throw new Error(`Failed to get departments ${resp.status}`);
   const data = await resp.json();
   lsSet(cacheKey, data);
   return data;
@@ -230,61 +241,60 @@ export async function getTickets(tabKey, allParams = {}) {
   const cacheKey = `tkts_${tabKey}_${allParams.user || ''}_${allParams.dept || ''}`;
   const cached = lsGet(cacheKey, 3 * 60 * 1000); // 3 min TTL
   if (cached) { perfMonitor.recordCacheHit("General", "getTickets", cacheKey); return cached; }
-  var ep = '';
-  var inpParams = { apiopid: tabKey !== 'NEW CONNECTIONS' ? allParams.op_id : 'raghav' };
+
+  const opid = allParams.op_id || '';
+  const newcon = allParams.dept || 'Departments'; // native default (means "all")
+  let ep = '', form = {};
   switch (tabKey) {
     case 'OPEN':
-      ep = 'getavailableticket';
-      inpParams = { ...inpParams, newcon: allParams.dept };
-      break;
+      ep = 'getAvailableTicket'; form = { apiopid: opid, newcon }; break;
     case 'PENDING':
-      ep = 'pendingtickets';
-      inpParams = { ...inpParams, loginid: allParams.user, newcon: allParams.dept };
-      break;
+      ep = 'pendingTickets'; form = { apiopid: opid, newcon, loginid: allParams.user || '' }; break;
     case 'NEW CONNECTIONS':
-      ep = 'getNewConnectionTicket';
-      break;
+      // Native sends the operator's op_id (the old PWA hardcoded "raghav").
+      ep = 'getNewConnectionTicket'; form = { apiopid: opid }; break;
     case 'DISCONNECTIONS':
-      ep = 'disconnection';
-      break;
+      ep = 'disConnection'; form = { apiopid: opid }; break;
     case 'JOB DONE':
-      ep = 'jobDoneList';
-      inpParams = { ...inpParams, userid: allParams.user };
-      break;
+      ep = 'jobDoneList'; form = { apiopid: opid, userid: allParams.user || '' }; break;
     default:
       ep = '';
   }
-  const query = new URLSearchParams({ ...inpParams }).toString();
-
-  const url = `${getBaseUrl()}apis/${ep}?${query}`;
-  const headers = getHeadersJson();
-
-  const resp = await apiFetch(url, { method: "GET", headers }, `getTickets(${tabKey})`);
-  if (!resp.ok) throw new Error(`Failed to get tickets data ${resp.status}`);
-
+  const url = `${getBaseUrl()}Apis/${ep}`;
+  const body = new URLSearchParams(form).toString();
+  const resp = await apiFetch(url, { method: "POST", headers: TICKET_FORM_HEADERS, body }, `getTickets(${tabKey})`);
+  if (!resp.ok) throw new Error(`Failed to get tickets ${resp.status}`);
   const data = await resp.json();
   lsSet(cacheKey, data);
   return data;
 }
 
+// pick / close / transfer. Native form field sets (per action):
+//   pick     : { ticketid, apiopid, empname, empcontact }
+//   close    : { ticketid, apiopid, empname, reason, opid }   → crmCloseTicket
+//   transfer : { ticketid, toEmpname, toEmpLoginId, fromemp, toEmpMob, opid }
+// Callers build the exact field set; this only picks the endpoint + posts form.
 export async function pickTicket(allParams = {}, action = '') {
-  var ep = '';
-  if (action === 'close')
-    ep = 'crmCloseTicket';
-  else if (action === 'transfer')
-    ep = 'transferTicket';
-  else
-    ep = 'pickTicket';
-  const query = new URLSearchParams({ ...allParams }).toString();
+  let ep = 'pickTicket';
+  if (action === 'close') ep = 'crmCloseTicket';
+  else if (action === 'transfer') ep = 'transferTicket';
+  const url = `${getBaseUrl()}Apis/${ep}`;
+  const body = new URLSearchParams({ ...allParams }).toString();
+  const resp = await apiFetch(url, { method: "POST", headers: TICKET_FORM_HEADERS, body }, `pickTicket(${action || 'pick'})`);
+  if (!resp.ok) throw new Error(`Failed to ${action || 'pick'} ticket ${resp.status}`);
+  return resp.json();
+}
 
-  const url = `${getBaseUrl()}apis/${ep}?${query}`;
-  const headers = getHeadersJson();
-
-  const resp = await apiFetch(url, { method: "POST", headers }, `pickTicket(${action})`);
-  if (!resp.ok) throw new Error(`Failed to pick ticket ${resp.status}`);
-
-  const data = await resp.json();
-  return data;
+// Real transferable-employee list (native getEmployee, form { opid, group }).
+// Replaces the PWA's fake hardcoded 3-person array. group defaults to
+// "accounts" (native hardcodes this in TransferTicketFragment).
+// Response body: [{ loginid, empname, empmobile, id }, …].
+export async function getTicketEmployees(opid, group = 'accounts') {
+  const url = `${getBaseUrl()}Apis/getEmployee`;
+  const body = new URLSearchParams({ opid: opid || '', group }).toString();
+  const resp = await apiFetch(url, { method: "POST", headers: TICKET_FORM_HEADERS, body }, "getTicketEmployees");
+  if (!resp.ok) throw new Error(`Failed to get transfer employees ${resp.status}`);
+  return resp.json();
 }
 
 /* Get Customer KYC Preview */

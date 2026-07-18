@@ -5,7 +5,7 @@ import { useToast } from "../components/ui/Toast";
 import { Search, MapPin, ClipboardList } from "lucide-react";
 import { tktTabs, formatTo12Hour } from "../services/helpers";
 import { useOpenMap } from "../hooks/useOpenMap";
-import { getTktDepartments, getTickets, pickTicket } from "../services/generalApis";
+import { getTktDepartments, getTickets, pickTicket, getTicketEmployees } from "../services/generalApis";
 import { getUser } from "../services/safeStorage";
 
 const Tickets = () => {
@@ -38,11 +38,11 @@ const Tickets = () => {
   const userdet = getUser();
   const deptsAllowedTabs = ['OPEN', 'PENDING'];
 
-  const employees = [
-    { id: "EMP101", name: "Manjunath" },
-    { id: "EMP102", name: "Rajaram" },
-    { id: "EMP103", name: "David Wilson" },
-  ];
+  // Real transferable-employee list, fetched from native's getEmployee
+  // (was a hardcoded fake 3-person array). Loaded lazily when the Transfer
+  // dialog is opened. Each item: { loginid, empname, empmobile, id }.
+  const [employees, setEmployees] = useState([]);
+  const [employeesLoading, setEmployeesLoading] = useState(false);
 
   // 🟢 Restore tab from hash on load
   // useEffect(() => {
@@ -158,9 +158,15 @@ const Tickets = () => {
   async function pickTkt(tkt) {
     var params = {};
     if (tkt.action === 'close')
-      params = { apiopid: userdet?.username, ticketid: tkt.tid, empname: userdet?.username, empcontact: tkt.mobile, opid: userdet?.op_id, reason: tkt.reason };
+      // Native crmCloseTicket: { ticketid, apiopid, empname, reason, opid }.
+      params = { ticketid: tkt.tid, apiopid: userdet?.username, empname: userdet?.username, reason: tkt.reason, opid: userdet?.op_id };
+    else if (tkt.action === 'transfer')
+      // Native transferTicket: { ticketid, toEmpname, toEmpLoginId, fromemp,
+      // toEmpMob, opid }. The selected employee's fields come from the dialog.
+      params = { ticketid: tkt.tid, toEmpname: tkt.toEmpname || '', toEmpLoginId: tkt.toEmpLoginId || '', fromemp: userdet?.username || '', toEmpMob: tkt.toEmpMob || '', opid: userdet?.op_id };
     else
-      params = { apiopid: userdet?.username, ticketid: tkt.tid, empname: userdet?.username, empcontact: tkt.mobile };
+      // Native pickTicket: { ticketid, apiopid, empname, empcontact }.
+      params = { ticketid: tkt.tid, apiopid: userdet?.username, empname: userdet?.username, empcontact: tkt.mobile };
 
     try {
       const data = await pickTicket(params, tkt.action);
@@ -197,7 +203,25 @@ const Tickets = () => {
     setDialogType(type);
     setSelectedTicket(ticket);
     setTktdialogOpen(true);
+    if (type === 'transfer') fetchTransferEmployees();
   };
+
+  async function fetchTransferEmployees() {
+    if (employees.length > 0) return; // load once
+    setEmployeesLoading(true);
+    try {
+      const data = await getTicketEmployees(userdet?.op_id);
+      if (data?.status?.err_code === 0 && Array.isArray(data?.body)) {
+        setEmployees(data.body);
+      } else {
+        console.error("Failed to get transfer employees:", data?.status?.err_msg || "Unknown error");
+      }
+    } catch (err) {
+      console.error("Error fetching transfer employees:", err);
+    } finally {
+      setEmployeesLoading(false);
+    }
+  }
   const handleSubmit = (data) => {
     // console.log("Submitted:", { type: dialogType, ticket: selectedTicket, ...data });
     const action = { action: dialogType };
@@ -464,6 +488,7 @@ const Tickets = () => {
         type={dialogType}
         ticket={selectedTicket}
         employees={employees}
+        employeesLoading={employeesLoading}
         onSubmit={handleSubmit}
         onCancel={() => setTktdialogOpen(false)}
       />

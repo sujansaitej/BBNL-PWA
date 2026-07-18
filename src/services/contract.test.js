@@ -525,3 +525,125 @@ describe("internet payment native parity", () => {
     expect(body.get("paidamount")).toBe("4.96");
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════
+//  Ticketing — BYTE-IDENTICAL to native franchise app
+//
+//  Native's //Ticket block hits prod/Apis/<method> as POST form-urlencoded
+//  with NO auth headers (verified live: getDepartments/getEmployee/etc.
+//  return data with zero auth). getDepartments is the one GET. These pin the
+//  URL casing (Apis/), method, absence of Authorization, and the exact field
+//  sets per native ApiInterface.
+// ══════════════════════════════════════════════════════════════════════
+describe("ticketing native parity", () => {
+  const OK = { status: { err_code: 0, err_msg: "ok" }, body: [] };
+
+  test("getTktDepartments: GET Apis/getDepartments, NO auth headers", async () => {
+    const { getTktDepartments } = await import("./generalApis.js");
+    fetchMock.mockResolvedValue(mockResponse(OK));
+    await getTktDepartments();
+    const { url, opts, headers } = lastRequest();
+    expect(url).toBe("https://test.example/prod/Apis/getDepartments");
+    expect(opts.method).toBe("GET");
+    expect(headers.Authorization).toBeUndefined();
+    expect(headers.username).toBeUndefined();
+  });
+
+  test("getTickets(OPEN): POST Apis/getAvailableTicket form {apiopid,newcon}, no auth", async () => {
+    const { getTickets } = await import("./generalApis.js");
+    fetchMock.mockResolvedValue(mockResponse({ ticketstatus: { err_code: 0 }, body: [] }));
+    await getTickets("OPEN", { op_id: "OP1", user: "op1", dept: "" });
+    const { url, opts, headers } = lastRequest();
+    expect(url).toBe("https://test.example/prod/Apis/getAvailableTicket");
+    expect(opts.method).toBe("POST");
+    expect(headers["Content-Type"]).toBe("application/x-www-form-urlencoded");
+    expect(headers.Authorization).toBeUndefined();
+    const b = new URLSearchParams(opts.body);
+    expect(b.get("apiopid")).toBe("OP1");
+    expect(b.get("newcon")).toBe("Departments"); // native default when no dept
+  });
+
+  test("getTickets(PENDING): POST Apis/pendingTickets form {apiopid,newcon,loginid}", async () => {
+    const { getTickets } = await import("./generalApis.js");
+    fetchMock.mockResolvedValue(mockResponse(OK));
+    await getTickets("PENDING", { op_id: "OP1", user: "op1", dept: "Sales" });
+    const { url, opts } = lastRequest();
+    expect(url).toBe("https://test.example/prod/Apis/pendingTickets");
+    const b = new URLSearchParams(opts.body);
+    expect(b.get("apiopid")).toBe("OP1");
+    expect(b.get("newcon")).toBe("Sales");
+    expect(b.get("loginid")).toBe("op1");
+  });
+
+  test("getTickets(NEW CONNECTIONS): apiopid is the operator op_id, NOT 'raghav'", async () => {
+    const { getTickets } = await import("./generalApis.js");
+    fetchMock.mockResolvedValue(mockResponse(OK));
+    await getTickets("NEW CONNECTIONS", { op_id: "OP1", user: "op1" });
+    const { url, opts } = lastRequest();
+    expect(url).toBe("https://test.example/prod/Apis/getNewConnectionTicket");
+    const b = new URLSearchParams(opts.body);
+    expect(b.get("apiopid")).toBe("OP1");
+    expect(b.get("apiopid")).not.toBe("raghav");
+  });
+
+  test("getTickets(JOB DONE): POST Apis/jobDoneList form {apiopid,userid}", async () => {
+    const { getTickets } = await import("./generalApis.js");
+    fetchMock.mockResolvedValue(mockResponse(OK));
+    await getTickets("JOB DONE", { op_id: "OP1", user: "op1" });
+    const { url, opts } = lastRequest();
+    expect(url).toBe("https://test.example/prod/Apis/jobDoneList");
+    const b = new URLSearchParams(opts.body);
+    expect(b.get("apiopid")).toBe("OP1");
+    expect(b.get("userid")).toBe("op1");
+  });
+
+  test("pickTicket(pick): POST Apis/pickTicket form {ticketid,apiopid,empname,empcontact}", async () => {
+    const { pickTicket } = await import("./generalApis.js");
+    fetchMock.mockResolvedValue(mockResponse({ status: { err_code: 0 } }));
+    await pickTicket({ ticketid: "T1", apiopid: "op1", empname: "op1", empcontact: "999" }, "");
+    const { url, opts } = lastRequest();
+    expect(url).toBe("https://test.example/prod/Apis/pickTicket");
+    expect(opts.method).toBe("POST");
+    const b = new URLSearchParams(opts.body);
+    expect(b.get("ticketid")).toBe("T1");
+    expect(b.get("empcontact")).toBe("999");
+  });
+
+  test("pickTicket(close): POST Apis/crmCloseTicket", async () => {
+    const { pickTicket } = await import("./generalApis.js");
+    fetchMock.mockResolvedValue(mockResponse({ status: { err_code: 0 } }));
+    await pickTicket({ ticketid: "T1", apiopid: "op1", empname: "op1", reason: "done", opid: "OP1" }, "close");
+    const { url, opts } = lastRequest();
+    expect(url).toBe("https://test.example/prod/Apis/crmCloseTicket");
+    const b = new URLSearchParams(opts.body);
+    expect(b.get("reason")).toBe("done");
+    expect(b.get("opid")).toBe("OP1");
+  });
+
+  test("pickTicket(transfer): POST Apis/transferTicket with native employee fields", async () => {
+    const { pickTicket } = await import("./generalApis.js");
+    fetchMock.mockResolvedValue(mockResponse({ status: { err_code: 0 } }));
+    await pickTicket({ ticketid: "T1", toEmpname: "ARUN", toEmpLoginId: "arunrao", fromemp: "op1", toEmpMob: "8095", opid: "OP1" }, "transfer");
+    const { url, opts } = lastRequest();
+    expect(url).toBe("https://test.example/prod/Apis/transferTicket");
+    const b = new URLSearchParams(opts.body);
+    // The old code sent a bogus `employeeId`; native sends these instead.
+    expect(b.get("toEmpLoginId")).toBe("arunrao");
+    expect(b.get("toEmpname")).toBe("ARUN");
+    expect(b.get("toEmpMob")).toBe("8095");
+    expect(b.has("employeeId")).toBe(false);
+  });
+
+  test("getTicketEmployees: POST Apis/getEmployee form {opid,group=accounts}, no auth", async () => {
+    const { getTicketEmployees } = await import("./generalApis.js");
+    fetchMock.mockResolvedValue(mockResponse({ status: { err_code: 0 }, body: [] }));
+    await getTicketEmployees("OP1");
+    const { url, opts, headers } = lastRequest();
+    expect(url).toBe("https://test.example/prod/Apis/getEmployee");
+    expect(opts.method).toBe("POST");
+    expect(headers.Authorization).toBeUndefined();
+    const b = new URLSearchParams(opts.body);
+    expect(b.get("opid")).toBe("OP1");
+    expect(b.get("group")).toBe("accounts");
+  });
+});
