@@ -1,10 +1,14 @@
 // Shared ticket-flow logic for the customer surface.
 //
-// Two hooks, both extracted so the dedicated Raise Ticket screen
+// Extracted so the dedicated Raise Ticket screen
 // (pages/customer/RaiseTicket.jsx, the 1:1 port of Android's
-// RaiseNewTicketsFragment) and the multi-service tabbed page
-// (pages/customer/Tickets.jsx) run the SAME code instead of two copies that
-// would inevitably drift.
+// RaiseNewTicketsFragment) and the Ticket Status screen
+// (pages/customer/TicketStatus.jsx) share one implementation of the gate and
+// the close/re-raise pipeline instead of two copies that would drift.
+//
+// These previously also backed a combined multi-service page
+// (pages/customer/Tickets.jsx), removed once tickets moved behind the
+// Internet service flow to match the native app.
 //
 // Nothing here renders. Dialog visibility is returned as state for the host
 // to render, because the two hosts present them differently.
