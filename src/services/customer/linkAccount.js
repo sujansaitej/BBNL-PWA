@@ -51,6 +51,59 @@ export const ACTIVE_ACCOUNT_KEY = "custActiveAccount";
  * `castregid` in particular is load-bearing: it is the REGISTRATION id and is
  * what delServRegCasNos wants, NOT `userid`.
  */
+/**
+ * Attach the SERVICE context (from servServiceList) to a linked account.
+ *
+ * THIS MATTERS AND IS EASY TO GET WRONG. There are two different "servid"
+ * values in play:
+ *
+ *   service.servid  — the id of the SERVICE itself, from servServiceList
+ *                     (e.g. Internet = "1"). Android stores this in prefs as
+ *                     `service_id` when the user taps the service card.
+ *   account.servid  — the servid on the linked account's own userdata row.
+ *
+ * `apis/subjects/` wants the SERVICE one: Android calls
+ * GetSubjects(operatorID, userId, serviceId) where serviceId is read from
+ * `service_id`. Passing the account's servid instead returns an empty list,
+ * which silently leaves the complaint dropdown blank and makes it impossible
+ * to raise a ticket at all.
+ */
+export function withServiceContext(account, service) {
+  if (!account) return null;
+  return {
+    ...account,
+    serviceListId: String(service?.servid ?? account.serviceListId ?? ""),
+    servicekey: service?.servicekey || account.servicekey || "",
+    serviceTitle: service?.title || account.serviceTitle || "",
+  };
+}
+
+/**
+ * Back-fill the service context on an account that was persisted before
+ * `serviceListId` existed (or by a path that skipped it), and re-persist it.
+ *
+ * Without this, every already-linked session keeps sending the wrong servid
+ * to apis/subjects/ and gets an empty complaint list forever — with no way
+ * out except unlinking and re-linking. Cheap: servServiceList is cached for
+ * 10 minutes by getServiceList().
+ *
+ * Returns the (possibly updated) account. Never throws — on failure the
+ * caller simply proceeds with what it had.
+ */
+export async function ensureServiceContext(account) {
+  if (!account?.userid) return account;
+  if (account.serviceListId) return account;
+  try {
+    const svc = await resolveService(account.servicekey || "internet");
+    if (!svc?.servid) return account;
+    const merged = withServiceContext(account, svc);
+    setActiveAccount(merged);
+    return merged;
+  } catch {
+    return account;
+  }
+}
+
 export function normalizeLinkedAccount(row, servicekey = "") {
   if (!row) return null;
   return {

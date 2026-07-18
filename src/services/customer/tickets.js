@@ -45,6 +45,7 @@
 import { apiFetch, getBaseUrl, readEnvelopeRaw, dedupe } from "../apiCore";
 import { lsGet, lsSet } from "../lsCache";
 import perfMonitor from "../../utils/apiPerfMonitor";
+import logger from "../../utils/logger";
 
 const GROUP = "CustTickets";
 
@@ -128,26 +129,58 @@ export async function getSubjects({ apiopid, cid, servid }) {
     return cached;
   }
 
-  const query = new URLSearchParams({
-    apiopid: apiopid || "",
-    cid: cid || "",
-    servid: servid || "",
-  }).toString();
-  const url = `${getBaseUrl()}apis/subjects/?${query}`;
+  async function fetchSubjects(opid) {
+    const query = new URLSearchParams({
+      apiopid: opid || "",
+      cid: cid || "",
+      servid: servid || "",
+    }).toString();
+    const url = `${getBaseUrl()}apis/subjects/?${query}`;
 
-  const resp = await apiFetch(
-    url,
-    { method: "GET", headers: apisHeaders() },
-    "getSubjects",
-    { group: GROUP }
-  );
-  if (!resp.ok) throw new Error(`Failed to load subjects (HTTP ${resp.status})`);
+    const resp = await apiFetch(
+      url,
+      { method: "GET", headers: apisHeaders() },
+      "getSubjects",
+      { group: GROUP }
+    );
+    if (!resp.ok) throw new Error(`Failed to load subjects (HTTP ${resp.status})`);
 
-  const data = await readEnvelopeRaw(resp, "getSubjects");
-  const rows = Array.isArray(data?.body) ? data.body : [];
-  const subjects = rows
-    .map((r) => ({ id: r?.id, subject: r?.subject }))
-    .filter((r) => r.subject);
+    const data = await readEnvelopeRaw(resp, "getSubjects");
+    const rows = Array.isArray(data?.body) ? data.body : [];
+    return {
+      subjects: rows.map((r) => ({ id: r?.id, subject: r?.subject })).filter((r) => r.subject),
+      message: data?.status?.err_msg || "",
+    };
+  }
+
+  let { subjects, message } = await fetchSubjects(apiopid);
+
+  // OPERATOR FALLBACK — verified against production.
+  //
+  // `apiopid` is a host lookup, not a filter. Measured behaviour:
+  //   apiopid="BBNL_OP49" → 389 rows  ("Subject Details Fetched Successfully")
+  //   apiopid=""          → 389 rows  (same full catalogue)
+  //   apiopid="BOGUS_OP"  →   0 rows  ("Host details for BOGUS_OP Not Available")
+  //
+  // So an operator the endpoint has no host entry for yields NOTHING, and the
+  // customer gets an empty complaint dropdown and cannot raise a ticket at
+  // all — which is exactly what happened in production. Since the un-scoped
+  // call returns the same full catalogue, retrying without apiopid is a
+  // strict improvement and loses no filtering (there is none to lose).
+  //
+  // Android does not do this: it renders the empty adapter and lets Submit
+  // fail with "Invalid complaint", leaving the customer stuck.
+  if (subjects.length === 0 && apiopid) {
+    const retry = await fetchSubjects("");
+    if (retry.subjects.length > 0) {
+      logger.warn("API", "getSubjects: operator returned no subjects, used un-scoped catalogue", {
+        apiopid,
+        reason: message,
+        rows: retry.subjects.length,
+      });
+      subjects = retry.subjects;
+    }
+  }
 
   if (subjects.length > 0) lsSet(cacheKey, subjects);
   return subjects;

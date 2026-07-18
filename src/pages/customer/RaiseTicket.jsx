@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import Layout from "../../layout/Layout";
 import { Loader, SubjectCombobox, ComplaintExistsDialog, ConfirmDialog, RateEngineerDialog, Alert } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { getUser } from "../../services/safeStorage";
-import { getActiveAccount } from "../../services/customer/linkAccount";
+import { getActiveAccount, ensureServiceContext } from "../../services/customer/linkAccount";
 import { serviceTitle } from "../../services/customer/serviceHome";
 import { statusLabel } from "../../services/customer/ticketFlow";
 import { useRaiseGate, useRaiseSubmit, useTicketClose } from "../../hooks/useTicketFlow";
@@ -36,7 +36,22 @@ export default function RaiseTicket() {
   const navigate = useNavigate();
   const toast = useToast();
   const user = getUser();
-  const account = getActiveAccount();
+  // Held in state so a back-filled service context re-renders the page.
+  const [account, setAccount] = useState(getActiveAccount);
+
+  // Accounts linked before `serviceListId` existed carry the wrong servid,
+  // which makes apis/subjects/ return an empty complaint list. Repair it once
+  // on mount rather than making the customer re-link.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const a = getActiveAccount();
+      if (!a?.userid || a.serviceListId) return;
+      const fixed = await ensureServiceContext(a);
+      if (!cancelled && fixed?.serviceListId) setAccount(fixed);
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const [subject, setSubject] = useState("");
   const [comment, setComment] = useState("");
@@ -49,7 +64,12 @@ export default function RaiseTicket() {
   const service = account
     ? {
         servicekey: account.servicekey || "internet",
-        servid: account.servid,
+        // The SERVICE's id (servServiceList `id`), not the account's own
+        // servid — apis/subjects/ returns an empty list for the latter, which
+        // is what leaves the complaint dropdown blank. `serviceListId` is
+        // attached when the account is activated; fall back for accounts
+        // persisted before that existed.
+        servid: account.serviceListId || account.servid,
         opid: account.opid,
         address: account.address,
       }

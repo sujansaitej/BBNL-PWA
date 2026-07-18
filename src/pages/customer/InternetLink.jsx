@@ -13,6 +13,7 @@ import {
   getActiveAccount,
   setActiveAccount,
   clearActiveAccount,
+  withServiceContext,
 } from "../../services/customer/linkAccount";
 import {
   GlobeAltIcon,
@@ -192,13 +193,25 @@ export default function InternetLink() {
     }
   };
 
+  /**
+   * Make an account active. ALWAYS goes through here.
+   *
+   * Attaches the resolved service context, because downstream calls need the
+   * SERVICE's id (servServiceList `id`), not the account's own servid —
+   * `apis/subjects/` returns an empty list for the wrong one, which leaves
+   * the complaint dropdown blank and blocks ticket raising entirely.
+   */
+  const activate = (acc) => {
+    const merged = withServiceContext(acc, service);
+    setActiveAccount(merged);
+    setActive(merged);
+    return merged;
+  };
+
   // Shared success path for both the direct and the OTP route.
   const onLinked = (account, message) => {
     setUserId("");
-    if (account?.userid) {
-      setActiveAccount(account);
-      setActive(account);
-    }
+    if (account?.userid) activate(account);
     toast.add(message || "Account linked successfully.", { type: "success" });
     loadAccounts();
   };
@@ -215,8 +228,7 @@ export default function InternetLink() {
    */
   const goWithAccount = (acc, path) => {
     if (!acc?.userid) return;
-    setActiveAccount(acc);
-    setActive(acc);
+    activate(acc);
     setSheetFor(null);
     navigate(path);
   };
@@ -229,8 +241,7 @@ export default function InternetLink() {
    */
   const goToUploadDocs = (acc) => {
     if (!acc?.userid) return;
-    setActiveAccount(acc);
-    setActive(acc);
+    activate(acc);
     setSheetFor(null);
     navigate("/upload-documents", {
       state: {

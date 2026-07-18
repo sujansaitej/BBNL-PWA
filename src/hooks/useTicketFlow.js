@@ -111,6 +111,22 @@ export function useRaiseGate({ service, customerId, enabled = true }) {
         cid: customerId,
         servid: service.servid,
       });
+
+      // An empty catalogue is NOT "ready". Android happily renders the form
+      // with an empty adapter, so the dropdown never opens and Submit dies on
+      // "Invalid complaint" with no explanation — the user is left staring at
+      // a form that cannot be completed. Say so instead.
+      //
+      // The usual cause is a wrong `servid`: subjects wants the SERVICE id
+      // from servServiceList, not the linked account's own servid.
+      if (!subs || subs.length === 0) {
+        setState("error");
+        setMessage(
+          "We couldn't load the list of complaints for this service. Please retry, or re-link your account."
+        );
+        return;
+      }
+
       setSubjects(subs);
       setState("ready");
     } catch (err) {

@@ -344,6 +344,47 @@ describe("getSubjects", () => {
     expect(subs).toHaveLength(1);
   });
 
+  test("an operator with no host entry falls back to the un-scoped catalogue", async () => {
+    const { getSubjects } = await import("./tickets.js");
+    // MEASURED ON PRODUCTION. apiopid is a host lookup, not a filter:
+    //   "BBNL_OP49" -> 389 rows, "" -> the SAME 389 rows,
+    //   an unknown operator -> 0 rows, "Host details for X Not Available".
+    // Left unhandled this empties the complaint dropdown and the customer
+    // cannot raise a ticket at all — the production bug this guards.
+    fetchMock
+      .mockResolvedValueOnce(
+        mockResponse({
+          status: { err_code: 1, err_msg: "Host details for BOGUS_OP Not Available" },
+          body: [],
+        })
+      )
+      .mockResolvedValueOnce(mockResponse(SUBJECTS_OK));
+
+    const subs = await getSubjects({ apiopid: "BOGUS_OP", cid: "c", servid: "fallback-test" });
+    expect(subs).toHaveLength(2);
+    expect(fetchMock.mock.calls.length).toBe(2);
+    // The retry must drop apiopid entirely, not resend the bad one.
+    expect(new URL(fetchMock.mock.calls[1][0]).searchParams.get("apiopid")).toBe("");
+    // ...while keeping the other params intact.
+    expect(new URL(fetchMock.mock.calls[1][0]).searchParams.get("servid")).toBe("fallback-test");
+  });
+
+  test("no fallback request when the operator-scoped call already returned rows", async () => {
+    const { getSubjects } = await import("./tickets.js");
+    fetchMock.mockResolvedValue(mockResponse(SUBJECTS_OK));
+    await getSubjects({ apiopid: "BBNL_OP49", cid: "c", servid: "nofallback-test" });
+    expect(fetchMock.mock.calls.length).toBe(1);
+  });
+
+  test("no fallback loop when apiopid was already empty", async () => {
+    const { getSubjects } = await import("./tickets.js");
+    fetchMock.mockResolvedValue(mockResponse({ status: { err_code: 1 }, body: [] }));
+    const subs = await getSubjects({ apiopid: "", cid: "c", servid: "emptyop-test" });
+    // Retrying "" with "" would be a pointless second identical request.
+    expect(fetchMock.mock.calls.length).toBe(1);
+    expect(subs).toEqual([]);
+  });
+
   test("caches per servid and does not refetch", async () => {
     const { getSubjects } = await import("./tickets.js");
     fetchMock.mockResolvedValue(mockResponse(SUBJECTS_OK));
