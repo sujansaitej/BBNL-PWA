@@ -2216,8 +2216,16 @@ export default function IPTVService() {
         const displayContents = contents.filter((c) => !/^\s*Channels\s*:/i.test(String(c?.title || '')));
         const taxDetails = Array.isArray(pay.tax_details) ? pay.tax_details : [];
 
+        // Bounded to the viewport (h-[100dvh]) so the middle region can scroll
+        // internally, with the container's bottom padding RESERVING the fixed
+        // BottomNav's height + its safe-area inset. The Pay bar then sits
+        // in-flow directly above that reserved strip — no magic offset, no
+        // overlap. Previously this was min-h-screen with a fixed Pay bar at
+        // bottom-16 and pb-28 on the scroller, which left the last section
+        // ("No of subscription days") submerged under the Pay bar with no way
+        // to scroll to it.
         return (
-            <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+            <div className="h-[100dvh] flex flex-col bg-gray-50 dark:bg-gray-900" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom, 0px))' }}>
                 <SuccessOrderModal />
                 {/* Header */}
 
@@ -2249,7 +2257,10 @@ export default function IPTVService() {
                     </div>
                 </div>
 
-                <div className="flex-1 px-4 py-4 space-y-4 pb-28 overflow-y-auto">
+                {/* min-h-0 is load-bearing: a flex child defaults to
+                    min-height:auto, which refuses to shrink below its content
+                    and defeats overflow scrolling. */}
+                <div className="flex-1 min-h-0 px-4 py-4 space-y-4 overflow-y-auto">
                     {checkoutLoading ? (
                         <Loader text="Loading checkout details..." />
                     ) : (
@@ -2370,8 +2381,10 @@ export default function IPTVService() {
                     )}
                 </div>
 
-                {/* Pay Button */}
-                <div className="fixed bottom-16 left-0 right-0 p-3 bg-white border-t">
+                {/* Pay Button — in-flow (flex-none) footer, sits above the
+                    reserved BottomNav strip. No longer fixed, so it can never
+                    submerge the scroller's last section. */}
+                <div className="flex-none p-3 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
                     <button
                         onClick={handleProceedToPay}
                         disabled={checkoutLoading || payLoading || !finalPaymentInfo?.body?.transactionid}
