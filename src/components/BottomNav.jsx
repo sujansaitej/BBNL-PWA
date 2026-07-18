@@ -105,7 +105,7 @@ export default function BottomBar() {
       </Link>
 
       {/* Tickets */}
-      <Link to="#" onClick={comingsoon} className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
+      <Link to="/cust/tickets" className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
         <TicketIcon className="h-6 w-6" />
         <span className="text-xs">Tickets</span>
       </Link>

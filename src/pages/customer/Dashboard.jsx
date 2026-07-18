@@ -124,7 +124,7 @@ export default function Dashboard() {
         { id: 'renew', title: 'Renew', Icon: CurrencyRupeeIcon, path: '#' },
         { id: 'bills', title: 'Bills', Icon: ClipboardDocumentListIcon, path: '#' },
         { id: 'ott', title: 'OTT', Icon: FilmIcon, path: '#' },
-        { id: 'ticket', title: 'Tickets', Icon: TicketIcon, path: '#' },
+        { id: 'ticket', title: 'Tickets', Icon: TicketIcon, path: '/cust/tickets' },
         { id: 'profile', title: 'Profile', Icon: UserIcon, path: '#' },
         { id: 'datausage', title: 'Data Usage', Icon: ChartPieIcon, path: '#' },
         { id: 'updateKyc', title: 'Update KYC', Icon: ArrowUpOnSquareStackIcon, path: '#' },

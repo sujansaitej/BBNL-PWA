@@ -10,6 +10,10 @@ export { default as Modal } from "./Modal";
 export { default as UserToggle } from "./UserToggle";
 export { default as Alert } from "./Alert";
 export { default as ServiceSelectionModal } from "./ServiceSelectionModal";
+export { default as StarRating } from "./StarRating";
+export { default as RateEngineerDialog } from "./RateEngineerDialog";
+export { default as ComplaintExistsDialog } from "./ComplaintExistsDialog";
+export { default as SubjectCombobox } from "./SubjectCombobox";
 // export { default as Select } from "./Select";
 // export { default as Textarea } from "./Textarea";
 // export { default as Toast } from "./Toast";
@@ -43,4 +47,3 @@ export { default as ServiceSelectionModal } from "./ServiceSelectionModal";
 // export { default as RichTextEditor } from "./RichTextEditor"; --- IGNORE ---
 // export { default as CodeEditor } from "./CodeEditor"; --- IGNORE ---
 // export { default as ColorPicker } from "./ColorPicker"; --- IGNORE ---
-// export { default as StarRating } from "./StarRating";

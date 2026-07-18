@@ -47,10 +47,24 @@ function parseEnv(filePath) {
   return env;
 }
 
-const envFile = PROD ? "env.production" : "env.development";
-const env = parseEnv(path.resolve(__dirname, "..", envFile));
+// Vite's convention is a LEADING DOT (.env.production). The original names
+// here omitted it, so parseEnv silently read nothing and the script exited 2
+// on every run — it had never actually executed. Try both, dotted first.
+const envCandidates = PROD
+  ? [".env.production", "env.production"]
+  : [".env.development", "env.development"];
+
+let envFile = null;
+let env = {};
+for (const candidate of envCandidates) {
+  const resolved = path.resolve(__dirname, "..", candidate);
+  if (!fs.existsSync(resolved)) continue;
+  env = parseEnv(resolved);
+  envFile = candidate;
+  if (env.VITE_API_BASE_URL) break;
+}
 if (!env.VITE_API_BASE_URL) {
-  console.error(`No VITE_API_BASE_URL in ${envFile}`);
+  console.error(`No VITE_API_BASE_URL in any of: ${envCandidates.join(", ")}`);
   process.exit(2);
 }
 
@@ -350,6 +364,83 @@ async function run() {
     headers: paymentHeaders("application/x-www-form-urlencoded"),
     body: new URLSearchParams({ type: "1" }).toString(),
     expect: ENVELOPE.NONE,
+  });
+
+  // ---- Customer tickets ----------------------------------------------
+  // SAFETY: only the five READ-ONLY ticket endpoints are probed here.
+  // apis/raiseTicket/ and Apis/closeticket are WRITE paths — raising or
+  // closing a real customer's complaint from a smoke run is not acceptable.
+  // Do not add them. (raiseTicket is especially deceptive: it is a GET, so it
+  // looks harmless, but it creates a ticket.)
+  //
+  // What we are actually validating without a customer login: that each path
+  // EXISTS with the casing we ship (a 404 here means the mixed apis/ vs Apis/
+  // casing is wrong), that the APIS credential block is accepted (an auth
+  // failure answers "Header Authorization Failed!"), and which envelope
+  // dialect each speaks. A per-customer err_code for a bogus test id is
+  // expected and is NOT a failure.
+  const apisTicketHeaders = (contentType) => ({
+    Authorization: "c4f79e15f8c6ed0715a8ea44aebc38d8",
+    username: "e2798af12a7a0f4f70b4d69efbc25f4d",
+    password: "c1f377afbaa874acbb6b61f66957710a",
+    apptype: "customerapp-v1",
+    ...(contentType ? { "Content-Type": contentType } : {}),
+  });
+  const SVCKEY = env.TEST_SERVICEKEY || "internet";
+  const SERVID = env.TEST_SERVID || "1";
+
+  await probe({
+    flow: "TICKETS",
+    name: "maintenance (APIS creds)",
+    url: `${BASE}apis/maintenance/`,
+    method: "POST",
+    headers: apisTicketHeaders("application/x-www-form-urlencoded"),
+    body: new URLSearchParams({ apiopid: OP, cid: UID, servicekey: SVCKEY }).toString(),
+    expect: ENVELOPE.STATUS,
+  });
+  // subjects returns err_code 1 ON SUCCESS, so the [FAIL] marker below is
+  // expected and meaningless for this row — read `body:` and `keys:` instead.
+  await probe({
+    flow: "TICKETS",
+    name: "subjects (err_code 1 = ok)",
+    url: `${BASE}apis/subjects/?${new URLSearchParams({ apiopid: OP, cid: UID, servid: SERVID })}`,
+    headers: apisTicketHeaders(),
+    expect: ENVELOPE.STATUS,
+  });
+  // Nested pingingstatus/ticketstatus blocks — NOT the standard status/body
+  // envelope, so classify() will report it as NONE. That is correct and is
+  // exactly why checkPendingTickets must not use readEnvelope.
+  await probe({
+    flow: "TICKETS",
+    name: "cust/pendingticket (nested status)",
+    url: `${BASE}apis/cust/pendingticket/`,
+    method: "POST",
+    headers: apisTicketHeaders("application/x-www-form-urlencoded"),
+    body: new URLSearchParams({ userid: UID, servicekey: SVCKEY }).toString(),
+  });
+  await probe({
+    flow: "TICKETS",
+    name: "gettickets (capital Apis/, no auth)",
+    url: `${BASE}Apis/gettickets/?${new URLSearchParams({
+      userid: UID,
+      mobile: MOB,
+      userstatus: "registereduser",
+      totalno: "300",
+      servicekey: SVCKEY,
+    })}`,
+    expect: ENVELOPE.STATUS,
+  });
+  // Bare-string body. A non-existent ticket id is safe — this only reads.
+  await probe({
+    flow: "TICKETS",
+    name: "getParticularTicketStatus (string body)",
+    url: `${BASE}Apis/getParticularTicketStatus/`,
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      ticketid: env.TEST_TICKETID || "0",
+      servicekey: SVCKEY,
+    }).toString(),
   });
 
   // ── report ─────────────────────────────────────────────────────────

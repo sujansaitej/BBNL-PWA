@@ -62,6 +62,7 @@ const PaymentHistory = lazyRetry(() => import("../pages/PaymentHistory"));
 const UploadDocuments = lazyRetry(() => import("../pages/UploadDocuments"));
 const FofiPayment = lazyRetry(() => import("../pages/FofiPayment"));
 const CustomerDashboard = lazyRetry(() => import("../pages/customer/Dashboard"));
+const CustomerTickets = lazyRetry(() => import("../pages/customer/Tickets"));
 const OTTHub = lazyRetry(() => import("../pages/customer/OTTHub"));
 const OTTPlayer = lazyRetry(() => import("../pages/customer/OTTPlayer"));
 const LiveTvPage = lazyRetry(() => import("../pages/iptv/LiveTvPage"));
@@ -176,6 +177,14 @@ export default function AppRoutes() {
           element={
             <PrivateRoute>
               <CustomerDashboard />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/cust/tickets"
+          element={
+            <PrivateRoute>
+              <CustomerTickets />
             </PrivateRoute>
           }
         />
