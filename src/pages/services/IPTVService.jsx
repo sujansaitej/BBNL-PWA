@@ -1528,11 +1528,20 @@ export default function IPTVService() {
         chIds,
         freshSubscription,
     }) {
+        // Amount the CUSTOMER paid = the grand total.
+        const totalPaid = parseFloat(effectivePaidAmount) || numericPaid || 0;
+        // Amount that actually LEAVES the operator wallet = total − operator share
+        // (native's `amountdeductable = total_amt − final_split_data.OPERATOR.amount`).
+        // The operator keeps their share; only the net is debited. Showing the raw
+        // operator share here was the "Wallet Debited ₹13 instead of ₹52" bug.
+        const share = Number(operatorShare) || 0;
+        const walletDeductible = Math.max(0, totalPaid - share);
+
         setSuccessOrder({
             orderId: result?.body?.orderid || result?.body?.order_id || result?.body?.id || "",
             txnId: freshTxnId || result?.body?.transactionid || result?.body?.txnid || "",
-            paidAmount: parseFloat(effectivePaidAmount) || numericPaid,
-            walletDebited: walletDebitConfirmed ? operatorShare : 0,
+            paidAmount: totalPaid,
+            walletDebited: walletDebitConfirmed ? walletDeductible : 0,
             period: periodForPay,
             packagesCount: pkgIds.length,
             channelsCount: chIds.length,
@@ -1555,7 +1564,10 @@ export default function IPTVService() {
         } catch (_) { /* cache clear is best-effort */ }
 
         refreshCableWalletBalance({
-            optimisticDebit: walletDebitConfirmed && !skipOptimisticDebit ? operatorShare : 0,
+            // Optimistic wallet drop must match the REAL debit (total − share),
+            // else the balance briefly shows the wrong decrease before the
+            // server refresh corrects it.
+            optimisticDebit: walletDebitConfirmed && !skipOptimisticDebit ? walletDeductible : 0,
         }).catch(() => {});
 
         if (freshSubscription) {
