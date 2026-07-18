@@ -81,6 +81,35 @@ export async function generateFofiOrder(payload) {
 }
 
 /**
+ * Cancel a stale pending FoFi/cable transaction — POST ServiceApis/killTxn.
+ *
+ * Native's RegistrationPaymentOverviewActivity.closePreviousTransaction()
+ * (KillTransactionIdRequestModel: userid/username/servid/orderedbytype/
+ * transactionid). Every service/paymentinfo/fofi call RESERVES a pending
+ * transaction server-side; if the PWA reserves a second one (the pay-screen
+ * refresh) the first is orphaned and shows up as a duplicate order. Killing it
+ * keeps exactly one live transaction, matching native's single-reservation flow.
+ * Best-effort — the caller must not block payment on the result.
+ */
+export async function killFofiTxn({ userid, username, servid, transactionid }) {
+    const url = `${getBaseUrl()}ServiceApis/killTxn`;
+    const payload = {
+        userid: userid || "",
+        username: username || "",
+        servid: String(servid || ""),
+        orderedbytype: "crmapp",   // Constants.CONGIF_PAYMENT_FROM — operator caller
+        transactionid: transactionid || "",
+    };
+    const resp = await apiFetch(url, {
+        method: "POST",
+        headers: getHeadersJson(),
+        body: JSON.stringify(payload),
+    }, "killFofiTxn", { group: "FoFi" });
+    if (!resp.ok) throw new Error(`Failed to cancel previous transaction: HTTP ${resp.status}`);
+    return resp.json();
+}
+
+/**
  * Get special internet plans for FoFi Box
  * @param {Object} payload - { logUname: string, isKiranastore: string }
  * @returns {Promise<Object>} Response containing special internet plans

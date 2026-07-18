@@ -3,7 +3,7 @@ import Layout from "../layout/Layout";
 import { useNavigate, useLocation } from "react-router-dom";
 import { formatToDecimals } from "../services/helpers";
 import { Loader, Alert } from "@/components/ui";
-import { generateFofiOrder, getFofiPaymentInfo, linkFoFiBox, upgradeRegistration } from "../services/fofiApis";
+import { generateFofiOrder, getFofiPaymentInfo, killFofiTxn, linkFoFiBox, upgradeRegistration } from "../services/fofiApis";
 import { getWalBal, getMyPlanDetails, getUserAssignedItems } from "../services/generalApis";
 import { getFofiOrderHistory } from "../services/orderApis";
 import { getUser } from "../services/safeStorage";
@@ -579,6 +579,28 @@ export default function FofiPayment() {
         // Fresh full total (native's generateorder paidamount) from paymentinfo.
         refreshedTotal = parseFloat(refreshResp?.body?.total_amt) || refreshedTotal;
         console.log('✅ Fresh transactionid received:', transactionId, '(state had:', paymentData?.transactionid, ')');
+
+        // Kill the transaction FoFiSmartBox already reserved. paymentinfo/fofi
+        // RESERVES a pending txn every call; FoFiSmartBox made one to build the
+        // summary and this refresh made another. Native reserves only ONCE, so
+        // leaving the first alive is what created the duplicate order ~3s apart
+        // (only in the PWA). Skip when the backend returned the SAME id (sticky
+        // ids — one reservation, nothing orphaned; killing it would void the id
+        // we're about to pay with). Best-effort: a failed kill must not block pay.
+        const staleTxn = paymentData?.transactionid || '';
+        if (staleTxn && staleTxn !== transactionId) {
+          try {
+            await killFofiTxn({
+              userid: paymentData?.userid || '',
+              username: loginuname,
+              servid: String(paymentData?.servid || '3'),
+              transactionid: staleTxn,
+            });
+            console.log('🧹 Killed stale FoFiSmartBox transaction:', staleTxn);
+          } catch (killErr) {
+            console.warn('⚠️ Could not kill stale transaction (continuing):', killErr?.message);
+          }
+        }
       } catch (refreshErr) {
         // No order was attempted yet, so nothing could have been charged —
         // this is a clean failure the operator can safely retry.

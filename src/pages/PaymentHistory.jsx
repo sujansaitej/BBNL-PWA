@@ -94,7 +94,17 @@ export default function PaymentHistory() {
         }
 
         try {
-          const userid = customerData?.username || customerData?.customer_id || cid;
+          // ordersList MUST be queried with the SAME id the order was CREATED
+          // under, or it returns zero rows. Native keys cable order history on
+          // the cable account's own userid (LinkCableAccounts_Fragment →
+          // MyOrderHistory). In the PWA, cable orders are created under
+          // customer_id (IPTVService.generateCableTvOrder, userid=customer_id),
+          // but FoFi orders are created under username (FoFiSmartBox). Sending
+          // username for cable is why Cable TV showed "No orders found" while
+          // FoFi worked on this same screen — so pick per service.
+          const userid = serviceType === "cabletv"
+            ? (customerData?.customer_id || customerData?.username || cid)
+            : (customerData?.username || customerData?.customer_id || cid);
           const apiCtx = { apiopid, cid, userid, username: user?.username };
           const custPayData = await getOrderHistoryFor(serviceType, apiCtx);
           if (custPayData?.body && Array.isArray(custPayData.body)) {
