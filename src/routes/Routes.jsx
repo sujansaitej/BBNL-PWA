@@ -66,6 +66,7 @@ const CustomerTickets = lazyRetry(() => import("../pages/customer/Tickets"));
 const CustomerInternet = lazyRetry(() => import("../pages/customer/InternetLink"));
 const CustomerServiceHome = lazyRetry(() => import("../pages/customer/ServiceHome"));
 const CustomerRaiseTicket = lazyRetry(() => import("../pages/customer/RaiseTicket"));
+const CustomerTicketStatus = lazyRetry(() => import("../pages/customer/TicketStatus"));
 const CustomerDataUsage = lazyRetry(() => import("../pages/customer/DataUsage"));
 const CustomerPayments = lazyRetry(() => import("../pages/customer/CustomerPayments"));
 const OTTHub = lazyRetry(() => import("../pages/customer/OTTHub"));
@@ -214,6 +215,14 @@ export default function AppRoutes() {
           element={
             <PrivateRoute>
               <CustomerRaiseTicket />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/cust/internet/ticket-status"
+          element={
+            <PrivateRoute>
+              <CustomerTicketStatus />
             </PrivateRoute>
           }
         />

@@ -200,7 +200,7 @@ export default function ServiceHome() {
 
   const ACTIONS = [
     { id: "raise", label: "Raise Ticket", Icon: TicketIcon, onClick: () => navigate("/cust/internet/raise-ticket") },
-    { id: "status", label: "Ticket Status", Icon: ClipboardDocumentListIcon, onClick: () => navigate("/cust/tickets?tab=status") },
+    { id: "status", label: "Ticket Status", Icon: ClipboardDocumentListIcon, onClick: () => navigate("/cust/internet/ticket-status") },
     { id: "mac", label: "Reset Mac", Icon: ArrowPathIcon, onClick: () => setConfirmMac(true) },
     { id: "usage", label: "Data Usage", Icon: ChartPieIcon, onClick: () => navigate("/cust/internet/usage") },
   ];

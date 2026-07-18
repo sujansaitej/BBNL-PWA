@@ -228,21 +228,13 @@ export default function RaiseTicket() {
                   <Row label="Raised Time" value={gate.existing.risedtime} />
                 </div>
               )}
-              <div className="flex gap-2">
-                <button
-                  onClick={() => close.ask(gate.existing, "close")}
-                  disabled={!gate.existing || close.busy}
-                  className="flex-1 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium disabled:opacity-50"
-                >
-                  Close Ticket
-                </button>
-                <button
-                  onClick={() => navigate("/cust/tickets?tab=status")}
-                  className="flex-1 py-2 rounded-lg border border-indigo-600 text-indigo-600 text-sm font-medium"
-                >
-                  Ticket Status
-                </button>
-              </div>
+              <button
+                onClick={() => close.ask(gate.existing, "close")}
+                disabled={!gate.existing || close.busy}
+                className="w-full py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium disabled:opacity-50"
+              >
+                Close Ticket
+              </button>
             </div>
           ) : (
             <div className="text-center py-6 space-y-3">
@@ -252,20 +244,12 @@ export default function RaiseTicket() {
               <p className="text-sm text-gray-700 dark:text-gray-300">
                 {gate.message || "Something went wrong. Please try again."}
               </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={gate.refresh}
-                  className="flex-1 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium"
-                >
-                  Retry
-                </button>
-                <button
-                  onClick={() => navigate("/cust/tickets?tab=status")}
-                  className="flex-1 py-2 rounded-lg border border-indigo-600 text-indigo-600 text-sm font-medium"
-                >
-                  Ticket Status
-                </button>
-              </div>
+              <button
+                onClick={gate.refresh}
+                className="w-full py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium"
+              >
+                Retry
+              </button>
             </div>
           )}
         </div>

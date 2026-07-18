@@ -1,7 +1,7 @@
 // import DashboardContent from "../../components/Dashboard";
 import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
-import { ArrowUpOnSquareStackIcon, CurrencyRupeeIcon, ClipboardDocumentListIcon, ChartPieIcon, SignalIcon, GlobeAltIcon, UserIcon, FilmIcon } from '@heroicons/react/24/outline'
+import { ArrowUpOnSquareStackIcon, CurrencyRupeeIcon, ClipboardDocumentListIcon, ChartPieIcon, SignalIcon, GlobeAltIcon, TicketIcon, UserIcon, FilmIcon } from '@heroicons/react/24/outline'
 import { PlayCircleIcon } from '@heroicons/react/24/solid'
 import { Swiper, SwiperSlide } from 'swiper/react'
 import { Autoplay, Pagination } from 'swiper/modules'
@@ -125,6 +125,14 @@ export default function Dashboard() {
         { id: 'bills', title: 'Bills', Icon: ClipboardDocumentListIcon, path: '#' },
         { id: 'ott', title: 'OTT', Icon: FilmIcon, path: '#' },
         { id: 'internet', title: 'Internet', Icon: GlobeAltIcon, path: '/cust/internet' },
+        // SAFETY NET — keep a direct route to tickets.
+        // Tickets normally live behind Internet (link account → Home Page →
+        // Raise Ticket / Ticket Status), matching the Android app. But that
+        // whole path depends on the account-linking endpoints, which have
+        // never been verified against production. If linking fails, this is
+        // the customer's only remaining way to reach a ticket. Remove it once
+        // the linked-account flow is confirmed working live.
+        { id: 'ticket', title: 'Tickets', Icon: TicketIcon, path: '/cust/tickets' },
         { id: 'profile', title: 'Profile', Icon: UserIcon, path: '#' },
         { id: 'datausage', title: 'Data Usage', Icon: ChartPieIcon, path: '#' },
         { id: 'updateKyc', title: 'Update KYC', Icon: ArrowUpOnSquareStackIcon, path: '#' },

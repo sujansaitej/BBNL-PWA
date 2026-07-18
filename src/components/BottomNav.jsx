@@ -8,7 +8,8 @@ import {
   ChatBubbleOvalLeftEllipsisIcon,
   CurrencyRupeeIcon,
   TvIcon,
-  FilmIcon
+  FilmIcon,
+  GlobeAltIcon
 } from "@heroicons/react/24/outline";
 import { Modal } from "@/components/ui";
 
@@ -104,10 +105,12 @@ export default function BottomBar() {
         <span className="text-xs mt-1 text-blue-600 font-medium">Dashboard</span>
       </Link>
 
-      {/* Tickets */}
-      <Link to="/cust/tickets" className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
-        <TicketIcon className="h-6 w-6" />
-        <span className="text-xs">Tickets</span>
+      {/* Internet — the linked-account entry point. Tickets now live behind
+          it (link account → Home Page → Raise Ticket / Ticket Status), which
+          is how the Android app is structured. */}
+      <Link to="/cust/internet" className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
+        <GlobeAltIcon className="h-6 w-6" />
+        <span className="text-xs">Internet</span>
       </Link>
 
       {/* support */}

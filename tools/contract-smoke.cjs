@@ -443,6 +443,56 @@ async function run() {
     }).toString(),
   });
 
+  // ---- Customer link-account + service home -------------------------
+  // SAFETY: read-only probes only. The following are WRITE paths and must
+  // NEVER be added here:
+  //   ServiceApis/custServiceOtp          — links an account / sends a real OTP
+  //   ServiceApis/custServOtpVerification — completes a link
+  //   ServiceApis/delServRegCasNos        — UNLINKS an account
+  //   apis/cust/resetmac/                 — drops the customer's MAC binding
+  //                                          and can disconnect their device
+  await probe({
+    flow: "LINKACCT",
+    name: "getServRegCastNos (linked ids)",
+    url: `${BASE}ServiceApis/getServRegCastNos?${new URLSearchParams({ servid: "1", username: U })}`,
+    headers: mainHeaders(),
+    expect: ENVELOPE.STATUS,
+  });
+  await probe({
+    flow: "LINKACCT",
+    name: "pkgCategories",
+    url: `${BASE}ServiceApis/pkgCategories?${new URLSearchParams({ username: U, userid: UID })}`,
+    method: "POST",
+    headers: mainHeaders(),
+    expect: ENVELOPE.STATUS,
+  });
+  // Internet payment history — {error,resultcount,result[]} dialect, no auth.
+  await probe({
+    flow: "LINKACCT",
+    name: "takebill (payment history)",
+    url: `${BASE}apis/takebill/`,
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ apiopid: OP, apiuserid: UID }).toString(),
+    expect: ENVELOPE.ERROR,
+  });
+  // Data usage lives on a DIFFERENT HOST with no auth. Dates are d-M-yyyy
+  // unpadded, exactly as Android sends them.
+  await probe({
+    flow: "LINKACCT",
+    name: "overallAvgUsageReport (other host)",
+    url: "https://payurbills.co.in/best2/General/overallAvgUsageReport/",
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      apiopid: OP,
+      apiuserid: UID,
+      fromdt: "1-7-2026",
+      todt: "18-7-2026",
+    }).toString(),
+    expect: ENVELOPE.ERROR,
+  });
+
   // ── report ─────────────────────────────────────────────────────────
   if (JSON_OUT) {
     console.log(JSON.stringify(results, null, 2));

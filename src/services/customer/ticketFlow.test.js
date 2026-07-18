@@ -96,6 +96,16 @@ describe("subject filter (Android ArrayFilter parity)", () => {
     expect(out[0]).toEqual({ id: "0", subject: "change the router user name" });
   });
 
+  test("word-prefix, NOT substring — the distinction the dropdown depends on", () => {
+    // From the live catalogue (~271 rows). Typing "net" must NOT surface
+    // "No Internet": "internet" starts with 'i', not 'net'. A substring
+    // filter would wrongly include it and bury the real matches.
+    expect(wordPrefixMatch("Network Issue", "net")).toBe(true);
+    expect(wordPrefixMatch("Net Is Very Slow", "net")).toBe(true);
+    expect(wordPrefixMatch("No Internet", "net")).toBe(false);
+    expect("No Internet".toLowerCase().includes("net")).toBe(true); // proves the case is real
+  });
+
   test("survives null/undefined rows without throwing", () => {
     // getSubjects filters these out, but the component must not explode if a
     // malformed row ever reaches it.
