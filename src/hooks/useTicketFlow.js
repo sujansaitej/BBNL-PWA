@@ -108,22 +108,16 @@ export function useRaiseGate({ service, customerId, enabled = true }) {
         servid: service.servid,
       });
 
-      // An empty catalogue is NOT "ready". Android happily renders the form
-      // with an empty adapter, so the dropdown never opens and Submit dies on
-      // "Invalid complaint" with no explanation — the user is left staring at
-      // a form that cannot be completed. Say so instead.
+      // NATIVE PARITY: the form is rendered whatever the catalogue size,
+      // exactly as RaiseNewTicketsFragment does — it binds the adapter and
+      // moves on. An empty catalogue therefore presents as a dropdown that
+      // never opens, and Submit fails the "Invalid complaint" check.
       //
-      // The usual cause is a wrong `servid`: subjects wants the SERVICE id
-      // from servServiceList, not the linked account's own servid.
-      if (!subs || subs.length === 0) {
-        setState("error");
-        setMessage(
-          "We couldn't load the list of complaints for this service. Please retry, or re-link your account."
-        );
-        return;
-      }
-
-      setSubjects(subs);
+      // We intentionally do NOT convert that into an error screen: this
+      // subsystem is being held to native behaviour. getSubjects logs a
+      // warning naming the apiopid and the backend's message, which is how an
+      // empty catalogue gets diagnosed.
+      setSubjects(subs || []);
       setState("ready");
     } catch (err) {
       setState("error");

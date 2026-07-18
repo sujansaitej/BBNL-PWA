@@ -17,11 +17,31 @@
 // filter would additionally surface every option containing a "u" anywhere
 // ("slow speed iss[u]e", "ro[u]ter not working"), which the app does not show.
 export function wordPrefixMatch(option, query) {
-  const q = String(query || "").trim().toLowerCase();
+  // 1:1 with AOSP ArrayAdapter.ArrayFilter.performFiltering:
+  //
+  //   final String prefixString = prefix.toString().toLowerCase();
+  //   final String valueText = value.toString().toLowerCase();
+  //   if (valueText.startsWith(prefixString)) { match }
+  //   else {
+  //     final String[] words = valueText.split(" ");
+  //     for (String word : words) if (word.startsWith(prefixString)) { match; break; }
+  //   }
+  //
+  // Two details are deliberate and must not be "improved":
+  //  - the split is on a SINGLE LITERAL SPACE, not /\s+/. Tabs, newlines and
+  //    non-breaking spaces are NOT delimiters, and a double space yields an
+  //    empty token (harmless — it can never prefix-match a non-empty query).
+  //  - prefix only. No substring match: typing "net" does NOT match
+  //    "Internet Down". That hides relevant options, but it is exactly what
+  //    the native app does and parity is the requirement here.
+  //
+  // Android lowercases the QUERY but does not trim it; an empty/blank
+  // constraint returns the whole list.
+  const q = String(query || "").toLowerCase();
   if (!q) return true;
   const text = String(option || "").toLowerCase();
   if (text.startsWith(q)) return true;
-  return text.split(/\s+/).some((word) => word.startsWith(q));
+  return text.split(" ").some((word) => word.startsWith(q));
 }
 
 export function filterSubjects(subjects, query) {

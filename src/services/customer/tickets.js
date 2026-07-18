@@ -153,44 +153,33 @@ export async function getSubjects({ apiopid, cid, servid }) {
     };
   }
 
-  // ── WHY apiopid IS NOT SENT ──────────────────────────────────────
+  // NATIVE PARITY: the operator id IS sent, exactly as
+  // RaiseNewTicketsFragment does — GetSubjects(operatorID, userId, serviceId)
+  // with operatorID from prefs "operatior_id".
   //
-  // `apiopid` on this endpoint is a HOST LOOKUP, not a filter. Measured
-  // directly against production:
-  //
+  // Be aware of how this endpoint behaves (measured against production):
   //   apiopid="BBNL_OP49" → 389 rows  ("Subject Details Fetched Successfully")
-  //   apiopid=""          → 389 rows  — the SAME full catalogue
-  //   apiopid="BOGUS_OP"  →   0 rows  ("Host details for BOGUS_OP Not Available")
-  //   apiopid="undefined" →   0 rows  ("Host details for undefined Not Available")
+  //   apiopid=""          → 389 rows  — the same full catalogue
+  //   apiopid=<unknown>   →   0 rows  ("Host details for <x> Not Available")
   //
-  // A known operator and no operator return an identical list, so the
-  // parameter buys no filtering whatsoever. All it can do is fail: any
-  // operator without a host entry returns NOTHING, the complaint dropdown is
-  // empty, and the customer cannot raise a ticket at all. That is the
-  // production failure this replaces — and an operator-scoped attempt first
-  // was still not enough, because the scoped call can also hang or error,
-  // and either way the customer ends up stuck.
-  //
-  // So we ask for the catalogue un-scoped, always. Deliberate deviation from
-  // Android, which sends the operator id and simply shows an empty dropdown
-  // when the lookup misses. `cid`/`servid` are kept: they are harmless (the
-  // endpoint returns the same catalogue regardless) and preserve the wire
-  // shape for the backend's logs.
-  let { subjects, message } = await fetchSubjects("");
-
-  // Last-ditch: if the un-scoped catalogue is somehow empty, try the
-  // operator-scoped form before giving up, in case the backend ever starts
-  // requiring it.
-  if (subjects.length === 0 && apiopid) {
-    const scoped = await fetchSubjects(apiopid);
-    if (scoped.subjects.length > 0) subjects = scoped.subjects;
-    else message = scoped.message || message;
-  }
+  // It is a host lookup, not a filter: a valid operator and no operator
+  // return the SAME list, and an unrecognised one returns nothing. So an
+  // empty dropdown here almost always means a bad/blank operator id reached
+  // this call, not a backend outage. The log line below reports exactly what
+  // was sent and what came back, so that is diagnosable at a glance instead
+  // of presenting as a mysteriously empty list.
+  const { subjects, message } = await fetchSubjects(apiopid);
 
   if (subjects.length === 0) {
-    // Surfaced by the caller so a residual failure is diagnosable rather
-    // than presenting as a mysteriously empty dropdown.
-    logger.warn("API", "getSubjects returned an empty catalogue", { apiopid, cid, servid, message });
+    logger.warn("API", "getSubjects returned an EMPTY catalogue", {
+      apiopid: apiopid || "(blank)",
+      cid,
+      servid,
+      backendMessage: message,
+      hint: "A blank or unrecognised apiopid yields 0 rows; check the linked account's opid.",
+    });
+  } else {
+    logger.debug("API", `getSubjects: ${subjects.length} subjects`, { apiopid: apiopid || "(blank)", servid });
   }
 
   if (subjects.length > 0) lsSet(cacheKey, subjects);

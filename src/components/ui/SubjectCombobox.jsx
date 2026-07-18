@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronUpDownIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { filterSubjects } from "../../services/customer/ticketFlow";
 
 /**
@@ -28,16 +27,6 @@ export default function SubjectCombobox({
   const [active, setActive] = useState(0);
   const wrapRef = useRef(null);
 
-  // Android sets completionThreshold = 1: the dropdown does NOT appear on
-  // focus, only once at least one character is typed. That matters here —
-  // the subjects list is ~271 rows, so opening it wholesale on focus buries
-  // the form under a wall of options. The chevron stays as a deliberate
-  // "browse everything" affordance the user has to ask for.
-  const THRESHOLD = 1;
-  const [forceOpen, setForceOpen] = useState(false);
-  const meetsThreshold = query.trim().length >= THRESHOLD;
-  const showList = open && (meetsThreshold || forceOpen);
-
   // Keep the visible text in step when the PARENT resets the selection
   // (e.g. after a successful submit or a service switch).
   //
@@ -61,13 +50,19 @@ export default function SubjectCombobox({
 
   const matches = useMemo(() => filterSubjects(subjects, query), [subjects, query]);
 
+  // NATIVE PARITY: completionThreshold = 1. The popup appears once at least
+  // one character is typed and never on focus alone. There is no
+  // "browse everything" affordance in the native app, so there is none here.
+  const THRESHOLD = 1;
+  const meetsThreshold = query.length >= THRESHOLD;
+  // Native dismisses the popup entirely when the filter yields nothing —
+  // it never shows an empty-state row.
+  const showList = open && meetsThreshold && matches.length > 0;
+
   // Close on outside click.
   useEffect(() => {
     const onDocDown = (e) => {
-        if (wrapRef.current && !wrapRef.current.contains(e.target)) {
-        setOpen(false);
-        setForceOpen(false);
-      }
+        if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
     };
     document.addEventListener("mousedown", onDocDown);
     return () => document.removeEventListener("mousedown", onDocDown);
@@ -76,7 +71,6 @@ export default function SubjectCombobox({
   const select = (subject) => {
     setQuery(subject);
     setOpen(false);
-    setForceOpen(false);
     emit(subject);
   };
 
@@ -84,25 +78,16 @@ export default function SubjectCombobox({
     setQuery(text);
     setActive(0);
     setOpen(true);
-    setForceOpen(false);   // typing returns to threshold behaviour
     // Free text is never a valid selection — drop it until an option is
     // picked, so the submit button stays correctly disabled. Routed through
     // emit() so the echoed prop change does not clobber what was typed.
     if (value) emit("");
   };
 
-  const clear = () => {
-    setQuery("");
-    setOpen(false);
-    setForceOpen(false);
-    emit("");
-  };
-
   const onKeyDown = (e) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setOpen(true);
-      if (!meetsThreshold) setForceOpen(true);   // keyboard users can browse
       setActive((i) => Math.min(i + 1, matches.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
@@ -114,7 +99,6 @@ export default function SubjectCombobox({
       }
     } else if (e.key === "Escape") {
       setOpen(false);
-      setForceOpen(false);
     }
   };
 
@@ -133,33 +117,8 @@ export default function SubjectCombobox({
           onChange={(e) => handleType(e.target.value)}
           onFocus={() => setOpen(true)}   /* threshold decides visibility */
           onKeyDown={onKeyDown}
-          className="w-full border rounded-lg py-2 pl-3 pr-16 text-sm bg-white dark:bg-gray-900 dark:border-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none disabled:opacity-60"
+          className="w-full border rounded-lg py-2 pl-3 pr-3 text-sm bg-white dark:bg-gray-900 dark:border-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none disabled:opacity-60"
         />
-        <div className="absolute inset-y-0 right-0 flex items-center gap-0.5 pr-2">
-          {query && !disabled && (
-            <button
-              type="button"
-              onClick={clear}
-              aria-label="Clear subject"
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5"
-            >
-              <XMarkIcon className="h-4 w-4" />
-            </button>
-          )}
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => {
-              const next = !showList;
-              setOpen(next);
-              setForceOpen(next);
-            }}
-            aria-label="Show subjects"
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5"
-          >
-            <ChevronUpDownIcon className="h-5 w-5" />
-          </button>
-        </div>
       </div>
 
       {showList && !disabled && (
@@ -167,13 +126,8 @@ export default function SubjectCombobox({
           role="listbox"
           className="absolute z-30 mt-1 w-full max-h-56 overflow-y-auto rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg text-sm"
         >
-          {matches.length === 0 ? (
-            <li className="px-3 py-2.5 text-gray-500 dark:text-gray-400">
-              No matching complaint
-            </li>
-          ) : (
-            matches.map((s, i) => (
-              <li key={s.id ?? `${s.subject}-${i}`}>
+          {matches.map((s, i) => (
+            <li key={s.id ?? `${s.subject}-${i}`}>
                 <button
                   type="button"
                   role="option"
@@ -189,8 +143,7 @@ export default function SubjectCombobox({
                   {s.subject}
                 </button>
               </li>
-            ))
-          )}
+            ))}
         </ul>
       )}
     </div>

@@ -54,10 +54,10 @@ describe("SubjectCombobox", () => {
     expect(screen.queryByRole("listbox")).toBeNull();
   });
 
-  test("the chevron opens the full catalogue on demand", () => {
-    render(<SubjectCombobox subjects={SUBJECTS} value="" onChange={() => {}} />);
-    fireEvent.click(screen.getByLabelText("Show subjects"));
-    expect(screen.getAllByRole("option")).toHaveLength(SUBJECTS.length);
+  test("no browse-all chevron and no clear button — native has neither", () => {
+    render(<SubjectCombobox subjects={SUBJECTS} value="internet access" onChange={() => {}} />);
+    expect(screen.queryByLabelText("Show subjects")).toBeNull();
+    expect(screen.queryByLabelText("Clear subject")).toBeNull();
   });
 
   test("picking an option reports it to the parent", () => {
@@ -68,10 +68,29 @@ describe("SubjectCombobox", () => {
     expect(onChange).toHaveBeenCalledWith("olt fw upgradation");
   });
 
-  test("a query with no matches says so rather than rendering nothing", () => {
+  test("a query with no matches dismisses the popup entirely (native)", () => {
     render(<SubjectCombobox subjects={SUBJECTS} value="" onChange={() => {}} />);
     typeInto(screen.getByRole("combobox"), "zzzz");
-    expect(screen.getByText("No matching complaint")).toBeTruthy();
+    // AOSP publishResults calls notifyDataSetInvalidated() on an empty
+    // result, which dismisses the popup. There is no empty-state row.
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  test("matches on a whole-string prefix AND on any space-split word", () => {
+    render(<SubjectCombobox subjects={SUBJECTS} value="" onChange={() => {}} />);
+    typeInto(screen.getByRole("combobox"), "router");
+    // "change the router user name" matches via its 3rd word.
+    expect(screen.getAllByRole("option").map((o) => o.textContent))
+      .toContain("change the router user name");
+  });
+
+  test("prefix only — 'net' does NOT match 'internet', exactly as native", () => {
+    render(<SubjectCombobox subjects={SUBJECTS} value="" onChange={() => {}} />);
+    typeInto(screen.getByRole("combobox"), "net");
+    // ArrayFilter is startsWith, never contains. This hides relevant options
+    // ("internet access" etc), which is a known native weakness — pinned here
+    // so nobody "improves" it into a substring match by accident.
+    expect(screen.queryByRole("listbox")).toBeNull();
   });
 
   test("editing after a selection keeps the typed text", () => {

@@ -81,15 +81,23 @@ describe("subject filter (Android ArrayFilter parity)", () => {
     expect(wordPrefixMatch("invalid username", "USER")).toBe(true);
   });
 
-  test("empty / whitespace query matches everything (threshold behaviour)", () => {
+  test("an empty query matches everything; a blank one does NOT (native)", () => {
+    // AOSP checks `prefix.length() == 0` and does NOT trim. A query of
+    // spaces is a real constraint, and nothing prefix-matches a space unless
+    // the option itself starts with one.
     expect(wordPrefixMatch("anything at all", "")).toBe(true);
-    expect(wordPrefixMatch("anything at all", "   ")).toBe(true);
+    expect(wordPrefixMatch("anything at all", "   ")).toBe(false);
     expect(filterSubjects([{ subject: "a" }, { subject: "b" }], "")).toHaveLength(2);
   });
 
-  test("multi-space and irregular whitespace still split into words", () => {
+  test("splits on a SINGLE LITERAL SPACE, not on whitespace generally", () => {
+    // AOSP: valueText.split(" "). Consecutive spaces just yield empty tokens
+    // (harmless — an empty token never prefix-matches a non-empty query), but
+    // tabs and newlines are NOT delimiters, so a tab-joined string is one
+    // single word. Reproduced exactly rather than "fixed" to /\s+/.
     expect(wordPrefixMatch("olt   fw    upgradation", "upg")).toBe(true);
-    expect(wordPrefixMatch("olt\tfw\nupgradation", "upg")).toBe(true);
+    expect(wordPrefixMatch("olt\tfw\nupgradation", "upg")).toBe(false);
+    expect(wordPrefixMatch("olt\tfw\nupgradation", "olt")).toBe(true); // whole-string prefix
   });
 
   test("filterSubjects preserves catalogue order and shape", () => {
