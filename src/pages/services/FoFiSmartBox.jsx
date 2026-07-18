@@ -33,7 +33,7 @@ import { getMyPlanDetails, getCustKYCPreview, getUserAssignedItems } from "../..
 // the SAME way and can never diverge on "opted vs not opted".
 import { extractBoxFromItem, detectLinkedTvType, getLinkedTvIdentifier, extractBoxIdFromAssigned, isFofiAndroidBoxId, findAndboxBoxId } from "../../utils/boxId";
 import { raceForFirstMatch } from "../../utils/raceForFirst";
-import { findLinkFofiboxSrvid, findSpecialPlanSrvid } from "../../utils/specialPlans";
+import { findLinkFofiboxSrvid } from "../../utils/specialPlans";
 import { lsRemove, lsGetStale, lsSet, lsGet } from "../../services/lsCache";
 import { refreshServiceController } from "../../services/navigationController";
 import { loadKycWithRetry } from "../../utils/kycRetry";
@@ -1553,15 +1553,14 @@ function FoFiSmartBox() {
             // intentionally dropped the `|| refreshData` force-spinner
             // path — preserved).
             if (!_hasCached) setIsOverviewLoading(true);
-            // When the operator tapped "Link FoFi Box" from Internet
-            // Service they land directly on view='link-fofi'. Don't
-            // block the link form's SUBMIT button while these overview
-            // APIs run — the link submission doesn't depend on any of
-            // them. Without this, the operator sees the SUBMIT button
-            // stuck in "Processing…" for the 2-8 s it takes 6 parallel
-            // APIs to resolve, before they've even filled the form.
-            const _skipMountLoader = fromInternet && view === 'link-fofi';
-            if (!_skipMountLoader) setIsLoading(true);
+            // The overview fetch drives ONLY isOverviewLoading (set just above). It
+            // must NOT touch the shared `isLoading`, which the GET MAC / LINK / SUBMIT
+            // action buttons read. This fetch runs on mount (view='overview') and can
+            // take many seconds on a slow network; the operator often navigates to the
+            // link form while it's still in flight. If it also held `isLoading`, those
+            // buttons would show "Getting MAC…"/"Linking…" before the operator even
+            // taps them (the previous fromInternet-only guard didn't cover the
+            // UPGRADE → link-fofi entry). `isLoading` is now reserved for user actions.
 
             try {
                 // ──────────────────────────────────────────────────
@@ -1628,8 +1627,7 @@ function FoFiSmartBox() {
 
                 console.log('🟣 [FoFi] getUserAssignedItems(race multi/fofi/cabletv) body:', assignedItemsResponse?.body);
 
-                // Done with primary spinner — let the overview render.
-                setIsLoading(false);
+                // (Overview render is gated by isOverviewLoading, cleared in `finally`.)
 
                 // Derive FoFi overview (hasFofi, boxId, serviceDetails)
                 // from getUserAssignedItems. Same helper used for cache
@@ -3869,58 +3867,69 @@ function FoFiSmartBox() {
             const finalSerialForSubmit = (deviceInfo && deviceInfo.serialNumber) || serialNumber || '';
 
             // =====================================================
-            // FIRST-TIME LINK PATH (new user — !hasFofiService).
+            // FIRST-TIME LINK PATH (new box — !hasConfirmedFofiService).
             //
-            // Native app contract: ServiceApis/freeOTAService with
-            //   { fofiboxid, fofimac, fofiserailnumber, loginuname,
-            //     plan_id, services:["ott"], username }
-            // On success: fetch FoFi payment info and continue to
-            // the payment review page, matching the CRM flow.
+            // Native registers a NEW FoFi box for an existing customer via
+            // ServiceApis/upgradeRegistration (box id + mac + serial + the selected
+            // fofi package's planid/priceid/servid), then bills the package through
+            // paymentinfo → generateorder. freeOTAService is a SEPARATE feature that
+            // links Lebb_* INTERNET plans keyed by a specialInternetPlans srvid; it
+            // does NOT accept a fofi package like "FOFI-Box + FTA ONLY" (that plan
+            // lives in registrationNecessities.fofi_plans) — sending it there is what
+            // returned "Requested plan not found". Only a unicast / ATV device links
+            // through freeOTAService (LINK_FOFIBOX srvid).
             // =====================================================
             if (!hasConfirmedFofiService) {
-                // Native FreeOTTlinkFragment: the freeOTAService `plan_id` is the
-                // SELECTED plan's srvid from specialInternetPlans — native builds a
-                // serv_name → srvid map from that endpoint and sends the chosen
-                // srvid. A registrationNecessities fofi `planid` is NOT a special-plan
-                // srvid, which is exactly what produces "Requested plan not found".
-                // Resolve the srvid the same way: by plan name for a normal FoFi
-                // (ANDBOX) box, or the LINK_FOFIBOX plan for a unicast / ATV device
-                // (the only srvid the backend accepts for those — FreeOTTPaidChannels.php).
-                // Native's link body is exactly { fofiboxid, fofimac, fofiserailnumber,
-                // loginuname, username(=customerid), plan_id, services:["ott"] }.
                 const isUnicastTvDevice = !isFofiAndroidBoxId(finalBoxIdForSubmit);
-                const specialRows = getInternetOriginPlanRows(
-                    await getSpecialInternetPlans({ logUname: loginuname, isKiranastore: "no" }).catch(() => null)
-                );
-                const selectedPlanName = firstTrimmedValue(
-                    selectedPlan?.planname, selectedPlan?.plan_name, selectedPlan?.serv_name, selectedPlan?.name
-                );
-                const linkPlanId = isUnicastTvDevice
-                    ? findLinkFofiboxSrvid(specialRows)
-                    : findSpecialPlanSrvid(specialRows, selectedPlanName);
-                if (!linkPlanId) {
-                    setValidationError(isUnicastTvDevice
-                        ? 'Could not resolve the LINK_FOFIBOX plan from the server. Please retry.'
-                        : `Could not resolve the selected plan "${selectedPlanName}" in the server plan list. Please retry.`);
-                    setIsLoading(false);
-                    return;
-                }
-                const linkPayload = {
-                    fofiboxid: finalBoxIdForSubmit,
-                    fofimac: finalMacForSubmit,
-                    fofiserailnumber: finalSerialForSubmit,
-                    loginuname: loginuname,
-                    username: username,
-                    plan_id: linkPlanId,
-                    services: ['ott'],
-                };
-                console.log('🔵 [LINK] Calling freeOTAService…', linkPayload);
-                const linkResp = await linkFoFiBox(linkPayload);
-                console.log('🟢 [LINK] freeOTAService response:', linkResp);
-                if (linkResp?.status?.err_code !== 0) {
-                    setValidationError(linkResp?.status?.err_msg || 'Failed to link FoFi box.');
-                    setIsLoading(false);
-                    return;
+                if (isUnicastTvDevice) {
+                    // Unicast / ATV device: the backend links it only through the
+                    // LINK_FOFIBOX special plan via freeOTAService (srvid from
+                    // specialInternetPlans). ANDBOX FoFi boxes never take this path.
+                    const linkSrvid = findLinkFofiboxSrvid(
+                        getInternetOriginPlanRows(await getSpecialInternetPlans({ logUname: loginuname, isKiranastore: "no" }).catch(() => null))
+                    );
+                    if (!linkSrvid) {
+                        setValidationError('Could not resolve the LINK_FOFIBOX plan from the server. Please retry.');
+                        setIsLoading(false);
+                        return;
+                    }
+                    const linkResp = await linkFoFiBox({
+                        fofiboxid: finalBoxIdForSubmit,
+                        fofimac: finalMacForSubmit,
+                        fofiserailnumber: finalSerialForSubmit,
+                        loginuname: loginuname,
+                        username: username,
+                        plan_id: linkSrvid,
+                        services: ['ott'],
+                    });
+                    if (linkResp?.status?.err_code !== 0) {
+                        setValidationError(linkResp?.status?.err_msg || 'Failed to link FoFi box.');
+                        setIsLoading(false);
+                        return;
+                    }
+                } else {
+                    // Normal FoFi (ANDBOX) box: register it via upgradeRegistration with
+                    // the selected fofi package's planid/priceid/servid (native's
+                    // upgradeRegistration → paymentinfo → generateorder path).
+                    const upgradeResp = await upgradeRegistration({
+                        fofiboxid: finalBoxIdForSubmit,
+                        fofimac: finalMacForSubmit,
+                        fofiserailnumber: finalSerialForSubmit,
+                        loginuname: loginuname,
+                        plan_id: planId,
+                        planid: planId,
+                        priceid: priceId,
+                        servid: servId,
+                        servapptype: "crmapp",
+                        userid: username,
+                        ...registrationFields,
+                        username: username,
+                    });
+                    if (upgradeResp?.status?.err_code !== 0) {
+                        setValidationError(upgradeResp?.status?.err_msg || 'Failed to register FoFi box.');
+                        setIsLoading(false);
+                        return;
+                    }
                 }
 
                 const paymentPayload = {
