@@ -49,4 +49,9 @@ describe("mapOrderView", () => {
     expect(getReceiptUrl("BBFOF1")).toMatch(/cable\/receipt\?billnum=BBFOF1$/);
     expect(getInvoiceUrl("BBFOF1")).toMatch(/cable\/invoice\?billnum=BBFOF1$/);
   });
+
+  it("trims stray whitespace from billnum (else server returns 'Invalid Bill number')", () => {
+    expect(getReceiptUrl("  BBFOF1\n")).toMatch(/billnum=BBFOF1$/);
+    expect(getInvoiceUrl(" 24250000335 ")).toMatch(/billnum=24250000335$/);
+  });
 });

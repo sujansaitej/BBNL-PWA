@@ -239,9 +239,13 @@ export function mapOrderView(order = {}) {
   };
 }
 
-// Native opens these server URLs in the browser (no auth, billnum = order no).
+// Native opens these server URLs in the external browser (no auth). billnum is
+// the plain `ordernumber` appended VERBATIM (native does not URL-encode; order
+// numbers are alphanumeric). We only trim stray whitespace — a leading/trailing
+// space is enough for the server to answer "Invalid Bill number.".
 // Constants.CONGIF_DOWNLOAD_{Reciept,Invoice}_VALUE → prod/cable/{receipt,invoice}.
+const _billnum = (orderNumber) => String(orderNumber ?? "").trim();
 export const getReceiptUrl = (orderNumber) =>
-  `${getBaseUrl()}cable/receipt?billnum=${encodeURIComponent(orderNumber || "")}`;
+  `${getBaseUrl()}cable/receipt?billnum=${_billnum(orderNumber)}`;
 export const getInvoiceUrl = (orderNumber) =>
-  `${getBaseUrl()}cable/invoice?billnum=${encodeURIComponent(orderNumber || "")}`;
+  `${getBaseUrl()}cable/invoice?billnum=${_billnum(orderNumber)}`;

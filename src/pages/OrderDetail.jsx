@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowLeftIcon,
@@ -6,7 +5,6 @@ import {
   DocumentTextIcon,
   ReceiptRefundIcon,
   DocumentArrowDownIcon,
-  ArrowPathIcon,
 } from "@heroicons/react/24/outline";
 import { mapOrderView, getReceiptUrl, getInvoiceUrl } from "../services/orderApis";
 import { canonicalServiceKey } from "../constants/services";
@@ -18,29 +16,22 @@ const formatMoney = (value) =>
 
 const isSuccess = (status) => String(status || "").toLowerCase().includes("success");
 
-const EXT_BY_TYPE = { "application/pdf": "pdf", "text/html": "html", "image/png": "png", "image/jpeg": "jpg" };
-
-// Fetch the server document and save it to device storage under a meaningful
-// name. Avoids the blank in-app tab that window.open() produced: the endpoint
-// serves the PDF with `Content-Disposition: inline`, so the installed PWA tried
-// to render it in a webview instead of downloading. The server sets
-// Access-Control-Allow-Origin:* and needs no auth (matches native's plain GET).
-async function downloadDocument(url, baseName) {
-  const res = await fetch(url, { credentials: "omit" });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const blob = await res.blob();
-  if (blob.size === 0) throw new Error("Empty document");
-
-  const ext = EXT_BY_TYPE[(blob.type || "").split(";")[0].trim()] || "pdf";
-  const objectUrl = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = objectUrl;
-  a.download = `${baseName}.${ext}`;
-  a.rel = "noopener";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(objectUrl), 2000);
+// Open the server receipt/invoice in a new browser tab — mimics native's
+// Intent.ACTION_VIEW (external browser), which renders the server-saved PDF.
+// window.open from a user tap opens the system browser on Android, not the
+// in-app webview, so the PDF displays instead of a blank/black screen.
+function openDocument(url) {
+  const w = window.open(url, "_blank", "noopener,noreferrer");
+  // Popup blocked (rare, non-gesture): fall back to a synthetic anchor click.
+  if (!w) {
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
 }
 
 // Row of the native-style label:value detail table.
@@ -59,9 +50,6 @@ export default function OrderDetail() {
   const order = location.state?.order;
   const customer = location.state?.customer;
   const serviceType = canonicalServiceKey(location.state?.serviceType);
-
-  const [busy, setBusy] = useState(null); // 'receipt' | 'invoice' | null
-  const [docError, setDocError] = useState("");
 
   const Header = () => (
     <header
@@ -99,21 +87,8 @@ export default function OrderDetail() {
   const v = mapOrderView(order);
   const ok = isSuccess(v.status);
 
-  const handleDownload = async (type) => {
-    if (busy) return;
-    setDocError("");
-    setBusy(type);
-    const url = type === "receipt" ? getReceiptUrl(v.orderNumber) : getInvoiceUrl(v.orderNumber);
-    const baseName = `BBNL_${type === "receipt" ? "Receipt" : "Invoice"}_${v.orderNumber}`;
-    try {
-      await downloadDocument(url, baseName);
-    } catch (e) {
-      console.error("[OrderDetail] document download failed:", e.message);
-      setDocError(`Could not download the ${type}. Please try again.`);
-    } finally {
-      setBusy(null);
-    }
-  };
+  const openReceipt = () => openDocument(getReceiptUrl(v.orderNumber));
+  const openInvoice = () => openDocument(getInvoiceUrl(v.orderNumber));
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -154,47 +129,28 @@ export default function OrderDetail() {
         </div>
 
         {/* Receipt / Invoice — native shows these only for successful orders.
-            Downloads the server document to device storage. */}
+            Opens the server-saved PDF in a new browser tab (ACTION_VIEW). */}
         {ok && v.orderNumber && (
-          <>
-            <div className="grid grid-cols-2 gap-4 mt-5">
-              <button
-                onClick={() => handleDownload("receipt")}
-                disabled={!!busy}
-                className="flex flex-col items-center gap-2 bg-white rounded-2xl shadow-sm border border-gray-100 py-5 hover:shadow-md active:scale-[0.98] transition-all disabled:opacity-60 disabled:active:scale-100"
-              >
-                <span className="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center">
-                  {busy === "receipt" ? (
-                    <ArrowPathIcon className="w-6 h-6 text-indigo-600 animate-spin" />
-                  ) : (
-                    <ReceiptRefundIcon className="w-6 h-6 text-indigo-600" />
-                  )}
-                </span>
-                <span className="text-sm font-semibold text-indigo-700">
-                  {busy === "receipt" ? "Downloading…" : "Receipt"}
-                </span>
-              </button>
-              <button
-                onClick={() => handleDownload("invoice")}
-                disabled={!!busy}
-                className="flex flex-col items-center gap-2 bg-white rounded-2xl shadow-sm border border-gray-100 py-5 hover:shadow-md active:scale-[0.98] transition-all disabled:opacity-60 disabled:active:scale-100"
-              >
-                <span className="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center">
-                  {busy === "invoice" ? (
-                    <ArrowPathIcon className="w-6 h-6 text-indigo-600 animate-spin" />
-                  ) : (
-                    <DocumentArrowDownIcon className="w-6 h-6 text-indigo-600" />
-                  )}
-                </span>
-                <span className="text-sm font-semibold text-indigo-700">
-                  {busy === "invoice" ? "Downloading…" : "Invoice"}
-                </span>
-              </button>
-            </div>
-            {docError && (
-              <p className="mt-3 text-center text-sm text-red-600" role="alert">{docError}</p>
-            )}
-          </>
+          <div className="grid grid-cols-2 gap-4 mt-5">
+            <button
+              onClick={openReceipt}
+              className="flex flex-col items-center gap-2 bg-white rounded-2xl shadow-sm border border-gray-100 py-5 hover:shadow-md active:scale-[0.98] transition-all"
+            >
+              <span className="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center">
+                <ReceiptRefundIcon className="w-6 h-6 text-indigo-600" />
+              </span>
+              <span className="text-sm font-semibold text-indigo-700">Receipt</span>
+            </button>
+            <button
+              onClick={openInvoice}
+              className="flex flex-col items-center gap-2 bg-white rounded-2xl shadow-sm border border-gray-100 py-5 hover:shadow-md active:scale-[0.98] transition-all"
+            >
+              <span className="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center">
+                <DocumentArrowDownIcon className="w-6 h-6 text-indigo-600" />
+              </span>
+              <span className="text-sm font-semibold text-indigo-700">Invoice</span>
+            </button>
+          </div>
         )}
       </div>
 
