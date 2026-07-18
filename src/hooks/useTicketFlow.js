@@ -55,15 +55,11 @@ export function useRaiseGate({ service, customerId, enabled = true }) {
     setSubjects([]);
 
     try {
-      // Android does nothing at all when operatorID is empty — no call, no
-      // message, and Submit then fails with "Invalid complaint" forever.
-      // Surface it instead of leaving a silently dead form.
-      if (!service.opid) {
-        setState("error");
-        setMessage("We couldn't identify your operator for this service. Please re-link your account.");
-        return;
-      }
-
+      // A missing operator id no longer blocks the gate. The complaint
+      // catalogue does not need it (see getSubjects), so blocking here would
+      // deny the customer a working form for a value only the SUBMIT step
+      // actually requires — useRaiseSubmit checks it there instead, where a
+      // missing operid would otherwise file an orphaned ticket.
       const maint = await checkMaintenance({
         apiopid: service.opid,
         cid: customerId,
@@ -163,6 +159,15 @@ export function useRaiseSubmit({ service, identity, subjectsLoaded, onRaised }) 
   const submit = useCallback(
     async ({ subject, comment }) => {
       if (!service?.servicekey) return { ok: false, message: "No service selected." };
+      // raiseTicket sends this as `operid`. Filing without it produces a
+      // ticket no operator owns, so this is the one place a missing operator
+      // id must genuinely stop the flow.
+      if (!service.opid) {
+        return {
+          ok: false,
+          message: "We couldn't identify your operator for this connection. Please re-link your account and try again.",
+        };
+      }
       if (!subjectsLoaded) return { ok: false, message: "Invalid complaint" };
       if (!subject) return { ok: false, message: "Predefined Complaint" };
       // Android checks for the empty string only — "   " passes there. We

@@ -153,33 +153,44 @@ export async function getSubjects({ apiopid, cid, servid }) {
     };
   }
 
-  let { subjects, message } = await fetchSubjects(apiopid);
-
-  // OPERATOR FALLBACK — verified against production.
+  // ── WHY apiopid IS NOT SENT ──────────────────────────────────────
   //
-  // `apiopid` is a host lookup, not a filter. Measured behaviour:
+  // `apiopid` on this endpoint is a HOST LOOKUP, not a filter. Measured
+  // directly against production:
+  //
   //   apiopid="BBNL_OP49" → 389 rows  ("Subject Details Fetched Successfully")
-  //   apiopid=""          → 389 rows  (same full catalogue)
+  //   apiopid=""          → 389 rows  — the SAME full catalogue
   //   apiopid="BOGUS_OP"  →   0 rows  ("Host details for BOGUS_OP Not Available")
+  //   apiopid="undefined" →   0 rows  ("Host details for undefined Not Available")
   //
-  // So an operator the endpoint has no host entry for yields NOTHING, and the
-  // customer gets an empty complaint dropdown and cannot raise a ticket at
-  // all — which is exactly what happened in production. Since the un-scoped
-  // call returns the same full catalogue, retrying without apiopid is a
-  // strict improvement and loses no filtering (there is none to lose).
+  // A known operator and no operator return an identical list, so the
+  // parameter buys no filtering whatsoever. All it can do is fail: any
+  // operator without a host entry returns NOTHING, the complaint dropdown is
+  // empty, and the customer cannot raise a ticket at all. That is the
+  // production failure this replaces — and an operator-scoped attempt first
+  // was still not enough, because the scoped call can also hang or error,
+  // and either way the customer ends up stuck.
   //
-  // Android does not do this: it renders the empty adapter and lets Submit
-  // fail with "Invalid complaint", leaving the customer stuck.
+  // So we ask for the catalogue un-scoped, always. Deliberate deviation from
+  // Android, which sends the operator id and simply shows an empty dropdown
+  // when the lookup misses. `cid`/`servid` are kept: they are harmless (the
+  // endpoint returns the same catalogue regardless) and preserve the wire
+  // shape for the backend's logs.
+  let { subjects, message } = await fetchSubjects("");
+
+  // Last-ditch: if the un-scoped catalogue is somehow empty, try the
+  // operator-scoped form before giving up, in case the backend ever starts
+  // requiring it.
   if (subjects.length === 0 && apiopid) {
-    const retry = await fetchSubjects("");
-    if (retry.subjects.length > 0) {
-      logger.warn("API", "getSubjects: operator returned no subjects, used un-scoped catalogue", {
-        apiopid,
-        reason: message,
-        rows: retry.subjects.length,
-      });
-      subjects = retry.subjects;
-    }
+    const scoped = await fetchSubjects(apiopid);
+    if (scoped.subjects.length > 0) subjects = scoped.subjects;
+    else message = scoped.message || message;
+  }
+
+  if (subjects.length === 0) {
+    // Surfaced by the caller so a residual failure is diagnosable rather
+    // than presenting as a mysteriously empty dropdown.
+    logger.warn("API", "getSubjects returned an empty catalogue", { apiopid, cid, servid, message });
   }
 
   if (subjects.length > 0) lsSet(cacheKey, subjects);

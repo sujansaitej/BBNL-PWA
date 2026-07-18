@@ -311,12 +311,16 @@ describe("checkMaintenance", () => {
 });
 
 describe("getSubjects", () => {
-  test("GET with {apiopid,cid,servid} in the query", async () => {
+  test("GET with cid/servid in the query, and apiopid deliberately blank", async () => {
     const { getSubjects } = await import("./tickets.js");
     fetchMock.mockResolvedValue(mockResponse(SUBJECTS_OK));
     await getSubjects({ apiopid: "OP1", cid: "cust1", servid: "q-test" });
     expect(lastRequest().opts.method).toBe("GET");
-    expect(lastQuery()).toEqual({ apiopid: "OP1", cid: "cust1", servid: "q-test" });
+    // apiopid is intentionally NOT forwarded — see the block comment in
+    // getSubjects. It filters nothing and empties the catalogue for any
+    // operator without a host entry. The param is still present on the wire
+    // (blank) so the request shape is unchanged for the backend.
+    expect(lastQuery()).toEqual({ apiopid: "", cid: "cust1", servid: "q-test" });
   });
 
   test("returns rows even though err_code is 1 (success value for THIS endpoint)", async () => {
@@ -344,43 +348,44 @@ describe("getSubjects", () => {
     expect(subs).toHaveLength(1);
   });
 
-  test("an operator with no host entry falls back to the un-scoped catalogue", async () => {
-    const { getSubjects } = await import("./tickets.js");
-    // MEASURED ON PRODUCTION. apiopid is a host lookup, not a filter:
-    //   "BBNL_OP49" -> 389 rows, "" -> the SAME 389 rows,
-    //   an unknown operator -> 0 rows, "Host details for X Not Available".
-    // Left unhandled this empties the complaint dropdown and the customer
-    // cannot raise a ticket at all — the production bug this guards.
-    fetchMock
-      .mockResolvedValueOnce(
-        mockResponse({
-          status: { err_code: 1, err_msg: "Host details for BOGUS_OP Not Available" },
-          body: [],
-        })
-      )
-      .mockResolvedValueOnce(mockResponse(SUBJECTS_OK));
-
-    const subs = await getSubjects({ apiopid: "BOGUS_OP", cid: "c", servid: "fallback-test" });
-    expect(subs).toHaveLength(2);
-    expect(fetchMock.mock.calls.length).toBe(2);
-    // The retry must drop apiopid entirely, not resend the bad one.
-    expect(new URL(fetchMock.mock.calls[1][0]).searchParams.get("apiopid")).toBe("");
-    // ...while keeping the other params intact.
-    expect(new URL(fetchMock.mock.calls[1][0]).searchParams.get("servid")).toBe("fallback-test");
-  });
-
-  test("no fallback request when the operator-scoped call already returned rows", async () => {
+  test("NEVER sends the operator id — it can only ever empty the catalogue", async () => {
     const { getSubjects } = await import("./tickets.js");
     fetchMock.mockResolvedValue(mockResponse(SUBJECTS_OK));
-    await getSubjects({ apiopid: "BBNL_OP49", cid: "c", servid: "nofallback-test" });
+    await getSubjects({ apiopid: "BBNL_OP49", cid: "c", servid: "noop-test" });
+
+    // MEASURED ON PRODUCTION: apiopid is a host lookup, not a filter.
+    //   "BBNL_OP49" -> 389 rows | "" -> the SAME 389 rows
+    //   an unknown operator -> 0 rows, "Host details for X Not Available"
+    // A known operator and no operator return an identical catalogue, so the
+    // parameter buys nothing and can only fail. Sending it is what left the
+    // complaint dropdown empty in production and made raising a ticket
+    // impossible. One request, un-scoped.
     expect(fetchMock.mock.calls.length).toBe(1);
+    const q = new URL(fetchMock.mock.calls[0][0]).searchParams;
+    expect(q.get("apiopid")).toBe("");
+    // The rest of the wire shape is preserved.
+    expect(q.get("cid")).toBe("c");
+    expect(q.get("servid")).toBe("noop-test");
   });
 
-  test("no fallback loop when apiopid was already empty", async () => {
+  test("falls back to the operator-scoped call only if un-scoped is empty", async () => {
+    const { getSubjects } = await import("./tickets.js");
+    fetchMock
+      .mockResolvedValueOnce(mockResponse({ status: { err_code: 1 }, body: [] }))
+      .mockResolvedValueOnce(mockResponse(SUBJECTS_OK));
+
+    const subs = await getSubjects({ apiopid: "BBNL_OP49", cid: "c", servid: "lastditch-test" });
+    expect(subs).toHaveLength(2);
+    expect(fetchMock.mock.calls.length).toBe(2);
+    // The second attempt is the scoped one, in case the backend ever starts
+    // requiring the operator id.
+    expect(new URL(fetchMock.mock.calls[1][0]).searchParams.get("apiopid")).toBe("BBNL_OP49");
+  });
+
+  test("no pointless second request when there is no operator id to try", async () => {
     const { getSubjects } = await import("./tickets.js");
     fetchMock.mockResolvedValue(mockResponse({ status: { err_code: 1 }, body: [] }));
     const subs = await getSubjects({ apiopid: "", cid: "c", servid: "emptyop-test" });
-    // Retrying "" with "" would be a pointless second identical request.
     expect(fetchMock.mock.calls.length).toBe(1);
     expect(subs).toEqual([]);
   });
