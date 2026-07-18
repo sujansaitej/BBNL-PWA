@@ -2766,39 +2766,45 @@ function FoFiSmartBox() {
         // FTA plans legitimately have ₹0 price — allow them to proceed
         setSelectedPlan(plan);
 
-        // Check if this is an existing FoFi user (has service already)
-        if (hasConfirmedFofiService && fofiServiceDetails) {
-            // EXISTING USER - Show subscription confirmation screen with auto-detected Box ID
-            console.log('🔵 [UPGRADE] Existing user - showing subscription confirmation screen...');
-            console.log('🔵 [UPGRADE] Plan Name:', plan?.planname || plan?.serv_name);
-            console.log('🔵 [UPGRADE] Plan ID:', planIdentifier);
-            console.log('🔵 [UPGRADE] Box ID:', fofiServiceDetails.boxId);
+        // A FoFi box that is ALREADY LINKED goes straight to the Services
+        // Subscription → payment flow — native runs the IDENTICAL
+        // UPGRADE PLAN → SUBMIT → paymentinfo path whether or not the box
+        // currently has an active plan (verified: the same user/box with a
+        // blank plan still reaches Review → PROCEED TO PAY → success, with no
+        // freeOTAService / upgradeRegistration / validateAsset).
+        //
+        // "Already linked" = a confirmed service (has active plan) OR a
+        // linked-device-with-no-plan (the box exists in getUserAssignedItems
+        // but has no active plan → fofiServiceDetails was nulled at overview
+        // load and the box stashed in linkedDeviceNoPlan). BOTH must use
+        // subscription-confirm; only a genuinely NEW box (never linked) uses
+        // the freeOTAService link path.
+        const linkedNoPlanBox = (!hasConfirmedFofiService && linkedDeviceNoPlan &&
+            isMeaningfulFoFiValue(linkedDeviceNoPlan.boxId || linkedDeviceNoPlan.macAddress))
+            ? linkedDeviceNoPlan : null;
 
-            // Navigate to subscription confirmation view
+        if ((hasConfirmedFofiService && fofiServiceDetails) || linkedNoPlanBox) {
+            // EXISTING / already-linked box → Services Subscription screen.
+            console.log('🔵 [UPGRADE] Linked box (active plan:', hasConfirmedFofiService, ') → subscription-confirm');
+            if (!fofiServiceDetails && linkedNoPlanBox) {
+                // No active plan → fofiServiceDetails is null. Seed it from the
+                // linked box so the confirm screen shows the Box ID and
+                // handleSubscriptionSubmit has box/mac/serial to send to
+                // paymentinfo. hasFofiService stays false, so the overview and
+                // hasConfirmedFofiService are unaffected (no active plan seeded).
+                setFofiServiceDetails({
+                    boxId: linkedNoPlanBox.boxId || '',
+                    macAddress: linkedNoPlanBox.macAddress || '',
+                    serialNumber: linkedNoPlanBox.serialNumber || '',
+                    deviceType: linkedNoPlanBox.deviceType || null,
+                    _rawFofiItem: {},
+                });
+            }
             setIsLinkedDeviceSubscription(false);
             enterSubView('subscription-confirm');
         } else {
-            // NEW USER - Navigate to link-fofi view with selected plan.
-            // If the customer already has a device linked (e.g. an Android
-            // TV that logged into the ATV app), pre-fill the Box ID + TV
-            // MAC so the operator sees the MAC for the package subscription
-            // instead of an empty form. The submit path (handleLinkFoFiBox)
-            // still re-validates the device, so this is display/convenience
-            // only and cannot bypass backend checks.
-            if (linkedDeviceNoPlan && isMeaningfulFoFiValue(linkedDeviceNoPlan.boxId || linkedDeviceNoPlan.macAddress)) {
-                if (isMeaningfulFoFiValue(linkedDeviceNoPlan.boxId)) setBoxId(linkedDeviceNoPlan.boxId);
-                if (isMeaningfulFoFiValue(linkedDeviceNoPlan.macAddress)) setMacAddress(linkedDeviceNoPlan.macAddress);
-                if (isMeaningfulFoFiValue(linkedDeviceNoPlan.serialNumber)) setSerialNumber(linkedDeviceNoPlan.serialNumber);
-                // The device is already linked — render link-fofi as a
-                // read-only "confirm & subscribe" screen (no re-scan / GET MAC),
-                // per operator feedback that a linked device must go straight
-                // to package subscription.
-                setIsLinkedDeviceSubscription(true);
-            } else {
-                // Cable-TV / genuinely-new box: operator still needs the entry
-                // form to scan / enter the box, so keep the full link flow.
-                setIsLinkedDeviceSubscription(false);
-            }
+            // GENUINELY NEW box (never linked) → link-fofi entry/scan flow.
+            setIsLinkedDeviceSubscription(false);
             setIsUpgradeLinkContinuation(true);
             enterSubView('link-fofi');
         }
