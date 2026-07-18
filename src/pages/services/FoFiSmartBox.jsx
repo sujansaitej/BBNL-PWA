@@ -2939,27 +2939,8 @@ function FoFiSmartBox() {
             console.log('🔵 [SUBSCRIPTION] Box details - boxId:', fofiBoxId, 'mac:', fofiMac, 'serial:', fofiSerial);
             
             // =====================================================
-            // STEP 1: Call upgradeRegistration API
-            // =====================================================
-            const upgradePayload = {
-                fofiboxid: fofiBoxId,
-                fofimac: fofiMac,
-                fofiserailnumber: fofiSerial,
-                loginuname: loginuname,
-                plan_id: planId,
-                planid: planId,
-                priceid: priceId,
-                servid: servId,
-                servapptype: "crmapp",
-                userid: username,
-                ...registrationFields,
-                username: username
-            };
-            
-            // =====================================================
-            // STEP 1+2: Fire upgradeRegistration + paymentinfo in PARALLEL
-            // (saves ~500-1000ms vs sequential calls)
-            // Customer details already fetched on page load — skip redundant calls
+            // Existing-box upgrade → go straight to paymentinfo (native parity;
+            // no upgradeRegistration — see the call site below).
             // =====================================================
             const paymentPayload = {
                 fofi_box_id: fofiBoxId,
@@ -2983,33 +2964,17 @@ function FoFiSmartBox() {
 
             console.log('🔵 [PAYMENTINFO] Calling paymentinfo before deferred upgrade activation...');
 
-            let upgradeResponse, paymentResponse;
+            let paymentResponse;
             try {
-                // upgradeRegistration REGISTERS A NEW FoFi box association and the
-                // backend only accepts an AUG-/BBNL-ANDBOX box id (chk__fofiboxid);
-                // a unicast/ATV device ('TV-<hash>') is always rejected with "Wrong
-                // Fofi box ID!" (proven via live probes, every id/mac/serial shape).
-                //
-                // Native only calls upgradeRegistration when ADDING A NEW box; for
-                // an already-linked box it skips straight to payment
-                // (ServiceSubscriptionsActivity.java:740-751 — intent_fofi_id present
-                // → GotoUpgradePayment(), NO upgradeRegistration). An ATV device is
-                // always an existing unicast registration, so we skip it too and go
-                // straight to paymentinfo — which DOES accept the 'TV-' box
-                // (verified: returns the correct price + a valid transaction id).
-                if (isFofiAndroidBoxId(fofiBoxId)) {
-                    upgradeResponse = await upgradeRegistration(upgradePayload);
-                    if (upgradeResponse?.status?.err_code !== 0) {
-                        const errorMsg = upgradeResponse?.status?.err_msg || 'Failed to register upgrade';
-                        console.error('Upgrade registration failed:', errorMsg);
-                        toast.add('Failed to register upgrade: ' + errorMsg, { type: 'error' });
-                        setIsLoading(false);
-                        return;
-                    }
-                } else {
-                    console.log('🔶 [SUBSCRIPTION] Non-ANDBOX (ATV/unicast) box — skipping upgradeRegistration, matching native existing-box flow:', fofiBoxId);
-                    upgradeResponse = { status: { err_code: 0 } };
-                }
+                // Native: an already-linked box upgrading its plan goes STRAIGHT to
+                // payment. ServiceSubscriptionsActivity SUBMIT with an existing
+                // intent_fofi_id calls GotoUpgradePayment() → service/paymentinfo,
+                // with NO upgradeRegistration and NO box re-validation (verified in
+                // all three native audits). This screen is only ever reached for an
+                // existing FoFi customer (hasConfirmedFofiService + _rawFofiItem), so
+                // upgradeRegistration is skipped entirely — calling it re-registers an
+                // already-registered box and the backend returns "Requested plan not
+                // found, please contact bbnl noc team".
                 paymentResponse = await getFofiPaymentInfo(paymentPayload);
             } catch (stepErr) {
                 console.error('❌ API network error:', stepErr);
@@ -3018,16 +2983,7 @@ function FoFiSmartBox() {
                 return;
             }
 
-            console.log('🟢 Upgrade Response:', upgradeResponse);
             console.log('🟢 Payment Info Response:', paymentResponse);
-
-            if (upgradeResponse?.status?.err_code !== 0) {
-                const errorMsg = upgradeResponse?.status?.err_msg || 'Failed to register upgrade';
-                console.error('❌ Upgrade registration failed:', errorMsg);
-                toast.add('Failed to register upgrade: ' + errorMsg, { type: 'error' });
-                setIsLoading(false);
-                return;
-            }
 
             if (paymentResponse?.status?.err_code !== 0) {
                 const errorMsg = paymentResponse?.status?.err_msg || 'Failed to get payment info';
@@ -3507,6 +3463,22 @@ function FoFiSmartBox() {
             setDeviceValidated(false);
             setShowValidationSuccess(false);
 
+            // Native mimic: validateAsset (FoFi box validation) applies ONLY to real
+            // FoFi Android boxes (AUG-/BBNL-ANDBOX). A non-ANDBOX id is an ATV/unicast
+            // device — native never FoFi-validates it (the FoFi box UI is never shown
+            // for a non-FoFi device), it goes straight to payment. So skip the
+            // validateAsset MAC lookup, accept the typed id, and let LINK proceed via
+            // the unicast LINK_FOFIBOX → paymentinfo path (which accepts a 'TV-' id and
+            // needs no FoFi MAC).
+            if (!isFofiAndroidBoxId(boxId.trim())) {
+                console.log('🔶 [GET MAC ID] Non-ANDBOX (ATV/unicast) id — skipping FoFi validateAsset, matching native:', boxId.trim());
+                setDeviceInfo({ boxId: boxId.trim(), macAddress: '', serialNumber: '' });
+                setDeviceValidated(true);
+                setValidationError('');
+                setIsLoading(false);
+                return;
+            }
+
             // Manual flow has NO QR fallback — if validateAsset rejects,
             // the user can't get the MAC. So we try multiple userid
             // values and use whichever the backend accepts. Production
@@ -3842,7 +3814,9 @@ function FoFiSmartBox() {
                 setIsLoading(false);
                 return;
             }
-            if (!macAddress || !macAddress.trim()) {
+            // ATV/unicast devices carry no FoFi MAC — native links them without one.
+            // Only require a MAC for real FoFi Android (ANDBOX) boxes.
+            if (isFofiAndroidBoxId(boxId) && (!macAddress || !macAddress.trim())) {
                 setValidationError('MAC ID is missing — click GET MAC ID or scan the QR');
                 setIsLoading(false);
                 return;
@@ -3921,13 +3895,13 @@ function FoFiSmartBox() {
                 // only valid one is LINK_FOFIBOX, with services ["ott"].
                 let linkPlanId = planId;
                 let linkServices = registrationFields.services;
-                // Only a unicast / linked-TV device (non-ANDBOX id) is forced to
-                // LINK_FOFIBOX — that's the plan the backend requires for unicast
-                // (FreeOTTPaidChannels.php:57-81). An ANDBOX box must NOT be
-                // force-subscribed to LINK_FOFIBOX; it needs a real special plan
-                // (see note below — that path still sends a fofi planid and is a
-                // separate gap).
-                const isUnicastTvDevice = isLinkedDeviceSubscription && !isFofiAndroidBoxId(finalBoxIdForSubmit);
+                // ANY non-ANDBOX id is a unicast / ATV device, which the backend only
+                // accepts on the LINK_FOFIBOX special plan (FreeOTTPaidChannels.php:57-81);
+                // a real fofi planid → "Requested plan not found". Native mimic: this is
+                // NOT gated on isLinkedDeviceSubscription, so a manually-entered ATV id
+                // routes correctly too. ANDBOX (real FoFi) boxes are unaffected — the
+                // guard is false for them, so they keep their real special plan.
+                const isUnicastTvDevice = !isFofiAndroidBoxId(finalBoxIdForSubmit);
                 if (isUnicastTvDevice) {
                     const linkSrvid = await resolveLinkFofiboxSrvid(loginuname);
                     if (!linkSrvid) {
