@@ -33,6 +33,7 @@ import { getMyPlanDetails, getCustKYCPreview, getUserAssignedItems } from "../..
 // the SAME way and can never diverge on "opted vs not opted".
 import { extractBoxFromItem, detectLinkedTvType, getLinkedTvIdentifier, extractBoxIdFromAssigned, isFofiAndroidBoxId } from "../../utils/boxId";
 import { raceForFirstMatch } from "../../utils/raceForFirst";
+import { findLinkFofiboxSrvid } from "../../utils/specialPlans";
 import { lsRemove, lsGetStale, lsSet, lsGet } from "../../services/lsCache";
 import { refreshServiceController } from "../../services/navigationController";
 import { loadKycWithRetry } from "../../utils/kycRetry";
@@ -764,6 +765,21 @@ function mapInternetOriginPlan(plan, idx) {
         _selectId: `internet_${selection.planid || idx}`,
         _uniqueKey: `internet_${selection.planid || idx}_${planName}`,
     };
+}
+
+// Resolve the LINK_FOFIBOX special-plan srvid from specialInternetPlans.
+// Native's FreeOTTlinkFragment builds a serv_name→srvid map and sends the
+// selected plan's srvid to freeOTAService; for a unicast / linked-TV device
+// the backend (FreeOTTPaidChannels.php:54-81) accepts ONLY the LINK_FOFIBOX
+// plan. The PWA's fofi-upgrade `planid` is not a special-plan srvid, which is
+// what produced "Requested plan not found". Returns the srvid string, or ''.
+async function resolveLinkFofiboxSrvid(logUname) {
+    try {
+        const resp = await getSpecialInternetPlans({ logUname, isKiranastore: "no" }, { skipCache: false });
+        return findLinkFofiboxSrvid(getInternetOriginPlanRows(resp));
+    } catch (_) {
+        return '';
+    }
 }
 
 function normalizeFoFiPlanName(value) {
@@ -3908,13 +3924,32 @@ function FoFiSmartBox() {
             // the payment review page, matching the CRM flow.
             // =====================================================
             if (!hasConfirmedFofiService) {
+                // Native parity: for an already-linked TV / unicast device, the
+                // freeOTAService plan_id MUST be the LINK_FOFIBOX special-plan
+                // srvid (the fofi-upgrade planid is not a special srvid → the
+                // backend "Requested plan not found"). Native's FreeOTTlinkFragment
+                // sends the selected special plan's srvid; for such a device the
+                // only valid one is LINK_FOFIBOX, with services ["ott"].
+                let linkPlanId = planId;
+                let linkServices = registrationFields.services;
+                if (isLinkedDeviceSubscription) {
+                    const linkSrvid = await resolveLinkFofiboxSrvid(loginuname);
+                    if (!linkSrvid) {
+                        setValidationError('Could not resolve the LINK_FOFIBOX plan from the server. Please retry.');
+                        setIsLoading(false);
+                        return;
+                    }
+                    linkPlanId = linkSrvid;
+                    linkServices = ['ott'];
+                }
                 const linkPayload = {
                     fofiboxid: finalBoxIdForSubmit,
                     fofimac: finalMacForSubmit,
                     fofiserailnumber: finalSerialForSubmit,
                     loginuname: loginuname,
-                    plan_id: planId,
+                    plan_id: linkPlanId,
                     ...registrationFields,
+                    services: linkServices,
                     username: username,
                 };
                 console.log('🔵 [LINK] Calling freeOTAService…', linkPayload);
