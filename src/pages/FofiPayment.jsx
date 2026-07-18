@@ -543,6 +543,13 @@ export default function FofiPayment() {
         moreDetails?.["Amount Deductable"] ??
         0
       ) || 0;
+      // Native sends paidamount = the FULL total_amt from paymentinfo (never the
+      // wallet deductible, never 0). Track the fresh total for the order below.
+      let refreshedTotal = parseFloat(
+        paymentData?.totalAmount ??
+        paymentDetails?.["Total Amount"] ??
+        0
+      ) || 0;
       try {
         console.log('🟡 Refreshing paymentinfo/fofi for a fresh transactionid…');
         const refreshResp = await getFofiPaymentInfo({
@@ -569,6 +576,8 @@ export default function FofiPayment() {
           fallback: refreshedAmountDeductable,
           planName: paymentData?.planName || paymentDetails?.["Plan Name"] || '',
         });
+        // Fresh full total (native's generateorder paidamount) from paymentinfo.
+        refreshedTotal = parseFloat(refreshResp?.body?.total_amt) || refreshedTotal;
         console.log('✅ Fresh transactionid received:', transactionId, '(state had:', paymentData?.transactionid, ')');
       } catch (refreshErr) {
         // No order was attempted yet, so nothing could have been charged —
@@ -632,42 +641,38 @@ export default function FofiPayment() {
       console.log('🔴 paidamount =', orderPayload.paidamount, '| orderedbytype =', orderPayload.orderedbytype);
       console.log('🔴 walletBalance (display, pre-deduction) =', walletBalance);
 
-      // Free / nothing-to-charge plans: CRM deductible is the source
-      // of truth for whether there is a wallet charge.
-      const numericTotalAmount = parseFloat(totalAmount) || 0;
+      // generateorder is the ONLY call that creates the subscription and attaches
+      // the plan — native runs it for EVERY plan and never special-cases a free/FTA
+      // one. For a free/FTA plan the wallet deductible is ~0, but native still sends
+      // paidamount = the FULL total_amt (the server ignores a 0-amount order and
+      // never attaches the plan). The prior code skipped generateorder when the
+      // deductible was 0 and ran a dead no-op (pendingActivation is never set), so
+      // "Payment Success" showed but the FTA plan was never attached.
       const isFreeUpgrade = walletDeduction <= 0;
+      // Order amount: a free/FTA plan must send the full total_amt (non-zero, like
+      // native); a paid plan keeps its existing deductible-based amount unchanged.
+      const orderPaidAmount = isFreeUpgrade
+        ? (Number(refreshedTotal) || Number(paidAmount) || 0)
+        : Number(paidAmount);
 
-      if (isFreeUpgrade) {
-        // No wallet charge — the activation call IS the payment/order step.
-        console.log('✅ Free upgrade — nothing to charge, skipping generateorder', {
-          totalAmount: numericTotalAmount,
-          walletDeduction,
-        });
-        await runPendingFoFiActivation();
-        orderGenerated = true;
-      } else {
-        // STEP 1: generateorder is the AUTHORITATIVE payment result.
-        // It registers the order; the wallet debit follows server-side.
-        const orderResponse = await generateFofiOrder(orderPayload);
-        if (orderResponse?.status?.err_code !== 0 && orderResponse?.error !== 0) {
-          // The backend explicitly rejected the order, so nothing was
-          // charged — a clean failure the operator can safely retry.
-          const errMsg = orderResponse?.status?.err_msg || orderResponse?.result || 'Failed to generate order';
-          throw Object.assign(new Error(errMsg), { cleanFailure: true });
-        }
-        // Payment is now done. Any later step that throws must NOT turn this
-        // into a "Failed" (would risk a double charge).
-        orderGenerated = true;
-        console.log('FoFi order generated; Internet savePaymentApi skipped.', { amountDeductable: walletDeduction });
-        // Activation (link / upgrade registration). If it throws after the
-        // order succeeded, the payment still went through — log and continue.
-        try {
-          await runPendingFoFiActivation();
-        } catch (activationErr) {
-          console.warn('FoFi activation step failed after order success (continuing):', activationErr?.message);
-        }
-        persistRecentFoFiPayment(paidAmount, transactionId);
+      const orderResponse = await generateFofiOrder({ ...orderPayload, paidamount: orderPaidAmount });
+      if (orderResponse?.status?.err_code !== 0 && orderResponse?.error !== 0) {
+        // The backend explicitly rejected the order, so nothing was charged —
+        // a clean failure the operator can safely retry.
+        const errMsg = orderResponse?.status?.err_msg || orderResponse?.result || 'Failed to generate order';
+        throw Object.assign(new Error(errMsg), { cleanFailure: true });
       }
+      // Payment is now done. Any later step that throws must NOT turn this into a
+      // "Failed" (would risk a double charge).
+      orderGenerated = true;
+      console.log('FoFi order generated.', { paidamount: orderPaidAmount, amountDeductable: walletDeduction, isFreeUpgrade });
+      // Activation (link / upgrade registration), if any was deferred.
+      try {
+        await runPendingFoFiActivation();
+      } catch (activationErr) {
+        console.warn('FoFi activation step failed after order success (continuing):', activationErr?.message);
+      }
+      persistRecentFoFiPayment(paidAmount, transactionId);
 
       // SUCCESS — leave the Processing screen immediately. The activation
       // verification poll and customer-detail refresh run in the BACKGROUND
