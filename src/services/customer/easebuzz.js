@@ -20,10 +20,11 @@
 const EZ_CHECKOUT_SRC =
   "https://ebz-static.s3.ap-south-1.amazonaws.com/easecheckout/v2.0.0/easebuzz-checkout-v2.min.js";
 
-// test build → Easebuzz sandbox; prod build → live. Override with
-// VITE_EASEBUZZ_ENV. Keeps dev/test from ever hitting a real charge.
+// Only a PRODUCTION-mode build hits live Easebuzz; dev and `--mode test` builds
+// use the sandbox, so a test deployment can never fire a real charge. Override
+// per-build with VITE_EASEBUZZ_ENV=test|prod.
 export const EZ_ENV = String(
-  import.meta.env.VITE_EASEBUZZ_ENV || (import.meta.env.PROD ? "prod" : "test")
+  import.meta.env.VITE_EASEBUZZ_ENV || (import.meta.env.MODE === "production" ? "prod" : "test")
 ).toLowerCase();
 
 // Server-team creds — used when paymentinfo omits the creds block (Internet's
@@ -60,13 +61,15 @@ export function removeTid(t) {
 }
 
 /**
- * Same-origin proxy URL for initiateLink, per env. The path is identical in dev
- * and prod; dev is served by the vite proxy, prod by a host reverse-proxy that
- * forwards to (test)pay.easebuzz.in. Single seam — nothing else knows the host.
+ * Same-origin proxy URL for initiateLink, per env. The path lives UNDER the app
+ * base (import.meta.env.BASE_URL, e.g. /smartphone/crm/) so it is routed exactly
+ * like the rest of the app — the vite dev proxy in dev, and server.js in prod
+ * both forward it to (test)pay.easebuzz.in. A root-relative path would escape
+ * the app's routing and 404 in production. Single seam — nothing else knows the host.
  */
 export function getInitiateUrl(env) {
-  const base = env === "test" ? "/ezpay-test" : "/ezpay-prod";
-  return `${base}/payment/initiateLink`;
+  const base = import.meta.env.BASE_URL || "/"; // ends with "/"
+  return `${base}ezpay-${env === "test" ? "test" : "prod"}/payment/initiateLink`;
 }
 
 /** SHA-512 lowercase hex via Web Crypto — no dependency, matches PHP hash('sha512'). */

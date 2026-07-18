@@ -1,0 +1,217 @@
+========================================================================
+ PWA PAYMENT MODULE — INFRASTRUCTURE CHANGE REQUEST (EASEBUZZ)
+ For: Server / Infrastructure team
+ Re:  One reverse-proxy rule needed on the load balancers
+========================================================================
+
+--------------------------------------------------------------------
+1. SUMMARY
+--------------------------------------------------------------------
+We have built the online payment flow (Internet / FoFi / IPTV renewals
+via EASEBUZZ) into the customer PWA, mirroring the existing native
+Android app. Everything works EXCEPT the final gateway hand-off.
+
+It needs a small, one-time change on the load-balancer servers that
+serve the PWA. No PHP/backend change is required. No app change is
+required. This document explains the problem, proves the root cause by
+comparing the native app to the PWA, and gives the exact config to add.
+
+
+--------------------------------------------------------------------
+2. WHAT THE CUSTOMER SEES
+--------------------------------------------------------------------
+On tapping "Pay", the PWA shows an error and the payment never starts:
+   - "... is not valid JSON"   (the server returned the HTML page
+                                instead of the gateway's JSON), or
+   - "Could not start payment (HTTP 404)."
+
+Both mean the same thing: the request that starts the payment is
+reaching our web server but there is nothing there to forward it to
+the payment gateway.
+
+
+--------------------------------------------------------------------
+3. ROOT CAUSE (why it works on native but not in the browser)
+--------------------------------------------------------------------
+To START an Easebuzz payment, the client must call Easebuzz's endpoint:
+
+        POST  https://pay.easebuzz.in/payment/initiateLink
+        (test: https://testpay.easebuzz.in/payment/initiateLink)
+
+This is a SERVER-TO-SERVER endpoint. Easebuzz deliberately sends NO
+CORS header on it.
+
+  - The NATIVE Android app bundles the Easebuzz SDK as a compiled
+    library (app/build.gradle:  implementation(name: 'peb-lib',
+    ext: 'aar')) and launches it via
+    com.easebuzz.payment.kit.PWECouponsActivity. That SDK calls
+    initiateLink DIRECTLY from inside the app process. A native app is
+    NOT sandboxed, so it can open an HTTPS connection to any server.
+    => Works.
+
+  - The PWA runs inside a BROWSER. The browser's Same-Origin Policy /
+    CORS blocks a cross-domain call unless the target returns an
+    "Access-Control-Allow-Origin" header. Easebuzz does not
+    (verified: their preflight OPTIONS is rejected with HTTP 400 and
+    no CORS header is returned). => The browser blocks the call before
+    it is even sent. Our code never gets a response.
+
+This is a fundamental, by-design browser security rule that native apps
+are exempt from. It cannot be coded around inside the PWA. This is
+exactly why Easebuzz's own documentation requires initiateLink to be
+called "server-to-server from your backend, not the browser".
+
+Because we do NOT have access to the PHP backend, the PWA is written to
+call a SAME-ORIGIN path and expects the web tier (the load balancers
+that serve the PWA) to forward that one path to Easebuzz.
+
+
+--------------------------------------------------------------------
+4. NATIVE APP vs PWA — STEP-BY-STEP COMPARISON
+--------------------------------------------------------------------
+Both do the IDENTICAL work. They differ at exactly ONE step (step 4).
+
+  STEP                                   NATIVE          PWA
+  ------------------------------------   -------------   -------------
+  1. Get bill/plan (makepayment /        OK              OK
+     paymentinfo)
+  2. Build SHA-512 hash                  OK              OK
+     (key|txnid|amount|...|salt)
+  3. Build params (txnid, amount,        OK              OK
+     udf1-5, surl/furl)
+  4. Call Easebuzz initiateLink to    >> OK (SDK calls   BLOCKED by
+     get access_key                      it directly)    browser CORS  <<
+  5. Show Easebuzz checkout              OK (SDK WebView) (never reached)
+  6. Finalize order (generateorder /     OK              OK (ready)
+     savePaymentApi)
+
+  Everything is the same EXCEPT step 4 — and step 4 is not our code,
+  it is the platform (native app vs browser).
+
+  WHY STEP 4 DIFFERS:
+
+                        NATIVE ANDROID APP        PWA IN A BROWSER
+  Who makes the call    Easebuzz SDK              The browser (fetch)
+                        (peb-lib.aar)
+  Cross-origin rules    None (native apps can     Same-Origin Policy /
+                        call any server)          CORS enforced
+  Easebuzz sends CORS   Irrelevant                No -> browser blocks
+  header?               (native ignores it)       the request
+  Result                access_key returned,      Request blocked,
+                        payment proceeds          no access_key, error
+
+  ONE-LINE SUMMARY:
+  The native app is not sandboxed, so its Easebuzz SDK talks to
+  pay.easebuzz.in directly. The browser IS sandboxed and refuses to
+  talk to pay.easebuzz.in because Easebuzz does not grant it permission
+  (no CORS). The fix is to let a SERVER make that one call for the
+  browser.
+
+  PLAIN-LANGUAGE ANALOGY:
+  The native app is like calling from your own phone - you can dial any
+  number. The browser is like calling from a switchboard that only
+  connects pre-approved numbers; Easebuzz is not on the list, so it
+  refuses to connect. The proxy rule below adds Easebuzz to the list.
+
+
+--------------------------------------------------------------------
+5. THE CHANGE WE NEED (the only change)
+--------------------------------------------------------------------
+Add a reverse-proxy rule on the load balancers for these TWO EXACT
+paths, forwarding them to Easebuzz:
+
+  Incoming path (on our domain)                        Proxy to
+  --------------------------------------------------   ---------------------------------------------
+  /smartphone/crm/ezpay-test/payment/initiateLink  ->  https://testpay.easebuzz.in/payment/initiateLink
+  /smartphone/crm/ezpay-prod/payment/initiateLink  ->  https://pay.easebuzz.in/payment/initiateLink
+
+Notes:
+  - Method POST, Content-Type application/x-www-form-urlencoded,
+    response is JSON.
+  - Please scope it to exactly these two paths (NOT a wildcard) so it
+    is not an open proxy.
+  - The PWA automatically uses the "test" path for test builds and the
+    "prod" path for production builds, so wiring BOTH is correct.
+  - NO PHP/backend change. NO change to any other route. The SPA
+    fallback and all existing behaviour stay exactly as-is; these two
+    paths simply need to bypass the static/SPA handling and proxy out
+    to Easebuzz.
+  - Please apply on ALL THREE load balancers.
+
+
+--------------------------------------------------------------------
+6. CONFIG — nginx
+--------------------------------------------------------------------
+Add inside the server { } block that serves /smartphone/crm, ABOVE the
+SPA fallback:
+
+  location = /smartphone/crm/ezpay-test/payment/initiateLink {
+      proxy_pass https://testpay.easebuzz.in/payment/initiateLink;
+      proxy_ssl_server_name on;
+      proxy_set_header Host testpay.easebuzz.in;
+  }
+  location = /smartphone/crm/ezpay-prod/payment/initiateLink {
+      proxy_pass https://pay.easebuzz.in/payment/initiateLink;
+      proxy_ssl_server_name on;
+      proxy_set_header Host pay.easebuzz.in;
+  }
+
+
+--------------------------------------------------------------------
+7. CONFIG — Apache
+--------------------------------------------------------------------
+In the vhost (requires mod_proxy, mod_proxy_http, mod_ssl):
+
+  SSLProxyEngine On
+  ProxyPass        "/smartphone/crm/ezpay-test/payment/initiateLink" "https://testpay.easebuzz.in/payment/initiateLink"
+  ProxyPassReverse "/smartphone/crm/ezpay-test/payment/initiateLink" "https://testpay.easebuzz.in/payment/initiateLink"
+  ProxyPass        "/smartphone/crm/ezpay-prod/payment/initiateLink" "https://pay.easebuzz.in/payment/initiateLink"
+  ProxyPassReverse "/smartphone/crm/ezpay-prod/payment/initiateLink" "https://pay.easebuzz.in/payment/initiateLink"
+
+
+--------------------------------------------------------------------
+8. HOW TO VERIFY (after applying, on any one load balancer)
+--------------------------------------------------------------------
+Run:
+
+  curl -s -X POST \
+    "https://<our-domain>/smartphone/crm/ezpay-test/payment/initiateLink" \
+    -H "Content-Type: application/x-www-form-urlencoded" \
+    --data "key=2PBP7IABZ2&txnid=t1&amount=1.00&productinfo=test&firstname=T&email=a@b.com&phone=9999999999&surl=https://x&furl=https://x&hash=x"
+
+  CORRECT (proxy is working):
+    A JSON response from Easebuzz, e.g.
+      {"status": 0, "data": "Parameter validation failed", ...}
+    (The validation error is EXPECTED for this dummy request - it
+     proves the request reached Easebuzz.)
+
+  WRONG (rule not active yet):
+    An HTML page ( <!doctype html> ... ) - means the request is still
+    being served by the SPA fallback instead of proxied.
+
+
+--------------------------------------------------------------------
+9. BACKGROUND / FAQ
+--------------------------------------------------------------------
+Q: Why not just call Easebuzz directly from the browser like the app?
+A: The browser blocks it. Easebuzz's initiateLink sends no CORS header,
+   so the browser's Same-Origin Policy refuses the cross-domain call.
+   Native apps have no such restriction. This is standard for every web
+   payment gateway and is why the gateway must be called server-side.
+
+Q: Does this expose anything or open a security hole?
+A: No. It is scoped to two exact paths that only forward to Easebuzz.
+   It is the standard, recommended pattern (the browser should never
+   talk to a payment gateway directly anyway).
+
+Q: Is any secret/credential involved in this rule?
+A: No. The rule is a plain forward to Easebuzz; no keys or salts are
+   configured in it.
+
+Q: Can this instead go on Traefik / HAProxy / wherever TLS terminates?
+A: Yes. The only requirement is that SOMETHING on the request path
+   forwards those two paths to Easebuzz. Wherever is easiest for you.
+
+------------------------------------------------------------------------
+ END OF DOCUMENT
+------------------------------------------------------------------------

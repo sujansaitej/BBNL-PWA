@@ -281,19 +281,20 @@ export default ({ mode }) => {
           rewrite: (path) => path.replace(/^\/api/, ""),
         },
         // Easebuzz initiateLink is server-to-server (no CORS). Proxy it
-        // same-origin so the browser can obtain an access_key. PROD needs the
-        // same two paths reverse-proxied at the PWA host (backend untouched).
-        "/ezpay-test": {
+        // same-origin so the browser can obtain an access_key. Paths live under
+        // the app base so they route like the app; server.js mirrors this in
+        // prod (the PHP backend is untouched).
+        [`${basePath}ezpay-test`.replace(/\/{2,}/g, "/")]: {
           target: "https://testpay.easebuzz.in",
           changeOrigin: true,
           secure: false,
-          rewrite: (path) => path.replace(/^\/ezpay-test/, ""),
+          rewrite: (p) => p.replace(new RegExp(`^${basePath}ezpay-test`.replace(/\/{2,}/g, "/")), ""),
         },
-        "/ezpay-prod": {
+        [`${basePath}ezpay-prod`.replace(/\/{2,}/g, "/")]: {
           target: "https://pay.easebuzz.in",
           changeOrigin: true,
           secure: false,
-          rewrite: (path) => path.replace(/^\/ezpay-prod/, ""),
+          rewrite: (p) => p.replace(new RegExp(`^${basePath}ezpay-prod`.replace(/\/{2,}/g, "/")), ""),
         },
       },
     }

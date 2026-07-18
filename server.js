@@ -23,6 +23,7 @@
 
 import http2 from "node:http2";
 import http from "node:http";
+import https from "node:https";
 import fs from "node:fs";
 import path from "node:path";
 import { pipeline } from "node:stream";
@@ -445,6 +446,63 @@ function handleStreamRequest(req, res) {
   h2Req.end();
 }
 
+// ── Easebuzz initiateLink proxy ──
+// The browser cannot call Easebuzz's payment/initiateLink directly: it is a
+// server-to-server endpoint with no CORS headers. This same-origin seam lets
+// the PWA obtain an access_key. Locked to the single endpoint (never an open
+// proxy). Mirrors the vite dev proxy so dev and prod behave identically.
+const EZ_HOSTS = { test: "testpay.easebuzz.in", prod: "pay.easebuzz.in" };
+
+function handleEzpayRequest(req, res, strippedUrl) {
+  const m = strippedUrl.match(/^\/ezpay-(test|prod)(\/[^?]*)/);
+  const host = m && EZ_HOSTS[m[1]];
+  const upstreamPath = m && m[2];
+  if (!host || req.method !== "POST" || upstreamPath !== "/payment/initiateLink") {
+    safeWriteHead(res, 404, { "Content-Type": "application/json" });
+    safeEnd(res, JSON.stringify({ status: 0, data: "not_found" }));
+    return;
+  }
+
+  const chunks = [];
+  req.on("data", (c) => chunks.push(c));
+  req.on("end", () => {
+    const body = Buffer.concat(chunks);
+    const upstream = https.request(
+      {
+        host, port: 443, method: "POST", path: "/payment/initiateLink",
+        headers: {
+          "Content-Type": req.headers["content-type"] || "application/x-www-form-urlencoded",
+          "Content-Length": body.length,
+          Accept: "application/json",
+        },
+        rejectUnauthorized: false,
+        timeout: 30_000,
+      },
+      (up) => {
+        safeWriteHead(res, up.statusCode || 502, {
+          "Content-Type": up.headers["content-type"] || "application/json",
+          "Cache-Control": "no-store",
+        });
+        pipeline(up, res, (err) => {
+          if (err && !isBenign(err)) console.error("[Ezpay] pipe error:", err.message);
+        });
+      }
+    );
+    upstream.on("timeout", () => upstream.destroy(new Error("upstream timeout")));
+    upstream.on("error", (err) => {
+      console.error("[Ezpay] upstream error:", err.message);
+      if (!res.headersSent) {
+        safeWriteHead(res, 502, { "Content-Type": "application/json" });
+        safeEnd(res, JSON.stringify({ status: 0, data: "proxy_error" }));
+      }
+    });
+    upstream.end(body);
+  });
+  req.on("error", () => {
+    if (!res.headersSent) { safeWriteHead(res, 400, { "Content-Type": "text/plain" }); safeEnd(res, "Bad request"); }
+  });
+}
+
 // ── Static file server ──
 function serveStatic(req, res) {
   let urlPath = decodeURIComponent(req.url.split("?")[0]);
@@ -513,6 +571,13 @@ const TLS_KEY_PATH = process.env.TLS_KEY_PATH;
 const useTLS = TLS_CERT_PATH && TLS_KEY_PATH;
 
 function requestHandler(req, res) {
+  // Easebuzz initiateLink proxy — match with or without the app base prefix.
+  {
+    let u = req.url;
+    if (u.startsWith(BASE_PATH)) u = u.slice(BASE_PATH.length) || "/";
+    if (u.startsWith("/ezpay-")) { handleEzpayRequest(req, res, u); return; }
+  }
+
   // Strip base path prefix from stream requests so the handler sees /stream/...
   if (req.url.startsWith(STREAM_PREFIX_WITH_BASE)) {
     req.url = req.url.slice(BASE_PATH.length);
