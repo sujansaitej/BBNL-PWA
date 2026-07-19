@@ -67,6 +67,7 @@ const CustomerProfile = lazyRetry(() => import("../pages/customer/Profile"));
 const CustomerServiceLink = lazyRetry(() => import("../pages/customer/ServiceLink"));
 const CustomerServiceHome = lazyRetry(() => import("../pages/customer/ServiceHome"));
 const CustomerOrderHistory = lazyRetry(() => import("../pages/customer/OrderHistory"));
+const CustomerCableSelect = lazyRetry(() => import("../pages/customer/CableSelect"));
 const CustomerPaymentSummary = lazyRetry(() => import("../pages/customer/PaymentSummary"));
 const CustomerPaymentStatus = lazyRetry(() => import("../pages/customer/PaymentStatus"));
 const CustomerInternetPayment = lazyRetry(() => import("../pages/customer/InternetPaymentSummary"));
@@ -296,6 +297,14 @@ export default function AppRoutes() {
           element={
             <PrivateRoute>
               <CustomerOrderHistory />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/cust/iptv/select"
+          element={
+            <PrivateRoute>
+              <CustomerCableSelect />
             </PrivateRoute>
           }
         />
