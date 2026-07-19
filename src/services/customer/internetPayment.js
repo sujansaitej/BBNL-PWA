@@ -57,7 +57,13 @@ export async function saveInternetPayment({
     gatewaycharges: gatewaycharges || "",
     gatewaytransid: gatewaytransid || "",
     bank_name: bank_name || "",
-    usagecompleted: usagecompleted || "no",
+    // MUST be numeric "0"/"1" on the wire. The backend validates against
+    // array(0,1) (InternetPayment.php:854) and, in findExpiryDate, treats ANY
+    // non-"0" truthy string as "activate now / forfeit remaining days" — so the
+    // old default of "no" (and the UI's "yes"/"no") silently forced activate-now
+    // and could fail validation on PHP 8. Native's untouched default is "0" =
+    // carry forward (extend from current expiry). Coerce so only "0"/"1" leak.
+    usagecompleted: (usagecompleted === "1" || usagecompleted === 1 || usagecompleted === true) ? "1" : "0",
     cashpaid: Number(cashpaid || 0).toFixed(2),
     applicationname: "serviceapp",
     paymode: "online",
