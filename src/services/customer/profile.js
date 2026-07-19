@@ -1,16 +1,14 @@
 /**
  * Customer profile — port of Android's ProfileFragment.
  *
- * Two endpoints, both under ServiceApis/ with the MAIN header profile:
- *   custViewProfile   GET   ?username=      → {status, body:{...}}
- *   custeEditProfile  POST  form-urlencoded → {status}
+ * Three endpoints, all under ServiceApis/ with the MAIN header profile:
+ *   custViewProfile   GET   ?username=            → {status, body:{...}}
+ *   custeEditProfile  POST  form-urlencoded       → {status}
+ *   uploadCustProfile POST  multipart (part "photo") → {status, body:{photo}}
  *
  * The endpoint name really is "custeEditProfile" (typo is server-side).
- *
- * Deliberately NOT wrapped: uploadCustProfile/. The photo is display-only
- * here — the customer app in the field offers no way to change it.
  */
-import { apiFetch, getBaseUrl, getHeaders, readEnvelope } from "../apiCore";
+import { apiFetch, getBaseUrl, getHeaders, getHeadersForm, readEnvelope, UPLOAD_TIMEOUT } from "../apiCore";
 
 const GROUP = "Customer";
 
@@ -34,4 +32,15 @@ export async function editProfile({ username, mobileno, emailid, firstname, last
     body,
   }, "custeEditProfile", { group: GROUP });
   return readEnvelope(resp, "custeEditProfile");
+}
+
+/** Upload a new profile photo. Returns the new absolute photo URL. */
+export async function uploadProfilePhoto({ username, file }) {
+  const url = `${getBaseUrl()}ServiceApis/uploadCustProfile/`;
+  const form = new FormData();
+  form.append("username", username);
+  form.append("photo", file, file.name || "profile.jpg");
+  const resp = await apiFetch(url, { method: "POST", headers: getHeadersForm(), body: form },
+    "uploadCustProfile", { group: GROUP, timeout: UPLOAD_TIMEOUT });
+  return (await readEnvelope(resp, "uploadCustProfile")).body?.photo || "";
 }
