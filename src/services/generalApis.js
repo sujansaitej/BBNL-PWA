@@ -229,12 +229,17 @@ export async function getTktDepartments() {
   const cacheKey = 'tktdepts';
   const cached = lsGet(cacheKey, 30 * 60 * 1000); // 30 min TTL
   if (cached) { perfMonitor.recordCacheHit("General", "getTktDepartments", cacheKey); return cached; }
-  const url = `${getBaseUrl()}Apis/getDepartments`;
-  const resp = await apiFetch(url, { method: "GET", headers: {} }, "getTktDepartments");
-  if (!resp.ok) throw new Error(`Failed to get departments ${resp.status}`);
-  const data = await resp.json();
-  lsSet(cacheKey, data);
-  return data;
+  // dedupe(): the tickets screen mounts departments + the OPEN list together,
+  // and React StrictMode double-mounts effects in dev — without this, identical
+  // concurrent requests each hit the network. Mirrors every sibling read above.
+  return dedupe(cacheKey, async () => {
+    const url = `${getBaseUrl()}Apis/getDepartments`;
+    const resp = await apiFetch(url, { method: "GET", headers: {} }, "getTktDepartments");
+    if (!resp.ok) throw new Error(`Failed to get departments ${resp.status}`);
+    const data = await resp.json();
+    lsSet(cacheKey, data);
+    return data;
+  });
 }
 
 export async function getTickets(tabKey, allParams = {}) {
@@ -242,31 +247,37 @@ export async function getTickets(tabKey, allParams = {}) {
   const cached = lsGet(cacheKey, 3 * 60 * 1000); // 3 min TTL
   if (cached) { perfMonitor.recordCacheHit("General", "getTickets", cacheKey); return cached; }
 
-  const opid = allParams.op_id || '';
-  const newcon = allParams.dept || 'Departments'; // native default (means "all")
-  let ep = '', form = {};
-  switch (tabKey) {
-    case 'OPEN':
-      ep = 'getAvailableTicket'; form = { apiopid: opid, newcon }; break;
-    case 'PENDING':
-      ep = 'pendingTickets'; form = { apiopid: opid, newcon, loginid: allParams.user || '' }; break;
-    case 'NEW CONNECTIONS':
-      // Native sends the operator's op_id (the old PWA hardcoded "raghav").
-      ep = 'getNewConnectionTicket'; form = { apiopid: opid }; break;
-    case 'DISCONNECTIONS':
-      ep = 'disConnection'; form = { apiopid: opid }; break;
-    case 'JOB DONE':
-      ep = 'jobDoneList'; form = { apiopid: opid, userid: allParams.user || '' }; break;
-    default:
-      ep = '';
-  }
-  const url = `${getBaseUrl()}Apis/${ep}`;
-  const body = new URLSearchParams(form).toString();
-  const resp = await apiFetch(url, { method: "POST", headers: TICKET_FORM_HEADERS, body }, `getTickets(${tabKey})`);
-  if (!resp.ok) throw new Error(`Failed to get tickets ${resp.status}`);
-  const data = await resp.json();
-  lsSet(cacheKey, data);
-  return data;
+  // dedupe(): a tab switch can fire two identical getTickets in the same tick
+  // (the [activeTab] effect and the dept-reset it triggers), and StrictMode
+  // double-mounts in dev. Sharing the in-flight promise collapses them to one
+  // network round-trip, exactly like getWalBal/getCustList/getMyPlanDetails.
+  return dedupe(cacheKey, async () => {
+    const opid = allParams.op_id || '';
+    const newcon = allParams.dept || 'Departments'; // native default (means "all")
+    let ep = '', form = {};
+    switch (tabKey) {
+      case 'OPEN':
+        ep = 'getAvailableTicket'; form = { apiopid: opid, newcon }; break;
+      case 'PENDING':
+        ep = 'pendingTickets'; form = { apiopid: opid, newcon, loginid: allParams.user || '' }; break;
+      case 'NEW CONNECTIONS':
+        // Native sends the operator's op_id (the old PWA hardcoded "raghav").
+        ep = 'getNewConnectionTicket'; form = { apiopid: opid }; break;
+      case 'DISCONNECTIONS':
+        ep = 'disConnection'; form = { apiopid: opid }; break;
+      case 'JOB DONE':
+        ep = 'jobDoneList'; form = { apiopid: opid, userid: allParams.user || '' }; break;
+      default:
+        ep = '';
+    }
+    const url = `${getBaseUrl()}Apis/${ep}`;
+    const body = new URLSearchParams(form).toString();
+    const resp = await apiFetch(url, { method: "POST", headers: TICKET_FORM_HEADERS, body }, `getTickets(${tabKey})`);
+    if (!resp.ok) throw new Error(`Failed to get tickets ${resp.status}`);
+    const data = await resp.json();
+    lsSet(cacheKey, data);
+    return data;
+  });
 }
 
 // pick / close / transfer. Native form field sets (per action):
@@ -293,11 +304,15 @@ export async function pickTicket(allParams = {}, action = '') {
 // "accounts" (native hardcodes this in TransferTicketFragment).
 // Response body: [{ loginid, empname, empmobile, id }, …].
 export async function getTicketEmployees(opid, group = 'accounts') {
-  const url = `${getBaseUrl()}Apis/getEmployee`;
-  const body = new URLSearchParams({ opid: opid || '', group }).toString();
-  const resp = await apiFetch(url, { method: "POST", headers: TICKET_FORM_HEADERS, body }, "getTicketEmployees");
-  if (!resp.ok) throw new Error(`Failed to get transfer employees ${resp.status}`);
-  return resp.json();
+  // dedupe(): the transfer dialog can be opened/closed rapidly; sharing the
+  // in-flight promise avoids duplicate getEmployee round-trips.
+  return dedupe(`tktemp_${opid || ''}_${group}`, async () => {
+    const url = `${getBaseUrl()}Apis/getEmployee`;
+    const body = new URLSearchParams({ opid: opid || '', group }).toString();
+    const resp = await apiFetch(url, { method: "POST", headers: TICKET_FORM_HEADERS, body }, "getTicketEmployees");
+    if (!resp.ok) throw new Error(`Failed to get transfer employees ${resp.status}`);
+    return resp.json();
+  });
 }
 
 /* Get Customer KYC Preview */

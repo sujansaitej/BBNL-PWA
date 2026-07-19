@@ -90,9 +90,17 @@ const Tickets = () => {
   }
 
   const deptInitRef = useRef(true);
+  // When a tab switch resets a previously-selected department, that reset
+  // fires the [selectedDept] effect below — which would fetch the SAME params
+  // the [activeTab] effect just fetched. This flag suppresses that duplicate.
+  const skipDeptFetchRef = useRef(false);
 
   // Reset department filter, search term, and fetch fresh tickets when tab changes
   useEffect(() => {
+    // Only arm the skip if the reset will actually change selectedDept (and so
+    // fire its effect). If it's already '', the effect won't run and we must
+    // not leave the flag armed to swallow a later genuine dept change.
+    if (selectedDept !== '') skipDeptFetchRef.current = true;
     setSelectedDept('');
     setSearchTerm('');
     getTkts(activeTab, '');
@@ -101,6 +109,7 @@ const Tickets = () => {
   // Re-fetch when department filter changes
   useEffect(() => {
     if (deptInitRef.current) { deptInitRef.current = false; return; }
+    if (skipDeptFetchRef.current) { skipDeptFetchRef.current = false; return; }
     getTkts(activeTab);
   }, [selectedDept]);
 
@@ -163,20 +172,24 @@ const Tickets = () => {
 
     try {
       const data = await pickTicket(params, tkt.action);
-      if (data?.status?.err_code === 0) {
-        toast.add(data?.status?.err_msg, { type: "success" });
-      } else {
-        toast.add(data?.status?.err_msg, { type: "error", duration: 3000 });
-        // console.error("Failed to pick ticket:", data?.status?.err_msg || "Unknown error");
-      }
-      // Mutation resolved (backend committed, list cache cleared in pickTicket) →
-      // refresh the current tab from a fresh server call. Deterministic: runs after
-      // the await, not off a dialog-state flag, so no stale-cache / race.
       setDialogOpen(false);
       setTktdialogOpen(false);
-      getTkts(activeTab);
+      if (data?.status?.err_code === 0) {
+        toast.add(data?.status?.err_msg, { type: "success" });
+        // OPTIMISTIC — this is what makes the native app feel instant. A pick /
+        // close / transfer ALWAYS removes the ticket from the current tab (pick
+        // moves it Open→Pending, close/transfer take it away). So drop the row
+        // from the in-memory list instead of blanking it and re-fetching the
+        // whole tab, which cost 2 serial round-trips on a 10-15s field link.
+        // pickTicket() already cleared the tkts_ cache, so a sibling tab (e.g.
+        // Pending) re-fetches fresh the moment it's opened.
+        setTickets((prev) => prev.filter((t) => t.tid !== tkt.tid));
+      } else {
+        toast.add(data?.status?.err_msg, { type: "error", duration: 3000 });
+        // Left the row in place on failure — nothing changed server-side.
+      }
     } catch (err) {
-      console.error("Error in getting tickets:", err);
+      console.error("Error in ticket action:", err);
     }
   }
 
