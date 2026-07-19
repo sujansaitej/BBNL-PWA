@@ -62,18 +62,18 @@ export default function PaymentStatus() {
             </div>
           )}
 
+          {/* Native's PaymentStatusFragment shows only OK (→ accounts list);
+              there is no "View Orders" on the success screen for any service.
+              The PWA-only "View Orders" sent internet to /cust/internet/orders,
+              which has no route → the catch-all redirected to /login, reading
+              as a logout. Order/payment history is reached via the account menu
+              instead (internet → payments, fofi/iptv → orders), matching native. */}
           <div className="flex flex-col gap-2 pt-2">
             <button
               onClick={() => navigate(`${routeBase}/home`)}
               className="w-full py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold"
             >
               Back to Home
-            </button>
-            <button
-              onClick={() => navigate(`${routeBase}/orders`)}
-              className="w-full py-2.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-semibold"
-            >
-              View Orders
             </button>
           </div>
         </div>
