@@ -565,9 +565,11 @@ function PackageDetail({ data }) {
     <div className="space-y-3">
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600 dark:text-gray-300">
         {totals.pkgprice != null && <span>Price: <b>₹ {Number(totals.pkgprice).toFixed(2)}</b></span>}
-        {totals.totalchnls != null && <span>Channels: <b>{totals.totalchnls}</b></span>}
-        {totals.totpaidchnls != null && <span>Paid: <b>{totals.totpaidchnls}</b></span>}
-        {totals.totftachnls != null && <span>FTA: <b>{totals.totftachnls}</b></span>}
+        {/* Count from the actual channel list, not totals.totalchnls — the
+            backend over-counts for some packages (e.g. 7 vs a 6-row result),
+            which also shows up in the native app. Showing the real list length
+            keeps the header and the list consistent. */}
+        <span>Channels: <b>{channels.length}</b></span>
       </div>
 
       {channels.length === 0 ? (

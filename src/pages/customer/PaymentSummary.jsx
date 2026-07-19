@@ -277,7 +277,9 @@ export default function PaymentSummary() {
   }
 
   const taxes = Array.isArray(info?.tax_details) ? info.tax_details : [];
+  const contents = Array.isArray(info?.contents) ? info.contents : [];
   const showNcf = String(info?.ncf_display || "").toLowerCase() === "yes";
+  const isCable = servicekey === "cabletv";
 
   return (
     <Layout>
@@ -302,15 +304,49 @@ export default function PaymentSummary() {
         ) : info ? (
           <>
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 text-sm">
-              {info.planname && <SummaryRow label="Plan" value={info.planname} />}
-              <SummaryRow label="Plan rate" value={money(info.planrate)} />
-              {taxes.map((t, i) => (
-                <SummaryRow key={i} label={`${t.title}${t.percent ? ` (${t.percent})` : ""}`} value={money(t.amt)} />
-              ))}
-              {showNcf && <SummaryRow label="NCF" value={money(info.ncf)} />}
-              {Number(info.other_amt) > 0 && <SummaryRow label="Other" value={money(info.other_amt)} />}
-              {Number(info.discount_amt) > 0 && <SummaryRow label="Discount" value={`- ${money(info.discount_amt)}`} />}
-              {Number(info.balance_amt) > 0 && <SummaryRow label="Balance" value={money(info.balance_amt)} />}
+              {/* Packages/Channels breakdown table (native contents[]). */}
+              {contents.length > 0 && (
+                <div className="mb-3">
+                  <div className="flex text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 pb-1.5">
+                    <span className="flex-1">Plan Name</span>
+                    <span className="w-14 text-center">Qty</span>
+                    <span className="w-20 text-right">Price</span>
+                  </div>
+                  {contents.map((c, i) => (
+                    <div key={i} className="flex py-1.5 border-b border-gray-100 dark:border-gray-700/50">
+                      <span className="flex-1 text-gray-700 dark:text-gray-200 break-words min-w-0 pr-2">{c.title}</span>
+                      <span className="w-14 text-center text-gray-700 dark:text-gray-200">{c.quantity}</span>
+                      <span className="w-20 text-right text-gray-700 dark:text-gray-200">{money(c.price)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {isCable ? (
+                <>
+                  {ctx.current.cblextenperiod && <SummaryRow label="No. of days" value={String(ctx.current.cblextenperiod)} />}
+                  <SummaryRow label="Other Amount" value={money(info.other_amt)} />
+                  <SummaryRow label="Discount" value={money(info.discount_amt)} />
+                  {showNcf && <SummaryRow label="NCF" value={money(info.ncf)} />}
+                  {taxes.map((t, i) => (
+                    <SummaryRow key={i} label={`${t.title}${t.percent ? ` (${t.percent})` : ""}`} value={money(t.amt)} />
+                  ))}
+                  <SummaryRow label="Balance Amt" value={money(info.balance_amt)} />
+                </>
+              ) : (
+                <>
+                  {info.planname && <SummaryRow label="Plan" value={info.planname} />}
+                  <SummaryRow label="Plan rate" value={money(info.planrate)} />
+                  {taxes.map((t, i) => (
+                    <SummaryRow key={i} label={`${t.title}${t.percent ? ` (${t.percent})` : ""}`} value={money(t.amt)} />
+                  ))}
+                  {showNcf && <SummaryRow label="NCF" value={money(info.ncf)} />}
+                  {Number(info.other_amt) > 0 && <SummaryRow label="Other" value={money(info.other_amt)} />}
+                  {Number(info.discount_amt) > 0 && <SummaryRow label="Discount" value={`- ${money(info.discount_amt)}`} />}
+                  {Number(info.balance_amt) > 0 && <SummaryRow label="Balance" value={money(info.balance_amt)} />}
+                </>
+              )}
+
               <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 flex items-baseline justify-between">
                 <span className="font-semibold text-gray-800 dark:text-gray-100">Total</span>
                 <span className="text-lg font-bold text-indigo-600 dark:text-indigo-300">{money(info.total_amt)}</span>

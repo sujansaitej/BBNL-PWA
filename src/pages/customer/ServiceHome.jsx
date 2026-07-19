@@ -161,9 +161,10 @@ export default function ServiceHome() {
   const planRow = useMemo(() => planRowFor(plan, servicekey), [plan, servicekey]);
   const title = serviceTitle(servicekey);
   const showActions = showsInternetActions(servicekey);
-  // cabletv can renew via package selection even when other_service_renewal is
-  // not "enable" (its Proceed button was never appearing for such boxes).
-  const canRenew = isRenewEnabled(plan) || (servicekey === "cabletv" && isPkgSelectionEnabled(plan));
+  // Direct "Proceed"/Renew shows ONLY when other_service_renewal is enabled
+  // (native: proceed_btn_rl). cabletv's package/channel selection is a SEPARATE
+  // single button below, gated on chnls_pkgs_selection.
+  const canRenew = isRenewEnabled(plan);
   const routeBase = serviceRouteBase(servicekey);
   // Every service now opens its live payment screen at {base}/pay. Internet →
   // InternetPaymentSummary (makepayment/savePaymentApi); FoFi/IPTV →
@@ -369,22 +370,16 @@ export default function ServiceHome() {
             </button>
           )}
 
-          {/* cabletv only — build/change your pack (native chnnl_pkg_selection). */}
+          {/* cabletv — one merged button to the selection screen, matching
+              native's single "Select Packages and Channels" (package_selection_tv;
+              the separate "Select Channels" button is hidden in native too). */}
           {servicekey === "cabletv" && isPkgSelectionEnabled(plan) && (
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button
-                onClick={() => navigate("/cust/iptv/select", { state: { view: "packages", fofiboxid: selectedConn } })}
-                className="py-2.5 rounded-lg border border-indigo-500 text-indigo-600 dark:text-indigo-300 text-sm font-semibold"
-              >
-                Select Packages
-              </button>
-              <button
-                onClick={() => navigate("/cust/iptv/select", { state: { view: "channels", fofiboxid: selectedConn } })}
-                className="py-2.5 rounded-lg border border-indigo-500 text-indigo-600 dark:text-indigo-300 text-sm font-semibold"
-              >
-                Select Channels
-              </button>
-            </div>
+            <button
+              onClick={() => navigate("/cust/iptv/select", { state: { fofiboxid: selectedConn } })}
+              className={`w-full py-2.5 rounded-lg bg-orange-500 text-white text-sm font-semibold ${canRenew ? "mt-3" : "mt-4"}`}
+            >
+              Select Packages and Channels
+            </button>
           )}
         </div>
       </div>
