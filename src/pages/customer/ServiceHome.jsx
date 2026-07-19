@@ -368,6 +368,24 @@ export default function ServiceHome() {
               Proceed
             </button>
           )}
+
+          {/* cabletv only — build/change your pack (native chnnl_pkg_selection). */}
+          {servicekey === "cabletv" && isPkgSelectionEnabled(plan) && (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                onClick={() => navigate("/cust/iptv/select", { state: { view: "packages", fofiboxid: selectedConn } })}
+                className="py-2.5 rounded-lg border border-indigo-500 text-indigo-600 dark:text-indigo-300 text-sm font-semibold"
+              >
+                Select Packages
+              </button>
+              <button
+                onClick={() => navigate("/cust/iptv/select", { state: { view: "channels", fofiboxid: selectedConn } })}
+                className="py-2.5 rounded-lg border border-indigo-500 text-indigo-600 dark:text-indigo-300 text-sm font-semibold"
+              >
+                Select Channels
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

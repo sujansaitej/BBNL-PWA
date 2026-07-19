@@ -75,38 +75,54 @@ export default function PaymentSummary() {
       try {
         const c = ctx.current;
         c.fofiBoxId = nav.fofiboxid || "";
-        c.planid = nav.planid || "";
-        c.priceid = nav.priceid || "";
+        // cabletv has TWO paths into this screen: a user-assembled SELECTION
+        // (from CableSelect) or a DIRECT last-subscribed renewal.
+        const isSelection = isCabletv && nav.selection;
 
-        // Fallback: no plan passed (deep link) → fetch it.
-        if (!c.planid) {
-          const pd = await getMyPlanDetails({
-            servicekey, userid: account.userid,
-            fofiboxid: c.fofiBoxId, voipnumber: "",
-          });
-          c.planid = pd?.body?.planid || "";
-          c.priceid = pd?.body?.priceid || "";
+        if (isSelection) {
+          // Selection path: price the assembled pack. planid/priceid are empty —
+          // the backend prices by the selected channels/packages, not a plan.
+          c.planid = "";
+          c.priceid = "";
+          c.packageid = Array.isArray(nav.packageid) ? nav.packageid : [];
+          c.pkgcode = Array.isArray(nav.pkgcode) ? nav.pkgcode : [];
+          c.channelid = Array.isArray(nav.channelid) ? nav.channelid : [];
+          c.lcochid = Array.isArray(nav.lcochid) ? nav.lcochid : [];
+        } else {
+          c.planid = nav.planid || "";
+          c.priceid = nav.priceid || "";
+
+          // Fallback: no plan passed (deep link) → fetch it.
+          if (!c.planid) {
+            const pd = await getMyPlanDetails({
+              servicekey, userid: account.userid,
+              fofiboxid: c.fofiBoxId, voipnumber: "",
+            });
+            c.planid = pd?.body?.planid || "";
+            c.priceid = pd?.body?.priceid || "";
+          }
+
+          // cabletv DIRECT renewal: last-subscribed packages.
+          if (isCabletv) {
+            try {
+              const last = await getIptvLastSubscribed({ userid: account.userid, itemid: c.fofiBoxId });
+              const b = last?.body || {};
+              const packageid = Array.isArray(b.packageid) ? b.packageid : [];
+              const channelid = Array.isArray(b.channelid) ? b.channelid : [];
+              c.packageid = packageid;
+              // IPTV: package codes ARE the package ids on the direct path.
+              c.pkgcode = packageid;
+              // The backend renews by PACKAGE; re-submitting the expanded channel
+              // list of those packages is rejected ("Invalid channel id's") — so
+              // send channels ONLY for an a-la-carte box (no packages).
+              c.channelid = packageid.length > 0 ? [] : channelid;
+              c.lcochid = [];
+            } catch { /* best-effort — paymentinfo will report if nothing renewable */ }
+          }
         }
 
-        // cabletv: last-subscription ids + extension days (native pre-steps).
+        // Both cabletv paths need the server-chosen extension period.
         if (isCabletv) {
-          try {
-            const last = await getIptvLastSubscribed({ userid: account.userid, itemid: c.fofiBoxId });
-            const b = last?.body || {};
-            const packageid = Array.isArray(b.packageid) ? b.packageid : [];
-            const channelid = Array.isArray(b.channelid) ? b.channelid : [];
-            c.packageid = packageid;
-            // IPTV: package codes ARE the package ids ("package ids and package
-            // codes are same in IPTV"). iptvLastSubscribedinfo has no pkgcode.
-            c.pkgcode = packageid;
-            // The backend renews by PACKAGE. iptvLastSubscribedinfo ALSO returns
-            // the expanded channel list of those packages, but re-submitting it
-            // is rejected ("Invalid channel id's") — verified live: packages-only
-            // succeeds, channels+packages fails. So send channels ONLY for an
-            // a-la-carte box (one with no packages).
-            c.channelid = packageid.length > 0 ? [] : channelid;
-            c.lcochid = [];
-          } catch { /* best-effort — paymentinfo will report if nothing renewable */ }
           try {
             const ext = await getPlanExtensionPeriods({ userid: account.userid, itemid: c.fofiBoxId });
             c.cblextenperiod = ext?.body?.days_range?.max || "";

@@ -144,10 +144,7 @@ export default function CableSelect() {
           setActiveCatId(first.id);
           const pkgs = await fetchPackagesFor(first.id, pkgIds);
           if (cancelled) return;
-          const byCat = { [first.id]: pkgs };
-          setPackagesByCategory(byCat);
-          // Auto-add every mandatory category's base pack.
-          setSelectedPackages((prev) => applyMandatoryBasePacks(prev, cats, byCat));
+          setPackagesByCategory({ [first.id]: pkgs });
         }
       } catch (err) {
         if (!cancelled) setError(err?.message || "Could not load the channel packages.");
@@ -177,6 +174,13 @@ export default function CableSelect() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, ready]);
+
+  // Auto-select every mandatory category's base pack as its package list loads
+  // (not just the first category). applyMandatoryBasePacks is idempotent.
+  useEffect(() => {
+    if (!ready || categories.length === 0) return;
+    setSelectedPackages((sp) => applyMandatoryBasePacks(sp, categories, packagesByCategory));
+  }, [packagesByCategory, categories, ready]);
 
   async function selectCategory(cat) {
     setActiveCatId(cat.id);
