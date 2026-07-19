@@ -4,11 +4,9 @@ import {
   UserPlusIcon,
   UsersIcon,
   TicketIcon,
-  Cog6ToothIcon,
   ChatBubbleOvalLeftEllipsisIcon,
-  CurrencyRupeeIcon,
   TvIcon,
-  FilmIcon,
+  ComputerDesktopIcon,
   GlobeAltIcon
 } from "@heroicons/react/24/outline";
 import { Modal } from "@/components/ui";
@@ -91,10 +89,10 @@ export default function BottomBar() {
         <span className="text-xs">Live TV</span>
       </Link>
 
-      {/* OTT */}
-      <Link to="#" onClick={comingsoon} className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
-        <FilmIcon className="h-6 w-6" />
-        <span className="text-xs">OTT</span>
+      {/* IPTV */}
+      <Link to="/cust/iptv" className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
+        <ComputerDesktopIcon className="h-6 w-6" />
+        <span className="text-xs">IPTV</span>
       </Link>
 
       {/* Highlighted Dashboard (middle icon) */}

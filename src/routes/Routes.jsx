@@ -63,6 +63,7 @@ const OrderDetail = lazyRetry(() => import("../pages/OrderDetail"));
 const UploadDocuments = lazyRetry(() => import("../pages/UploadDocuments"));
 const FofiPayment = lazyRetry(() => import("../pages/FofiPayment"));
 const CustomerDashboard = lazyRetry(() => import("../pages/customer/Dashboard"));
+const CustomerProfile = lazyRetry(() => import("../pages/customer/Profile"));
 const CustomerServiceLink = lazyRetry(() => import("../pages/customer/ServiceLink"));
 const CustomerServiceHome = lazyRetry(() => import("../pages/customer/ServiceHome"));
 const CustomerOrderHistory = lazyRetry(() => import("../pages/customer/OrderHistory"));
@@ -187,6 +188,14 @@ export default function AppRoutes() {
           element={
             <PrivateRoute>
               <CustomerDashboard />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/cust/profile"
+          element={
+            <PrivateRoute>
+              <CustomerProfile />
             </PrivateRoute>
           }
         />
