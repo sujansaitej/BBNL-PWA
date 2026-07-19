@@ -1,5 +1,5 @@
 
-import { XMarkIcon, GlobeAltIcon, Cog6ToothIcon, UsersIcon, BellAlertIcon, ArchiveBoxIcon, ChatBubbleOvalLeftEllipsisIcon, ArrowRightOnRectangleIcon, WifiIcon, FilmIcon, TicketIcon, UserIcon, CurrencyRupeeIcon, ClipboardDocumentListIcon, SunIcon, MoonIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, GlobeAltIcon, Cog6ToothIcon, UsersIcon, BellAlertIcon, ArchiveBoxIcon, ChatBubbleOvalLeftEllipsisIcon, ArrowRightOnRectangleIcon, WifiIcon, FilmIcon, TicketIcon, UserIcon, SunIcon, MoonIcon } from '@heroicons/react/24/outline';
 import { useContext, useEffect, useState } from "react";
 import { Modal } from "@/components/ui";
 import { useNavigate } from "react-router-dom";
@@ -125,11 +125,8 @@ export default function Sidebar({ open, onClose }) {
             </>
             ) : (
             <>
-            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><UserIcon className="h-5 w-5 text-blue bg-blue" /> Profile</button>
-            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><CurrencyRupeeIcon className="h-5 w-5" /> Renew</button>
-            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><ClipboardDocumentListIcon className="h-5 w-5" /> Bills</button>
-            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><TicketIcon className="h-5 w-5" /> Tickets</button>
-            {/* <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><Cog6ToothIcon className="h-5 w-5" /> Settings</button> */}
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); navigate('/cust/profile'); }}><UserIcon className="h-5 w-5 text-blue bg-blue" /> Profile</button>
+            {/* Renew / Bills / Tickets removed — no customer-facing functionality yet. Re-add when built. */}
             <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><ChatBubbleOvalLeftEllipsisIcon className="h-5 w-5" /> Support</button>
             <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={toggleTheme}>{theme === 'dark' ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}{theme === 'dark' ? 'Light Theme' : 'Dark Theme'}</button>
             <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); logout(); }}><ArrowRightOnRectangleIcon className="h-5 w-5" /> Log out</button>

@@ -124,7 +124,7 @@ export default function Dashboard() {
         { id: 'internet', title: 'Internet', Icon: GlobeAltIcon, path: '/cust/internet' },
         { id: 'fofi', title: 'FoFi Smart Box', Icon: CpuChipIcon, path: '/cust/fofi' },
         { id: 'iptv', title: 'IPTV', Icon: TvIcon, path: '/cust/iptv' },
-        { id: 'profile', title: 'Profile', Icon: UserIcon, path: '/cust/profile' },
+        // Profile moved to the bottom nav.
         { id: 'datausage', title: 'Data Usage', Icon: ChartPieIcon, path: '#' },
         { id: 'updateKyc', title: 'Update KYC', Icon: ArrowUpOnSquareStackIcon, path: '#' },
         { id: 'resetwifi', title: 'Reset WiFi', Icon: SignalIcon, path: '#' },
