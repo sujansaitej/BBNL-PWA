@@ -1,7 +1,7 @@
 // import DashboardContent from "../../components/Dashboard";
 import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
-import { ArrowUpOnSquareStackIcon, CurrencyRupeeIcon, ClipboardDocumentListIcon, ChartPieIcon, SignalIcon, GlobeAltIcon, UserIcon, FilmIcon, TvIcon, CpuChipIcon } from '@heroicons/react/24/outline'
+import { ArrowUpOnSquareStackIcon, ChartPieIcon, SignalIcon, GlobeAltIcon, UserIcon, TvIcon, CpuChipIcon } from '@heroicons/react/24/outline'
 import { PlayCircleIcon } from '@heroicons/react/24/solid'
 import { Swiper, SwiperSlide } from 'swiper/react'
 import { Autoplay, Pagination } from 'swiper/modules'
@@ -121,13 +121,10 @@ export default function Dashboard() {
     }
     
     const cardItems = [
-        { id: 'renew', title: 'Renew', Icon: CurrencyRupeeIcon, path: '#' },
-        { id: 'bills', title: 'Bills', Icon: ClipboardDocumentListIcon, path: '#' },
-        { id: 'ott', title: 'OTT', Icon: FilmIcon, path: '#' },
         { id: 'internet', title: 'Internet', Icon: GlobeAltIcon, path: '/cust/internet' },
         { id: 'iptv', title: 'IPTV', Icon: TvIcon, path: '/cust/iptv' },
         { id: 'fofi', title: 'FoFi Smart Box', Icon: CpuChipIcon, path: '/cust/fofi' },
-        { id: 'profile', title: 'Profile', Icon: UserIcon, path: '#' },
+        { id: 'profile', title: 'Profile', Icon: UserIcon, path: '/cust/profile' },
         { id: 'datausage', title: 'Data Usage', Icon: ChartPieIcon, path: '#' },
         { id: 'updateKyc', title: 'Update KYC', Icon: ArrowUpOnSquareStackIcon, path: '#' },
         { id: 'resetwifi', title: 'Reset WiFi', Icon: SignalIcon, path: '#' },
