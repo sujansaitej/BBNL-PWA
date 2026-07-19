@@ -1,17 +1,18 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { ChevronLeftIcon, UserCircleIcon, CameraIcon } from "@heroicons/react/24/outline";
+import { ChevronLeftIcon, UserCircleIcon } from "@heroicons/react/24/outline";
 import Layout from "../../layout/Layout";
 import { Loader } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { fixImageUrl } from "../../services/iptvImage";
-import { getProfile, editProfile, uploadProfilePhoto } from "../../services/customer/profile";
+import { getProfile, editProfile } from "../../services/customer/profile";
 
 /**
  * Customer profile — port of Android's ProfileFragment.
  *
- * Same four editable fields (first name, last name, mobile, email), same
- * read-only username, same tap-avatar-to-upload. Android's per-field pencil
+ * Same four editable fields (first name, last name, mobile, email) and the
+ * same read-only username. The avatar is display-only: the customer app
+ * offers no way to change it, so neither do we. Android's per-field pencil
  * icons are decorative there (no listeners) so they aren't reproduced.
  *
  * Android does no validation beyond a dirty-check; we keep the dirty-check
@@ -25,12 +26,10 @@ export default function Profile() {
 
   const navigate = useNavigate();
   const toast = useToast();
-  const fileRef = useRef(null);
   const username = JSON.parse(localStorage.getItem("user") || "{}").username || "";
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [photo, setPhoto] = useState("");
   const [saved, setSaved] = useState(null); // last known server state, for the dirty-check
@@ -101,27 +100,6 @@ export default function Profile() {
     }
   };
 
-  const pickPhoto = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // allow re-picking the same file
-    if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      toast.add("Please choose an image under 5 MB.", { type: "error" });
-      return;
-    }
-    setUploading(true);
-    try {
-      const url = await uploadProfilePhoto({ username, file });
-      // Android disables image caching entirely; a cache-buster is enough here.
-      setPhoto(url ? `${url}${url.includes("?") ? "&" : "?"}_t=${Date.now()}` : "");
-      toast.add("Photo updated.", { type: "success" });
-    } catch (err) {
-      toast.add(err?.message || "Could not upload the photo.", { type: "error" });
-    } finally {
-      setUploading(false);
-    }
-  };
-
   const field = (label, key, props = {}) => (
     <div>
       <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</label>
@@ -157,28 +135,15 @@ export default function Profile() {
           </div>
         ) : (
           <>
-            {/* Avatar */}
+            {/* Avatar — display only, same as the customer app */}
             <div className="flex flex-col items-center gap-2">
-              <button
-                onClick={() => fileRef.current?.click()}
-                disabled={uploading}
-                className="relative w-24 h-24 rounded-full overflow-hidden bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center"
-                aria-label="Change profile photo"
-              >
+              <div className="w-24 h-24 rounded-full overflow-hidden bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center">
                 {photo ? (
                   <img src={fixImageUrl(photo)} alt="" className="w-full h-full object-cover" />
                 ) : (
                   <UserCircleIcon className="w-16 h-16 text-indigo-600 dark:text-indigo-300" />
                 )}
-                <span className="absolute bottom-0 inset-x-0 py-1 bg-black/50 flex justify-center">
-                  {uploading ? (
-                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <CameraIcon className="w-4 h-4 text-white" />
-                  )}
-                </span>
-              </button>
-              <input ref={fileRef} type="file" accept="image/*" onChange={pickPhoto} className="hidden" />
+              </div>
               <p className="text-base font-semibold text-gray-800 dark:text-gray-100">{username}</p>
             </div>
 
@@ -197,7 +162,7 @@ export default function Profile() {
 
               <button
                 onClick={save}
-                disabled={saving || uploading}
+                disabled={saving}
                 className="w-full py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {saving ? "Please wait…" : "Save changes"}
