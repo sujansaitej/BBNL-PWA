@@ -116,8 +116,21 @@ export default function OrderDetail() {
       <div className="flex-1 px-4 py-4 pb-24">
         {/* Detail table */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <Row label="Order Number">{v.orderNumber || "—"}</Row>
-          <Row label="Order Date">{v.orderDate || "—"}</Row>
+          {serviceType === "internet" ? (
+            <>
+              {/* Internet TV has no order number — native shows customer + plan. */}
+              <Row label="Customer Id">{formatCustomerId(v.customerId || customer?.customer_id)}</Row>
+              <Row label="Customer Name">{v.customerName || customer?.name || "—"}</Row>
+              <Row label="Mobile">{v.mobile || "—"}</Row>
+              <Row label="Plan">{v.planName || "—"}</Row>
+              <Row label="Payment date">{v.orderDate || "—"}</Row>
+            </>
+          ) : (
+            <>
+              <Row label="Order Number">{v.orderNumber || "—"}</Row>
+              <Row label="Order Date">{v.orderDate || "—"}</Row>
+            </>
+          )}
           <Row label="Total Amount" valueClass="text-gray-900 tabular-nums">{formatMoney(v.totalAmount)}</Row>
           <Row label="Tax Amount" valueClass="text-gray-800 tabular-nums">{formatMoney(v.taxAmount)}</Row>
           <Row label="Discount Amount" valueClass="text-gray-800 tabular-nums">{formatMoney(v.discountAmount)}</Row>

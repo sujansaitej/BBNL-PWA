@@ -50,6 +50,21 @@ const formatMoney = (value) => {
 
 const isSuccess = (status) => String(status || "").toLowerCase().includes("success");
 
+// One label:value line inside an order card. `strong`/`mono`/`cap` tweak the value style.
+function Field({ label, children, strong, mono, cap }) {
+  const valueClass = mono
+    ? "font-semibold text-gray-800 tabular-nums"
+    : strong
+      ? "font-semibold text-gray-800"
+      : "text-gray-700";
+  return (
+    <div className="flex text-sm">
+      <span className="w-24 shrink-0 text-gray-500">{label}</span>
+      <span className={`truncate ${valueClass} ${cap ? "capitalize" : ""}`}>: {children}</span>
+    </div>
+  );
+}
+
 export default function PaymentHistory() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -74,25 +89,11 @@ export default function PaymentHistory() {
 
         let allOrders = [];
 
-        // Recent FoFi payments not yet synced to the API (< 24h) are prepended.
-        if (serviceType === "fofi") {
-          try {
-            const recentPaymentsJson = localStorage.getItem("fofi_recent_payments");
-            if (recentPaymentsJson) {
-              const recentPayments = JSON.parse(recentPaymentsJson);
-              const now = Date.now();
-              const validPayments = recentPayments.filter(
-                (p) => p.cid === cid && now - p.timestamp < 24 * 60 * 60 * 1000
-              );
-              if (validPayments.length > 0) {
-                allOrders = [...allOrders, ...validPayments.map((p) => ({ ...p, servicekey: "fofi", _source: "localStorage" }))];
-              }
-            }
-          } catch {
-            // non-critical
-          }
-        }
-
+        // Native fetches the FoFi/Cable order list from ordersList alone and
+        // renders one row per result — no local copy is merged in. (A prior
+        // localStorage prepend created a phantom duplicate row per payment
+        // because its id — the SERV- transactionid — never matched the API
+        // row's ordernumber, so dedup couldn't collapse them.)
         try {
           // ordersList MUST be queried with the SAME id the order was CREATED
           // under, or it returns zero rows. Native keys cable order history on
@@ -229,18 +230,26 @@ export default function PaymentHistory() {
                   className="w-full text-left bg-white rounded-2xl shadow-sm hover:shadow-md active:scale-[0.99] transition-all border border-gray-100 flex items-stretch overflow-hidden"
                 >
                   <div className="flex-1 p-4 space-y-1.5 min-w-0">
-                    <div className="flex text-sm">
-                      <span className="w-24 shrink-0 text-gray-500">Order Id</span>
-                      <span className="font-semibold text-gray-800 truncate">: {v.orderNumber || "—"}</span>
-                    </div>
-                    <div className="flex text-sm">
-                      <span className="w-24 shrink-0 text-gray-500">Date</span>
-                      <span className="text-gray-700 truncate">: {v.orderDate || "—"}</span>
-                    </div>
-                    <div className="flex text-sm">
-                      <span className="w-24 shrink-0 text-gray-500">Amount</span>
-                      <span className="font-semibold text-gray-800 tabular-nums">: {formatMoney(v.totalAmount)}</span>
-                    </div>
+                    {serviceType === "internet" ? (
+                      <>
+                        {/* Internet TV has no order number — native shows the
+                            customer + plan card (Name/Customer Id/Mobile/Amount/
+                            Payment date/Payment mode/Plan). */}
+                        <Field label="Name">{v.customerName || customerData.name || "—"}</Field>
+                        <Field label="Customer Id">{formatCustomerId(v.customerId || customerData.customer_id)}</Field>
+                        <Field label="Mobile">{v.mobile || "—"}</Field>
+                        <Field label="Amount" mono>{formatMoney(v.totalAmount)}</Field>
+                        <Field label="Payment date">{v.orderDate || "—"}</Field>
+                        <Field label="Payment mode" cap>{v.paymentMode || "—"}</Field>
+                        <Field label="Plan">{v.planName || "—"}</Field>
+                      </>
+                    ) : (
+                      <>
+                        <Field label="Order Id" strong>{v.orderNumber || "—"}</Field>
+                        <Field label="Date">{v.orderDate || "—"}</Field>
+                        <Field label="Amount" mono>{formatMoney(v.totalAmount)}</Field>
+                      </>
+                    )}
                     <span
                       className={`inline-block mt-1 px-2.5 py-0.5 rounded-full text-xs font-bold tracking-wide ${
                         ok ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"

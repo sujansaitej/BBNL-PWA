@@ -233,6 +233,12 @@ export function mapOrderView(order = {}) {
     discountAmount: _num(order.discountamount, order.discount, order.discount_amt),
     otherCharges: _num(order.othercharges, order.other_charges, order.other_amt),
     paymentMode: _txt(order.paymentmode, order.pymt_mode, order.payment_mode),
+    // Internet (custpayhistory) rows carry the customer + plan; the native
+    // "Payment History" card shows these instead of an order number.
+    customerId: _txt(order.cid, order.servuserid, order.customer_id, order.userid),
+    customerName: _txt(order.name, order.fullname, order.custname),
+    mobile: _txt(order.mobile, order.mobileno, order.mobile_no),
+    planName: _txt(order.plan_name, order.planname, order.plan),
     // Internet's custpayhistory rows are historical successful payments with no
     // status field → default SUCCESS, matching the native "Internet" tab.
     status: _txt(order.txnstatus, order.pymt_status, order.status) || "SUCCESS",

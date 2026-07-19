@@ -391,47 +391,8 @@ export default function FofiPayment() {
     });
   };
 
-  // Save the just-made payment to localStorage so Payment History can show it
-  // immediately (the API may not reflect it for a few seconds).
-  const persistRecentFoFiPayment = (paidAmount, transactionId) => {
-    try {
-      const now = new Date();
-      const recentOtherCharges = parseFoFiCurrency(paymentDetails?.["Other Charges"]) || 0;
-      const recentBalanceAmount = parseFoFiCurrency(paymentDetails?.["Balance Amount"]) || 0;
-      const paymentRecord = {
-        cid: paymentData?.userid || paymentData?.customer?.customer_id,
-        name: paymentData?.customer?.name || '',
-        mobile: paymentData?.customer?.mobile || '',
-        total_amt: paidAmount,
-        paid_amt: paidAmount,
-        payment_date: `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}-${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`,
-        pymt_mode: 'offline',
-        pymt_type: paymentData?.paytype || 'upgrade',
-        plan_name: paymentDetails?.["Plan Name"] || paymentData?.planName || 'FoFi Plan',
-        plan_rate: paymentDetails?.["Plan Rate"] || paymentData?.planRate || paidAmount,
-        subtaxes: [
-          { key: 'CGST', perc: 9, value: paymentDetails?.["CGST"] || 0 },
-          { key: 'SGST', perc: 9, value: paymentDetails?.["SGST"] || 0 }
-        ],
-        discount: 0,
-        other_charges: recentOtherCharges,
-        subtotal: paidAmount,
-        balance_amt: recentBalanceAmount,
-        orderid: transactionId,
-        timestamp: Date.now()
-      };
-      const existingPaymentsJson = localStorage.getItem('fofi_recent_payments');
-      const existingPayments = existingPaymentsJson ? JSON.parse(existingPaymentsJson) : [];
-      existingPayments.unshift(paymentRecord);
-      const cutoffTime = Date.now() - (24 * 60 * 60 * 1000);
-      const filteredPayments = existingPayments
-        .filter(p => p.timestamp > cutoffTime)
-        .slice(0, 10);
-      localStorage.setItem('fofi_recent_payments', JSON.stringify(filteredPayments));
-    } catch (storageErr) {
-      console.warn('⚠️ Failed to save payment to localStorage:', storageErr);
-    }
-  };
+  // ponytail: no local payment cache. Order History reads ordersList alone
+  // (native parity) — a localStorage mirror only produced duplicate rows.
 
   // Verify service activation + refresh customer details WITHOUT blocking the
   // operator on the Processing screen. The destination FoFi overview already
@@ -700,7 +661,6 @@ export default function FofiPayment() {
       } catch (activationErr) {
         console.warn('FoFi activation step failed after order success (continuing):', activationErr?.message);
       }
-      persistRecentFoFiPayment(paidAmount, transactionId);
 
       // SUCCESS — leave the Processing screen immediately. The activation
       // verification poll and customer-detail refresh run in the BACKGROUND
@@ -732,7 +692,6 @@ export default function FofiPayment() {
       // Move to success — the overview reconciles the real state, and leaving
       // the screen also makes an accidental re-pay impossible.
       if (orderGenerated) {
-        persistRecentFoFiPayment(paidAmount, transactionId);
         stopProcessing({ keepDisabled: true });
         confirmFoFiActivationInBackground({
           userid: paymentData?.userid || "",
@@ -775,7 +734,6 @@ export default function FofiPayment() {
 
       if (reconciliation?.status === 'accepted') {
         // Order history confirms the payment — treat as success.
-        persistRecentFoFiPayment(paidAmount, transactionId);
         stopProcessing({ keepDisabled: true });
         confirmFoFiActivationInBackground({
           userid: paymentData?.userid || "",
