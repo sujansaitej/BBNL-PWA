@@ -13,7 +13,7 @@ export default function ResetMac({ customer, onBack }) {
     };
 
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-dvh bg-gray-50">
             {/* Header */}
             <div className="bg-teal-500 text-white px-4 py-4 flex items-center gap-3">
                 <button onClick={onBack} className="p-1">

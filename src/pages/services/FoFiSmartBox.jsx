@@ -4310,7 +4310,7 @@ function FoFiSmartBox() {
 
     if (!customerData) {
         return (
-            <div className="min-h-screen flex flex-col bg-gray-50">
+            <div className="min-h-dvh flex flex-col bg-gray-50">
                 <header className="sticky top-0 z-40 flex items-center px-4 pb-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
                     <button onClick={() => navigate(-1)} className="p-1 mr-3">
                         <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -4363,7 +4363,7 @@ function FoFiSmartBox() {
         // ~50 ms instead of a blank loader for 1+ RTT.
 
         return (
-            <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
                 {successAlert}
 
                 {/* Header - Matching Internet module exactly */}
@@ -4742,7 +4742,7 @@ function FoFiSmartBox() {
     // =====================================================
     if (view === 'upgrade-plans') {
         return (
-            <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
                 {successAlert}
 
                 {/* Header - Blue/Indigo gradient matching app theme */}
@@ -4922,7 +4922,7 @@ function FoFiSmartBox() {
         const confirmBoxId = fofiServiceDetails?.boxId || 'N/A';
         
         return (
-            <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
                 {successAlert}
 
                 {/* Header - Blue/Indigo gradient matching app theme */}
@@ -5017,7 +5017,7 @@ function FoFiSmartBox() {
     const selectedPlanPrice = selectedPlan?.planrate || selectedPlan?.serv_rates?.prices?.[0] || selectedPlan?.price || selectedPlan?.amount || selectedPlan?.rate || '0';
     
     return (
-        <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+        <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
             {/* QR Scanner Modal — lazy loaded */}
             {showQRScanner && (
                 <Suspense fallback={<Loader text="Loading scanner..." />}>

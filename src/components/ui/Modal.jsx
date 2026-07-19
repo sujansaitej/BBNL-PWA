@@ -1,15 +1,17 @@
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { XMarkIcon } from "@heroicons/react/24/outline";
+import useBodyScrollLock from "../../hooks/useBodyScrollLock";
 
 const Modal = ({ isOpen, onClose, children, title }) => {
+  useBodyScrollLock(isOpen);
   if (!isOpen) return null;
 
   return (
     <AnimatePresence>
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] px-4" onClick={onClose}>
         <motion.div
-          className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] overflow-y-auto"
+          className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[85dvh] overflow-y-auto"
           initial={{ opacity: 0, scale: 0.9, y: -20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.9, y: 20 }}

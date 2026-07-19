@@ -326,7 +326,7 @@ const Tickets = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col relative">
+    <div className="min-h-dvh bg-gray-50 flex flex-col relative">
       {/* Animated HEADER */}
       <header
         className={`fixed top-0 left-0 right-0 z-40 bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-4 flex items-center justify-between shadow-lg

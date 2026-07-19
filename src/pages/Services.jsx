@@ -174,7 +174,7 @@ export default function Services() {
 
     if (!customerData) {
         return (
-            <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
                 <header className="sticky top-0 z-40 flex items-center justify-between px-4 pb-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
                     <div className="flex items-center">
                         <button onClick={() => navigate(-1)} className="p-1 mr-3"><ArrowLeftIcon className="h-6 w-6 text-white" /></button>
@@ -193,7 +193,7 @@ export default function Services() {
     }
 
     return (
-        <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+        <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
             <header className="sticky top-0 z-40 flex items-center justify-between px-4 pb-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
                 <div className="flex items-center">
                     <button onClick={() => navigate(-1)} className="p-1 mr-3"><ArrowLeftIcon className="h-6 w-6 text-white" /></button>

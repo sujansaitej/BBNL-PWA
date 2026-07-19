@@ -8,7 +8,7 @@
 // export default function App() {
 //   const [sidebarOpen, setSidebarOpen] = useState(false)
 //   return (
-//     <div className="min-h-screen flex flex-col">
+//     <div className="min-h-dvh flex flex-col">
 //       <Header onOpenSidebar={() => setSidebarOpen(true)} />
 //       <main className="flex-1 pb-20">
 //         <Dashboard />

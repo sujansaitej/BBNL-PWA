@@ -782,7 +782,7 @@ export default function FofiPayment() {
         <h1 className="text-lg font-medium">Review</h1>
       </div>
 
-      <div className="bg-gray-50 min-h-screen px-4 py-4">
+      <div className="bg-gray-50 min-h-dvh px-4 py-4">
         <div className="space-y-3">
           {/* Payment Details Heading */}
           <div className="text-center">

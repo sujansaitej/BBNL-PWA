@@ -1,7 +1,9 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { QuestionMarkCircleIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import useBodyScrollLock from "../../hooks/useBodyScrollLock";
 
 export default function ConfirmDialog({ open, message, onConfirm, onCancel, title = "Confirm Action" }) {
+  useBodyScrollLock(open);
   if (!open) return null;
 
   return (

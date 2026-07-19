@@ -2180,7 +2180,7 @@ export default function IPTVService() {
     // empty-state here is the recovery path.
     if (!customerData) {
         return (
-            <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
                 <header className="sticky top-0 z-40 flex items-center px-4 pb-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
                     <button onClick={() => navigate(-1)} className="p-1 mr-3">
                         <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2220,7 +2220,7 @@ export default function IPTVService() {
         // internally, with the container's bottom padding RESERVING the fixed
         // BottomNav's height + its safe-area inset. The Pay bar then sits
         // in-flow directly above that reserved strip — no magic offset, no
-        // overlap. Previously this was min-h-screen with a fixed Pay bar at
+        // overlap. Previously this was min-h-dvh with a fixed Pay bar at
         // bottom-16 and pb-28 on the scroller, which left the last section
         // ("No of subscription days") submerged under the Pay bar with no way
         // to scroll to it.
@@ -2430,7 +2430,7 @@ export default function IPTVService() {
             .map(x => x.ch);
 
         return (
-            <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
                 <SuccessOrderModal />
                 {/* Teal/Indigo header — matches native screenshot */}
 
@@ -2651,7 +2651,7 @@ export default function IPTVService() {
             : validPackages;
 
         return (
-            <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
                 <SuccessOrderModal />
                 {/* Blue Gradient Header */}
 
@@ -2948,7 +2948,7 @@ export default function IPTVService() {
 
     // ── Overview View ──
     return (
-        <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+        <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
             <ServiceSelectionModal
                 isOpen={showServiceModal}
                 onClose={() => setShowServiceModal(false)}

@@ -611,12 +611,26 @@ export default function PlayerPage() {
       attempt(0);
     };
 
-    // HLS.js is required — it sends X-App-Package header on the first request
-    // for server-side identification, then streams without headers for smooth
-    // playback. Native <video>.src cannot send headers at all,
-    // so we do NOT fall back to native HLS.
+    // HLS.js is preferred — it sends the X-App-Package header on the first
+    // request for server-side identification, then streams without headers
+    // for smooth playback. It needs MSE, which iOS Safari lacked before
+    // iOS 17.1. On those older iPhones (where Hls.isSupported() is false)
+    // we fall back to native HLS via <video>.src. Caveat: the native path
+    // can't send the X-App-Package header, so if the stream server strictly
+    // requires it, playback still fails and we surface the same error — but
+    // this can never regress modern iPhones (they use HLS.js) and it gives
+    // pre-17.1 iPhones a real chance instead of a guaranteed failure.
     if (Hls.isSupported()) {
       loadWithHlsJs(video, streamUrl, () => cancelled, tryPlay, setStatus, setErrorMsg, hlsRef, onTokenExpired);
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = streamUrl;
+      video.addEventListener("error", () => {
+        if (!cancelled) {
+          setStatus("error");
+          setErrorMsg("Unable to play this stream on your device. Please update iOS or try another browser.");
+        }
+      }, { once: true });
+      tryPlay();
     } else {
       setStatus("error");
       setErrorMsg("Your browser does not support secure streaming. Please use Chrome or update your browser.");

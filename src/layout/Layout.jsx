@@ -7,12 +7,12 @@ export default function Layout({ children, hideHeader = false, hideBottomNav = f
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <div className="min-h-screen flex flex-col overflow-x-clip">
+    <div className="min-h-dvh flex flex-col overflow-x-clip">
       {/* Header */}
       {!hideHeader && <Header onOpenSidebar={() => setSidebarOpen(true)} />}
 
       {/* Main Content */}
-      <main className={`flex-1 ${!hideBottomNav ? 'pb-20' : ''}`}>
+      <main className={`flex-1 ${!hideBottomNav ? 'pb-bottomnav' : ''}`}>
         {children}
       </main>
 

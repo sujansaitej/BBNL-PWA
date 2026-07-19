@@ -175,7 +175,7 @@ export default function PaymentHistory() {
 
   if (!customerData) {
     return (
-      <div className="min-h-screen flex flex-col bg-gray-50">
+      <div className="min-h-dvh flex flex-col bg-gray-50">
         <Header />
         <div className="flex-1 flex items-center justify-center px-4">
           <div className="text-center py-10 px-6 bg-white rounded-2xl shadow-lg">
@@ -189,7 +189,7 @@ export default function PaymentHistory() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
+    <div className="min-h-dvh flex flex-col bg-gray-50">
       <Header />
 
       {/* Customer banner — Name + User Id (native "Customer OverView" header) */}

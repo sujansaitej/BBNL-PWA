@@ -6,8 +6,10 @@ import { useNavigate } from "react-router-dom";
 import { getWalBal } from "../services/generalApis";
 import { lsClearAll } from "../services/lsCache";
 import { ThemeContext } from '../ThemeContext.jsx'
+import useBodyScrollLock from "../hooks/useBodyScrollLock";
 export default function Sidebar({ open, onClose }) {
   const navigate = useNavigate();
+  useBodyScrollLock(open);
   const { theme, toggleTheme } = useContext(ThemeContext);
   const [modalOpen, setModalOpen] = useState(false);
   const user   = JSON.parse(localStorage.getItem('user') || 'null');
@@ -156,7 +158,7 @@ export default function Sidebar({ open, onClose }) {
         </div>
 
           {/* Copyright & Version */}
-        <div className="absolute bottom-0 w-full">  
+        <div className="absolute bottom-0 w-full safe-bottom">
           <div className="text-center text-xs text-gray-500 dark:text-gray-400 px-2 pb-3">
             <p>© 2025 <a href='https://fofilabs.com' target='_blank'>Fo-Fi IoT Labs.</a> All rights reserved.</p>
             <p className="mt-1">Version {import.meta.env.VITE_API_APP_VERSION}</p>

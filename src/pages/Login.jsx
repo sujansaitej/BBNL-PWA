@@ -277,7 +277,7 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 px-4">
+    <div className="min-h-dvh flex items-center justify-center bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 px-4">
       {!isInstalled ? (
         <InstallInstructions deferredPrompt={deferredPrompt} />
       ) : !isStandalone ? (

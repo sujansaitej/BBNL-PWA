@@ -43,18 +43,18 @@ export default function BottomBar() {
     {localStorage.getItem('loginType') !== 'customer' &&
     <div className="fixed bottom-0 left-0 w-full bg-white dark:bg-gray-900 shadow-md border-t border-gray-200 dark:border-gray-700 flex justify-around items-center pt-2 z-50" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0.5rem))' }}>
       {/* Add user */}
-      <Link to="/register" className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
+      <Link to="/register" className="flex flex-col items-center justify-center min-h-[44px] px-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 active:text-blue-700">
         <UserPlusIcon className="h-6 w-6" />
         <span className="text-xs">Add User</span>
       </Link>
 
       {/* Users */}
-      <Link to="/customers" className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
+      <Link to="/customers" className="flex flex-col items-center justify-center min-h-[44px] px-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 active:text-blue-700">
         <UsersIcon className="h-6 w-6" />
         <span className="text-xs">Users</span>
       </Link>
 
-      {/* <a href="/customers" className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
+      {/* <a href="/customers" className="flex flex-col items-center justify-center min-h-[44px] px-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 active:text-blue-700">
         <UsersIcon className="h-6 w-6" />
         <span className="text-xs">Users</span>
       </a> */}
@@ -68,13 +68,13 @@ export default function BottomBar() {
       </Link>
 
       {/* Tickets */}
-      <Link to="/tickets" className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
+      <Link to="/tickets" className="flex flex-col items-center justify-center min-h-[44px] px-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 active:text-blue-700">
         <TicketIcon className="h-6 w-6" />
         <span className="text-xs">Tickets</span>
       </Link>
 
       {/* Support */}
-      <Link to="/support" className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
+      <Link to="/support" className="flex flex-col items-center justify-center min-h-[44px] px-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 active:text-blue-700">
         {/* <Cog6ToothIcon className="h-6 w-6" /> */}
         <ChatBubbleOvalLeftEllipsisIcon className="h-6 w-6" />
         <span className="text-xs">Support</span>
@@ -84,13 +84,13 @@ export default function BottomBar() {
     {localStorage.getItem('loginType') === 'customer' &&
     <div className="fixed bottom-0 left-0 w-full bg-white dark:bg-gray-900 shadow-md border-t border-gray-200 dark:border-gray-700 flex justify-around items-center pt-2 z-50" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0.5rem))' }}>
       {/* Live TV */}
-      <Link to="/cust/livetv" className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
+      <Link to="/cust/livetv" className="flex flex-col items-center justify-center min-h-[44px] px-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 active:text-blue-700">
         <TvIcon className="h-6 w-6" />
         <span className="text-xs">Live TV</span>
       </Link>
 
       {/* IPTV */}
-      <Link to="/cust/iptv" className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
+      <Link to="/cust/iptv" className="flex flex-col items-center justify-center min-h-[44px] px-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 active:text-blue-700">
         <ComputerDesktopIcon className="h-6 w-6" />
         <span className="text-xs">IPTV</span>
       </Link>
@@ -106,13 +106,13 @@ export default function BottomBar() {
       {/* Internet — the linked-account entry point. Tickets now live behind
           it (link account → Home Page → Raise Ticket / Ticket Status), which
           is how the Android app is structured. */}
-      <Link to="/cust/internet" className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
+      <Link to="/cust/internet" className="flex flex-col items-center justify-center min-h-[44px] px-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 active:text-blue-700">
         <GlobeAltIcon className="h-6 w-6" />
         <span className="text-xs">Internet</span>
       </Link>
 
       {/* support */}
-      <Link to="#" onClick={comingsoon} className="flex flex-col items-center text-gray-600 dark:text-gray-300 hover:text-blue-600">
+      <Link to="#" onClick={comingsoon} className="flex flex-col items-center justify-center min-h-[44px] px-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 active:text-blue-700">
         {/* <Cog6ToothIcon className="h-6 w-6" /> */}
         <ChatBubbleOvalLeftEllipsisIcon className="h-6 w-6" />
         <span className="text-xs">Support</span>

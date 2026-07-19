@@ -39,14 +39,15 @@ export function ToastProvider({ children, position = "bottom-center", autoDismis
 
   const value = useMemo(() => ({ add, remove }), []);
 
-  // Sit above the BottomNav (which is ~64px tall) so toasts don't
-  // overlap the navigation tabs.
+  // Sit above the BottomNav (which grows with the home-indicator inset on
+  // iPhone) so toasts don't overlap the nav tabs on notched devices.
+  const bottomOffset = "bottom-[calc(5rem+env(safe-area-inset-bottom,0px))]";
   const positionClasses =
     position === "top-right" || position === "top-left" || position === "top-center"
-      ? "top-4 left-1/2 -translate-x-1/2 items-center"
+      ? "top-[calc(1rem+env(safe-area-inset-top,0px))] left-1/2 -translate-x-1/2 items-center"
       : position === "bottom-right"
-      ? "bottom-20 right-4 items-end"
-      : /* bottom-center / bottom-left / default */ "bottom-20 left-1/2 -translate-x-1/2 items-center";
+      ? `${bottomOffset} right-4 items-end`
+      : /* bottom-center / bottom-left / default */ `${bottomOffset} left-1/2 -translate-x-1/2 items-center`;
 
   return (
     <ToastContext.Provider value={value}>

@@ -105,7 +105,7 @@ export function AuthProvider({ children }) {
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-screen text-lg font-semibold">
+      <div className="flex justify-center items-center h-dvh text-lg font-semibold">
         Loading...
       </div>
     );

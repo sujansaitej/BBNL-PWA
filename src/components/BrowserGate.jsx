@@ -118,7 +118,7 @@ export default function BrowserGate({ children }) {
   /* ---- Already installed → Thank-you screen ---- */
   if (isInstalled) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 px-4">
+      <div className="min-h-dvh flex items-center justify-center bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 px-4">
         <div className="flex flex-col items-center">
           <div className="flex justify-center mt-1 mb-3">
             <img src={logo} onError={applyLogoFallback} alt="Fo-Fi Logo" className="h-12" />
@@ -158,7 +158,7 @@ export default function BrowserGate({ children }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 px-4">
+    <div className="min-h-dvh flex items-center justify-center bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 px-4">
       <div className="">
         <div className="flex justify-center mt-1 mb-3">
           <img src={logo} onError={applyLogoFallback} alt="Fo-Fi Logo" className="h-12" />

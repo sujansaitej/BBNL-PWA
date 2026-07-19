@@ -17,34 +17,36 @@
   }
 }
 
-/* ── Android Chrome Performance ── */
+/* ── Cross-platform touch/perf ── */
 
 /* Remove 300ms tap delay on all interactive elements */
 a, button, input, select, textarea, [role="button"], [tabindex] {
   touch-action: manipulation;
 }
 
-/* GPU-accelerate only elements that actually transform/fade.
-   .transition-colors and .transition-shadow don't benefit from
-   will-change: transform — it wastes GPU memory and creates
-   unintended stacking contexts. */
-.transition-transform { will-change: transform; }
-.transition-opacity  { will-change: opacity; }
+/* Kill the grey iOS tap-flash on custom tappable elements (cards use
+   <div onClick>). Real buttons/links get explicit active: states instead. */
+a, button, [role="button"], .tappable {
+  -webkit-tap-highlight-color: transparent;
+}
 
-/* Contain layout recalc to animated cards / list items */
+/* Contain layout recalc to animated cards / list items.
+   layout+style only (no paint/size) — safe on iOS Safari. */
 [class*="rounded-xl"][class*="shadow"] {
   contain: layout style;
 }
 
-/* Skip rendering off-screen list items on Android Chrome.
-   content-visibility:auto lets the browser skip layout+paint for elements
-   outside the viewport — huge win for long channel/ticket/payment lists.
-   contain-intrinsic-size gives the browser an estimated height so scroll
-   bars remain stable (avoids jumpiness). */
-.space-y-2 > *,
-.space-y-3 > *,
-.space-y-4 > *,
-.grid > * {
+/* Off-screen culling for genuinely long lists — OPT-IN via .cv-auto.
+   Previously this was applied globally to every space-y and grid child,
+   which on iOS Safari (17+) caused scroll-height miscalculation and
+   jump-on-scroll because the 80px intrinsic-size guess rarely matched
+   real card heights. Now only long lists that explicitly add `cv-auto`
+   get it, and each such list sets a realistic contain-intrinsic-size.
+   NOTE: permanent `will-change` was previously forced onto every
+   transition element — removed: it created permanent compositor layers
+   and GPU-memory pressure on low-RAM iPhones. Both engines composite
+   transforms fine without it. */
+.cv-auto > * {
   content-visibility: auto;
   contain-intrinsic-size: auto 80px;
 }
@@ -191,6 +193,27 @@ white-icon { color: #ffffff !important; }
 }
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Dynamic viewport height with a 100vh fallback for iOS < 15.4.
+   Redefines Tailwind's built-in dvh utilities (this block is emitted
+   after @tailwind utilities, so it wins) to avoid the iOS "100vh trap"
+   where 100vh includes the collapsing Safari toolbar and the layout
+   jumps as the bar shows/hides. */
+.min-h-dvh {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+.h-dvh {
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* Bottom padding that clears the fixed BottomNav *and* the home-indicator
+   gesture bar. BottomNav is ~5rem of chrome + env(safe-area-inset-bottom).
+   Use on any scroll container that sits above the nav. */
+.pb-bottomnav {
+  padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
 }
 
 /* Player fullscreen — extend behind all system UI, lock to black */

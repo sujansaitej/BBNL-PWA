@@ -205,9 +205,15 @@ export default function OTTPlayer() {
 
   function toggleFullscreen() {
     const el = containerRef.current;
-    if (!el) return;
-    if (document.fullscreenElement) document.exitFullscreen?.();
-    else el.requestFullscreen?.();
+    const video = videoRef.current;
+    if (document.fullscreenElement) { document.exitFullscreen?.(); return; }
+    if (el?.requestFullscreen) {
+      el.requestFullscreen();
+    } else if (video?.webkitEnterFullscreen) {
+      // iPhone Safari has no element Fullscreen API — only <video> can go
+      // fullscreen, via the WebKit-prefixed method.
+      video.webkitEnterFullscreen();
+    }
   }
 
   function togglePlay() {
@@ -263,7 +269,7 @@ export default function OTTPlayer() {
 
   if (!content) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
+      <div className="min-h-dvh bg-black flex items-center justify-center">
         <div className="text-center text-white">
           <p className="text-sm mb-4">No content selected.</p>
           <button onClick={() => navigate(-1)} className="text-purple-400 font-semibold">

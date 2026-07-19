@@ -1060,7 +1060,7 @@ export default function Subscribe() {
           </button>
           <h1 className="text-lg font-medium">Payment</h1>
         </div>
-        <div className="bg-gray-50 min-h-screen flex flex-col items-center justify-center px-4">
+        <div className="bg-gray-50 min-h-dvh flex flex-col items-center justify-center px-4">
           <p className="text-gray-500 text-center mb-4">No payment data available. Please navigate here from a customer page.</p>
           <button
             onClick={() => navigate('/')}
@@ -1085,7 +1085,7 @@ export default function Subscribe() {
         <h1 className="text-lg font-medium">Payment</h1>
       </div>
 
-      <div className="bg-gray-50 min-h-screen px-4 py-4">
+      <div className="bg-gray-50 min-h-dvh px-4 py-4">
         {loading ? (
           <Loader size={10} color="teal" text="Loading payment details..." className="py-10" />
         ) : (

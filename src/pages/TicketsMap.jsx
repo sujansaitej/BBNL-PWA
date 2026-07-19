@@ -210,21 +210,22 @@ const TicketsMap = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-[90vh]">
+      <div className="flex items-center justify-center h-dvh">
         <p>Loading map markers...</p>
       </div>
     );
   }
 
   return (
-    <div className="w-full h-[90vh]">
+    <div className="w-full h-dvh flex flex-col">
       <header
-        className={`z-40 bg-blue-600 text-white px-4 flex items-center justify-between shadow-md`}
-        style={{ height: "3rem", background: "rgb(109, 103, 255)" }}
+        className={`z-40 bg-blue-600 text-white px-4 py-2 flex items-center justify-between shadow-md shrink-0`}
+        style={{ background: "rgb(109, 103, 255)", paddingTop: "max(0.5rem, env(safe-area-inset-top, 0.5rem))" }}
       >
         <button
           onClick={() => window.history.back()}
-          className="text-white mr-3 text-xl" style={{ fontSize: '1.5rem' }}
+          className="text-white -ml-2 p-2 leading-none" style={{ fontSize: '1.5rem' }}
+          aria-label="Go back"
         >
           ←
         </button>
@@ -232,6 +233,7 @@ const TicketsMap = () => {
         <div className="w-6" /> {/* spacer */}
       </header>
 
+      <div className="flex-1 min-h-0">
       <MapContainer
         center={[20.5937, 78.9629]} // India center
         zoom={5}
@@ -350,6 +352,7 @@ const TicketsMap = () => {
           </>
         )}
       </MapContainer>
+      </div>
     </div>
   );
 };
