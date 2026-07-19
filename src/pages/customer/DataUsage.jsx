@@ -68,7 +68,14 @@ export default function DataUsage() {
         todt: toUsageDate(to),
       });
       if (!res.ok) {
-        setMessage("No data available for this period.");
+        // parseError = upstream sent HTML instead of JSON, which it does for
+        // an account it does not recognise. Saying "no data for this period"
+        // would send the customer off changing dates forever.
+        setMessage(
+          res.parseError
+            ? "No usage data is available for this account."
+            : "No data available for this period."
+        );
         return;
       }
       // "Unlimited" is a legitimate balance value, not a number. Android

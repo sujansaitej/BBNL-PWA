@@ -137,6 +137,38 @@ describe("data usage", () => {
     expect((await getDataUsage({})).ok).toBe(false);
   });
 
+  test("a PHP fatal error (HTML, HTTP 200) is not-ok rather than a thrown parse error", async () => {
+    // Verbatim shape of what the live host returns for an account it does not
+    // recognise — captured 2026-07-19 with apiuserid=THIS_USER_DOES_NOT_EXIST_XYZ.
+    // It is HTTP 200 with an HTML body, so `resp.ok` does NOT catch it.
+    const { getDataUsage } = await import("./serviceHome.js");
+    fetchMock.mockResolvedValue(
+      mockResponse(
+        "<br />\n<b>Fatal error</b>:  Call to a member function query() on string in " +
+          "<b>/var/www/html/best2/application/models/CustomerModel.php</b> on line <b>36</b><br />"
+      )
+    );
+
+    // Must not reject: "Server returned an invalid response. Please try again."
+    // blames the network and invites a retry that can never succeed.
+    const r = await getDataUsage({ apiuserid: "ghost" });
+    expect(r.ok).toBe(false);
+    expect(r.parseError).toBe(true);
+    expect(r.balance).toBe("");
+  });
+
+  test("a well-formed error response is NOT flagged as a parse error", async () => {
+    // Guards the distinction the UI copy depends on: error=2 means "bad
+    // params", HTML means "unknown account". Different messages.
+    const { getDataUsage } = await import("./serviceHome.js");
+    fetchMock.mockResolvedValue(
+      mockResponse({ error: 2, result: ["operator id is missing(apiopid)"] })
+    );
+    const r = await getDataUsage({});
+    expect(r.ok).toBe(false);
+    expect(r.parseError).toBe(false);
+  });
+
   describe("toUsageDate", () => {
     test("formats d-M-yyyy WITHOUT zero padding", async () => {
       const { toUsageDate } = await import("./serviceHome.js");
