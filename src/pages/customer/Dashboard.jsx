@@ -122,8 +122,8 @@ export default function Dashboard() {
     
     const cardItems = [
         { id: 'internet', title: 'Internet', Icon: GlobeAltIcon, path: '/cust/internet' },
-        { id: 'iptv', title: 'IPTV', Icon: TvIcon, path: '/cust/iptv' },
         { id: 'fofi', title: 'FoFi Smart Box', Icon: CpuChipIcon, path: '/cust/fofi' },
+        { id: 'iptv', title: 'IPTV', Icon: TvIcon, path: '/cust/iptv' },
         { id: 'profile', title: 'Profile', Icon: UserIcon, path: '/cust/profile' },
         { id: 'datausage', title: 'Data Usage', Icon: ChartPieIcon, path: '#' },
         { id: 'updateKyc', title: 'Update KYC', Icon: ArrowUpOnSquareStackIcon, path: '#' },

@@ -31,6 +31,13 @@ import {
 const toIdArray = (v) =>
   Array.isArray(v) ? v.filter((x) => x != null && x !== "").map(String) : [];
 
+// MANUAL UI HIDE (product decision, not a data change): the backend's
+// pkgCategories still returns "LCO PACKAGE" and "FOUNDATION PACKAGE", but they
+// must NOT be shown as selectable category tabs in the customer app. We filter
+// them out here by name so the rest of the flow (package lists, mandatory base
+// packs, pricing) is unaffected. To un-hide, remove an entry from this set.
+const HIDDEN_CATEGORY_NAMES = new Set(["lco package", "foundation package"]);
+
 function normalizeCategories(res) {
   const body = res?.body;
   const raw = Array.isArray(body) ? body : Array.isArray(body?.categories) ? body.categories : [];
@@ -41,7 +48,9 @@ function normalizeCategories(res) {
       id: String(c.id ?? c.categoryid ?? c.category_id ?? ""),
       name: c.name || c.title || c.category || "Category",
     }))
-    .filter((c) => c.id);
+    .filter((c) => c.id)
+    // Hidden in the UI on purpose — see HIDDEN_CATEGORY_NAMES above.
+    .filter((c) => !HIDDEN_CATEGORY_NAMES.has(c.name.trim().toLowerCase()));
 }
 
 function parsePackages(res, subscribedIds) {
