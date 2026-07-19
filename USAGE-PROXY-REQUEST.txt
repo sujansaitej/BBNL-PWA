@@ -1,0 +1,131 @@
+========================================================================
+ PWA DATA USAGE REPORT — INFRASTRUCTURE CHANGE REQUEST
+ For: Server / Infrastructure team
+ Re:  One more reverse-proxy rule, same pattern as the Easebuzz one
+========================================================================
+
+Companion to PAYMENT-PROXY-REQUEST.txt. Identical shape of problem and
+identical shape of fix — if you have already applied the Easebuzz rule,
+this is the same change for one more path.
+
+
+--------------------------------------------------------------------
+1. SUMMARY
+--------------------------------------------------------------------
+The customer "Data Usage" screen is blank and shows a network error.
+It needs ONE reverse-proxy rule on the load balancers that serve the
+PWA. No PHP/backend change. No app change.
+
+
+--------------------------------------------------------------------
+2. WHAT THE CUSTOMER SEES
+--------------------------------------------------------------------
+Customer portal -> Internet -> Data Usage -> pick dates -> Check usage:
+
+    "Network error: Failed to fetch"
+
+The native Android app shows the report correctly for the same account
+on the same day.
+
+
+--------------------------------------------------------------------
+3. ROOT CAUSE (why native works and the browser does not)
+--------------------------------------------------------------------
+The usage report does not live on the netmon backend. It lives on a
+third-party host:
+
+    POST https://payurbills.co.in/best2/General/overallAvgUsageReport/
+
+That host answers EVERY request with this fixed header:
+
+    Access-Control-Allow-Origin: https://bbnl.co.in
+
+Note the value. It is STATIC - it does not echo the caller's origin.
+Verified on 2026-07-19 by sending the same request with three different
+Origin headers (our PWA origin, localhost, and none at all): the
+response header was "https://bbnl.co.in" every single time.
+
+  - bbnl.co.in is the CORPORATE/MARKETING website. That is the origin
+    the endpoint was built for.
+  - Our PWA is served from bbnlnetmon.bbnl.in. CORS requires an EXACT
+    origin match, so the browser refuses to let our code read the
+    response.
+  - The NATIVE app is unaffected because native HTTP has no
+    same-origin policy. Android calls the host directly via
+    ApiClient.changeApiBaseUrl(...) and it just works.
+
+The request itself is already byte-for-byte identical to the Android
+app's (same params, same unpadded d-M-yyyy dates, no auth headers).
+Nothing about the API contract is wrong. It is purely a browser rule
+that native apps are exempt from, so it cannot be coded around in the
+PWA.
+
+
+--------------------------------------------------------------------
+4. THE CHANGE WE NEED (the only change)
+--------------------------------------------------------------------
+Add a reverse-proxy rule for this ONE exact path:
+
+  Incoming path (on our domain)                            Proxy to
+  ------------------------------------------------------   ------------------------------------------------------------------
+  /smartphone/crm/usage-api/overallAvgUsageReport/     ->   https://payurbills.co.in/best2/General/overallAvgUsageReport/
+
+Notes:
+  - Method POST, Content-Type application/x-www-form-urlencoded,
+    response is JSON.
+  - Please scope it to exactly this path (NOT a wildcard) so it is not
+    an open proxy - same rule as the Easebuzz paths.
+  - NO PHP/backend change. NO change to any other route. The SPA
+    fallback stays exactly as-is; this one path simply needs to bypass
+    the static/SPA handling and proxy out.
+  - Please apply on ALL THREE load balancers.
+
+
+--------------------------------------------------------------------
+5. CONFIG - nginx
+--------------------------------------------------------------------
+Add inside the server { } block that serves /smartphone/crm, ABOVE the
+SPA fallback:
+
+  location = /smartphone/crm/usage-api/overallAvgUsageReport/ {
+      proxy_pass https://payurbills.co.in/best2/General/overallAvgUsageReport/;
+      proxy_ssl_server_name on;
+      proxy_set_header Host payurbills.co.in;
+  }
+
+
+--------------------------------------------------------------------
+6. CONFIG - Apache
+--------------------------------------------------------------------
+In the vhost (requires mod_proxy, mod_proxy_http, mod_ssl):
+
+  SSLProxyEngine On
+  ProxyPass        "/smartphone/crm/usage-api/overallAvgUsageReport/" "https://payurbills.co.in/best2/General/overallAvgUsageReport/"
+  ProxyPassReverse "/smartphone/crm/usage-api/overallAvgUsageReport/" "https://payurbills.co.in/best2/General/overallAvgUsageReport/"
+
+
+--------------------------------------------------------------------
+7. HOW TO VERIFY (after applying, on any one load balancer)
+--------------------------------------------------------------------
+Run:
+
+  curl -s -X POST \
+    "https://bbnlnetmon.bbnl.in/smartphone/crm/usage-api/overallAvgUsageReport/" \
+    -H "Content-Type: application/x-www-form-urlencoded" \
+    --data "apiopid=&apiuserid=pwauser981&fromdt=1-7-2026&todt=19-7-2026"
+
+  CORRECT (proxy is working):
+    A JSON response, e.g.
+      {"error":0,"result":{"upload":0,"download":0,"total":0,"balance":"Unlimited"}}
+
+  WRONG (rule not active yet):
+    An HTML page ( <!doctype html> ... ) - means the request is still
+    being served by the SPA fallback instead of proxied. NOTE this
+    returns HTTP 200, not 404, so check the BODY not the status code.
+
+Or from the repo:
+
+  node tools/transport-smoke.cjs
+
+  It checks this path and the Easebuzz paths together and prints
+  PASS/FAIL per rule.

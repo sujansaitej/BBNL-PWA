@@ -111,7 +111,7 @@ export default ({ mode }) => {
           importScripts: [basePath + 'sw-nav-preload.js', basePath + 'sw-api-cache.js'],
           // Navigate to cached shell for SPA offline support
           navigateFallback: basePath + 'index.html',
-          navigateFallbackDenylist: [/^\/api/, /^\/iptv-api/, /^\/showimage/, /^\/adimage/],
+          navigateFallbackDenylist: [/^\/api/, /^\/iptv-api/, /^\/showimage/, /^\/adimage/, /^\/usage-api/],
           // Runtime caching strategies for Android Chrome performance
           runtimeCaching: [
             // IPTV channel logos & ad images — CacheFirst
@@ -295,6 +295,20 @@ export default ({ mode }) => {
           changeOrigin: true,
           secure: false,
           rewrite: (p) => p.replace(new RegExp(`^${basePath}ezpay-prod`.replace(/\/{2,}/g, "/")), ""),
+        },
+        // Data usage report lives on payurbills.co.in, a third-party host that
+        // returns a STATIC `Access-Control-Allow-Origin: https://bbnl.co.in`
+        // regardless of the requesting Origin (verified against the live
+        // endpoint). No browser origin but bbnl.co.in can ever read that
+        // response, so this cannot be fixed client-side — Android only works
+        // because native HTTP has no CORS. Proxy it same-origin.
+        // Same arrangement as /ezpay-* above: path under the app base, mirrored
+        // by server.js in prod (the PHP backend is untouched).
+        [`${basePath}usage-api`.replace(/\/{2,}/g, "/")]: {
+          target: "https://payurbills.co.in/best2/General/",
+          changeOrigin: true,
+          secure: false,
+          rewrite: (p) => p.replace(new RegExp(`^${basePath}usage-api`.replace(/\/{2,}/g, "/")), ""),
         },
       },
     }

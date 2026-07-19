@@ -478,6 +478,10 @@ async function run() {
   });
   // Data usage lives on a DIFFERENT HOST with no auth. Dates are d-M-yyyy
   // unpadded, exactly as Android sends them.
+  // Deliberately the absolute upstream URL, not the app's /usage-api proxy
+  // path: this script runs in Node (no CORS) and its job is to verify the
+  // UPSTREAM contract. The app itself must go through the proxy — the host
+  // returns a static ACAO of https://bbnl.co.in and blocks every browser.
   await probe({
     flow: "LINKACCT",
     name: "overallAvgUsageReport (other host)",

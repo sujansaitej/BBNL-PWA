@@ -93,14 +93,22 @@ describe("resetMac", () => {
 //  Data usage — different host, different envelope
 // ══════════════════════════════════════════════════════════════════════
 describe("data usage", () => {
-  test("posts to the payurbills host, NOT the netmon base url", async () => {
+  test("posts same-origin via the proxy, NOT the netmon base url and NOT the upstream host", async () => {
     const { getDataUsage, DATA_USAGE_URL } = await import("./serviceHome.js");
     fetchMock.mockResolvedValue(mockResponse({ error: 0, result: {} }));
     await getDataUsage({ apiopid: "OP1", apiuserid: "u", fromdt: "1-7-2026", todt: "18-7-2026" });
     const { url, headers } = lastRequest();
     expect(url).toBe(DATA_USAGE_URL);
-    expect(url).toBe("https://payurbills.co.in/best2/General/overallAvgUsageReport/");
+    // Path lives under the app base (import.meta.env.BASE_URL) so it routes
+    // like the rest of the app — same seam as easebuzz.getInitiateUrl(). A
+    // root-relative path would escape the app's routing and 404 in prod.
+    expect(url).toBe(`${import.meta.env.BASE_URL || "/"}usage-api/overallAvgUsageReport/`);
+    expect(url).toMatch(/usage-api\/overallAvgUsageReport\/$/);
     expect(url).not.toContain("test.example");
+    // Regression guard: the upstream host returns a static
+    // `Access-Control-Allow-Origin: https://bbnl.co.in`, so calling it
+    // directly from the browser is blocked by CORS ("Failed to fetch").
+    expect(url).not.toContain("payurbills.co.in");
     // No auth on this one at all.
     expect(headers.Authorization).toBeUndefined();
   });

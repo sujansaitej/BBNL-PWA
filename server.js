@@ -503,6 +503,65 @@ function handleEzpayRequest(req, res, strippedUrl) {
   });
 }
 
+// ── Data usage report proxy ──
+// payurbills.co.in answers EVERY request with a static
+// `Access-Control-Allow-Origin: https://bbnl.co.in` — it does not echo the
+// caller's Origin — so the browser blocks it from our origin no matter what we
+// send. Android is unaffected only because native HTTP has no CORS. Same
+// same-origin seam as the Easebuzz proxy above, and locked to the single
+// endpoint so it is never an open proxy.
+const USAGE_HOST = "payurbills.co.in";
+const USAGE_PATH = "/best2/General/overallAvgUsageReport/";
+
+function handleUsageRequest(req, res, strippedUrl) {
+  const m = strippedUrl.match(/^\/usage-api(\/[^?]*)/);
+  const upstreamPath = m && m[1];
+  if (req.method !== "POST" || upstreamPath !== "/overallAvgUsageReport/") {
+    safeWriteHead(res, 404, { "Content-Type": "application/json" });
+    safeEnd(res, JSON.stringify({ error: 1, result: "not_found" }));
+    return;
+  }
+
+  const chunks = [];
+  req.on("data", (c) => chunks.push(c));
+  req.on("end", () => {
+    const body = Buffer.concat(chunks);
+    const upstream = https.request(
+      {
+        host: USAGE_HOST, port: 443, method: "POST", path: USAGE_PATH,
+        headers: {
+          "Content-Type": req.headers["content-type"] || "application/x-www-form-urlencoded",
+          "Content-Length": body.length,
+          Accept: "application/json",
+        },
+        rejectUnauthorized: false,
+        timeout: 30_000,
+      },
+      (up) => {
+        safeWriteHead(res, up.statusCode || 502, {
+          "Content-Type": up.headers["content-type"] || "application/json",
+          "Cache-Control": "no-store",
+        });
+        pipeline(up, res, (err) => {
+          if (err && !isBenign(err)) console.error("[Usage] pipe error:", err.message);
+        });
+      }
+    );
+    upstream.on("timeout", () => upstream.destroy(new Error("upstream timeout")));
+    upstream.on("error", (err) => {
+      console.error("[Usage] upstream error:", err.message);
+      if (!res.headersSent) {
+        safeWriteHead(res, 502, { "Content-Type": "application/json" });
+        safeEnd(res, JSON.stringify({ error: 1, result: "proxy_error" }));
+      }
+    });
+    upstream.end(body);
+  });
+  req.on("error", () => {
+    if (!res.headersSent) { safeWriteHead(res, 400, { "Content-Type": "text/plain" }); safeEnd(res, "Bad request"); }
+  });
+}
+
 // ── Static file server ──
 function serveStatic(req, res) {
   let urlPath = decodeURIComponent(req.url.split("?")[0]);
@@ -571,11 +630,12 @@ const TLS_KEY_PATH = process.env.TLS_KEY_PATH;
 const useTLS = TLS_CERT_PATH && TLS_KEY_PATH;
 
 function requestHandler(req, res) {
-  // Easebuzz initiateLink proxy — match with or without the app base prefix.
+  // Same-origin proxy seams — match with or without the app base prefix.
   {
     let u = req.url;
     if (u.startsWith(BASE_PATH)) u = u.slice(BASE_PATH.length) || "/";
     if (u.startsWith("/ezpay-")) { handleEzpayRequest(req, res, u); return; }
+    if (u.startsWith("/usage-api")) { handleUsageRequest(req, res, u); return; }
   }
 
   // Strip base path prefix from stream requests so the handler sees /stream/...

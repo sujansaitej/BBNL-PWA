@@ -11,9 +11,10 @@
 //
 // The data-usage report does not live on the netmon backend. Android calls
 // ApiClient.changeApiBaseUrl("https://payurbills.co.in/best2/General/")
-// immediately before the request and resets it afterwards. We hardcode the
-// absolute URL instead — same destination, no global mutation to leak into
-// the next call if something throws midway.
+// immediately before the request and resets it afterwards. We go through a
+// same-origin proxy path instead — same destination, no global mutation to
+// leak into the next call if something throws midway, and it clears the CORS
+// wall that blocks the direct call from a browser (see DATA_USAGE_URL).
 
 import { apiFetch, getBaseUrl, readEnvelopeRaw } from "../apiCore";
 
@@ -64,9 +65,24 @@ export async function resetMac({ userid }) {
   };
 }
 
-// ── Data usage (POST · payurbills.co.in · no auth) ───────────────────
+// ── Data usage (POST · payurbills.co.in via proxy · no auth) ─────────
+/**
+ * MUST be same-origin. The upstream host answers every request with a static
+ * `Access-Control-Allow-Origin: https://bbnl.co.in` — it does not echo the
+ * caller's Origin — so a direct browser call from any other origin is blocked
+ * by CORS and fetch rejects with "Failed to fetch". Android is unaffected
+ * because native HTTP has no same-origin policy.
+ *
+ * The path lives UNDER the app base (import.meta.env.BASE_URL, e.g.
+ * /smartphone/crm/) so it routes exactly like the rest of the app — the vite
+ * dev proxy in dev, server.js in prod. A ROOT-relative path would escape the
+ * app's routing and 404 in production. Same seam as easebuzz.getInitiateUrl();
+ * see PAYMENT-PROXY-REQUEST.txt for the load-balancer rule.
+ *
+ * Do NOT "simplify" this back to the absolute URL; it will break the screen.
+ */
 export const DATA_USAGE_URL =
-  "https://payurbills.co.in/best2/General/overallAvgUsageReport/";
+  `${import.meta.env.BASE_URL || "/"}usage-api/overallAvgUsageReport/`;
 
 /**
  * Android formats the dates as `d-M-yyyy` WITHOUT zero padding

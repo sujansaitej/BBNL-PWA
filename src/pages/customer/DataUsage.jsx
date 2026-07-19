@@ -15,6 +15,13 @@ import {
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
 /**
+ * The API returns these as display strings ("29.3 Gb") but sends a bare
+ * numeric 0 when there is no usage — so `value || "—"` would hide a genuine
+ * zero. Only null/undefined/empty deserve the dash.
+ */
+const display = (v) => (v === null || v === undefined || v === "" ? "—" : String(v));
+
+/**
  * Data usage report — port of Android's AverageUserReportFragment.
  *
  * No data loads on mount; the customer picks a date range and submits, which
@@ -64,10 +71,14 @@ export default function DataUsage() {
         setMessage("No data available for this period.");
         return;
       }
-      // "Unlimited" is a legitimate balance value, not a number.
+      // "Unlimited" is a legitimate balance value, not a number. Android
+      // (AverageUserReportFragment:162-167) hides the chart and every value
+      // row and shows the single line `balance + " Data"` — on an unlimited
+      // plan the upload/download/total figures come back as 0 and mean
+      // nothing, so rendering the usual card just yields a grid of dashes.
+      // Match Android.
       if (String(res.balance).toLowerCase() === "unlimited") {
-        setReport(res);
-        setMessage("");
+        setMessage(`${res.balance} Data`);
         return;
       }
       if (usageToNumber(res.total) === 0) {
@@ -179,13 +190,13 @@ export default function DataUsage() {
             )}
 
             <div className="grid grid-cols-2 gap-3">
-              <Stat Icon={ArrowUpTrayIcon} label="Upload" value={report.upload || "—"} />
-              <Stat Icon={ArrowDownTrayIcon} label="Download" value={report.download || "—"} />
+              <Stat Icon={ArrowUpTrayIcon} label="Upload" value={display(report.upload)} />
+              <Stat Icon={ArrowDownTrayIcon} label="Download" value={display(report.download)} />
             </div>
 
             <div className="border-t dark:border-gray-700 pt-3 text-sm space-y-1.5">
-              <Row label="Total used" value={report.total || "—"} />
-              <Row label="Balance" value={report.balance || "—"} />
+              <Row label="Total used" value={display(report.total)} />
+              <Row label="Balance" value={display(report.balance)} />
             </div>
           </div>
         ) : null}

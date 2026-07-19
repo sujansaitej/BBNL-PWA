@@ -125,15 +125,30 @@ export async function fetchImage(url, options = {}) {
   // Production server (bbnlnetmon.bbnl.in) → auth needed
   const isExternalCdn = IPTV_IMAGE_CDN && url.startsWith(IPTV_IMAGE_CDN) && !IPTV_IMAGE_CDN.includes('bbnlnetmon.bbnl.in');
   const needsAuth = !isExternalCdn && IS_PROD;
-  return fetchWithTimeout(url, {
-    ...options,
-    headers: {
-      ...options.headers,
-      "X-App-Package": "com.bbnl.smartphone",
-      ...(needsAuth && {
-        Authorization: BASIC_AUTH,
-        "x-api-key": IPTV_AUTH_KEY,
-      }),
-    },
-  });
+
+  // Send NO custom headers to the external CDN. Any custom header (including
+  // X-App-Package) makes this a non-simple cross-origin request, so the
+  // browser fires a CORS preflight first — and cdn1.bbnl.in is plain nginx
+  // that answers OPTIONS with 405 and sends no Access-Control-Allow-Origin
+  // (verified against the live CDN). That turned every logo prefetch into a
+  // guaranteed two-request failure. Keeping the request "simple" costs us
+  // nothing: the CDN ignores the header anyway.
+  //
+  // NOTE: this alone does not make the cache pipeline work. Reading a
+  // cross-origin response still requires the CDN to send
+  // `Access-Control-Allow-Origin` — see REVERSE-PROXY-PATHS.md. Until then
+  // logos still DISPLAY correctly, because useCachedLogo falls back to
+  // native <img> loading, which is not subject to CORS.
+  const headers = isExternalCdn
+    ? { ...options.headers }
+    : {
+        ...options.headers,
+        "X-App-Package": "com.bbnl.smartphone",
+        ...(needsAuth && {
+          Authorization: BASIC_AUTH,
+          "x-api-key": IPTV_AUTH_KEY,
+        }),
+      };
+
+  return fetchWithTimeout(url, { ...options, headers });
 }
