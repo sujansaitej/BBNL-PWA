@@ -17,6 +17,7 @@
 // wall that blocks the direct call from a browser (see DATA_USAGE_URL).
 
 import { apiFetch, getBaseUrl, readEnvelopeRaw } from "../apiCore";
+import logger from "../../utils/logger";
 
 const GROUP = "CustServiceHome";
 
@@ -106,6 +107,20 @@ export function toUsageDate(d) {
  * with units already attached — "29.3 Gb" — so `balance` can legitimately be
  * the word "Unlimited" rather than a number. Do not parse these as numbers
  * without splitting off the unit.
+ *
+ * NON-JSON RESPONSES ARE EXPECTED HERE. An account this host does not
+ * recognise makes it emit a PHP fatal error as HTML — with HTTP 200:
+ *
+ *   Fatal error: Call to a member function query() on string in
+ *   /var/www/html/best2/application/models/CustomerModel.php on line 36
+ *
+ * (Reproduced 2026-07-19 with `apiuserid=THIS_USER_DOES_NOT_EXIST_XYZ`.)
+ * Letting readEnvelopeRaw throw on that surfaces "Server returned an invalid
+ * response. Please try again." — which blames the network and invites a retry
+ * that can never succeed. Report it as a normal not-ok result instead, so the
+ * screen shows its ordinary empty state. `parseError` is set so the caller can
+ * tell this apart from a clean `error != 0`, and it is logged rather than
+ * swallowed silently.
  */
 export async function getDataUsage({ apiopid, apiuserid, fromdt, todt }) {
   const body = new URLSearchParams({
@@ -123,11 +138,24 @@ export async function getDataUsage({ apiopid, apiuserid, fromdt, todt }) {
   );
   if (!resp.ok) throw new Error(`Could not load the usage report (HTTP ${resp.status})`);
 
-  const data = await readEnvelopeRaw(resp, "getDataUsage");
+  let data;
+  try {
+    data = await readEnvelopeRaw(resp, "getDataUsage");
+  } catch (err) {
+    // Upstream returned HTML (see the note above), not a transport failure —
+    // a retry cannot fix it, so do not present it as one.
+    logger.warn("API", "getDataUsage: non-JSON response (unknown account?)", {
+      apiuserid,
+      error: err?.message,
+    });
+    return { ok: false, parseError: true, upload: "", download: "", total: "", balance: "", raw: null };
+  }
+
   const ok = Number(data?.error) === 0;
   const r = data?.result || {};
   return {
     ok,
+    parseError: false,
     upload: r.upload ?? "",
     download: r.download ?? "",
     total: r.total ?? "",
