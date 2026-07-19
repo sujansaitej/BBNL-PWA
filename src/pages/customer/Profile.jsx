@@ -6,6 +6,7 @@ import { Loader } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { fixImageUrl } from "../../services/iptvImage";
 import { getProfile, editProfile } from "../../services/customer/profile";
+import { isDirty } from "./profileDirty";
 
 /**
  * Customer profile — port of Android's ProfileFragment.
@@ -15,9 +16,15 @@ import { getProfile, editProfile } from "../../services/customer/profile";
  * offers no way to change it, so neither do we. Android's per-field pencil
  * icons are decorative there (no listeners) so they aren't reproduced.
  *
- * Android does no validation beyond a dirty-check; we keep the dirty-check
- * and add mobile/email format checks, since a bad value here silently
- * breaks OTP login and billing mail.
+ * Deliberately as permissive as Android: the ONLY client-side check is the
+ * dirty-check, values are sent untrimmed, and every outcome is the server's
+ * own err_msg. Don't add format validation here without adding it to the
+ * app too — the two must accept exactly the same input.
+ *
+ * Like Android, a successful save updates ONLY the login-account record
+ * (custeEditProfile). The name/mobile shown on service screens comes from
+ * the separate linked-subscriber record, which no customer-side endpoint
+ * can edit. That divergence is native behaviour, not a bug here.
  */
 export default function Profile() {
   if (localStorage.getItem("loginType") !== "customer") {
@@ -32,6 +39,8 @@ export default function Profile() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [photo, setPhoto] = useState("");
+  // Android renders body.username, not the cached login value.
+  const [shownUsername, setShownUsername] = useState(username);
   const [saved, setSaved] = useState(null); // last known server state, for the dirty-check
   const [form, setForm] = useState({ firstname: "", lastname: "", mobileno: "", emailid: "" });
 
@@ -49,6 +58,7 @@ export default function Profile() {
       setForm(next);
       setSaved(next);
       setPhoto(b.photo || "");
+      setShownUsername(b.username || username);
     } catch (err) {
       setError(err?.message || "Could not load your profile.");
     } finally {
@@ -67,30 +77,14 @@ export default function Profile() {
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
-  const dirty = saved && Object.keys(form).some((k) => form[k].trim() !== saved[k]);
-
   const save = async () => {
-    if (!dirty) {
-      toast.add("No changes made.", { type: "info" });
-      return;
-    }
-    if (!/^\d{10}$/.test(form.mobileno.trim())) {
-      toast.add("Enter a valid 10-digit mobile number.", { type: "error" });
-      return;
-    }
-    if (form.emailid.trim() && !/^\S+@\S+\.\S+$/.test(form.emailid.trim())) {
-      toast.add("Enter a valid email address.", { type: "error" });
+    if (!isDirty(form, saved)) {
+      toast.add("No changes made!", { type: "info" });
       return;
     }
     setSaving(true);
     try {
-      const res = await editProfile({
-        username,
-        firstname: form.firstname.trim(),
-        lastname: form.lastname.trim(),
-        mobileno: form.mobileno.trim(),
-        emailid: form.emailid.trim(),
-      });
+      const res = await editProfile({ username, ...form });
       toast.add(res?.status?.err_msg || "Profile updated.", { type: "success" });
       await load(); // Android re-fetches after a successful save
     } catch (err) {
@@ -144,20 +138,15 @@ export default function Profile() {
                   <UserCircleIcon className="w-16 h-16 text-indigo-600 dark:text-indigo-300" />
                 )}
               </div>
-              <p className="text-base font-semibold text-gray-800 dark:text-gray-100">{username}</p>
+              <p className="text-base font-semibold text-gray-800 dark:text-gray-100">{shownUsername}</p>
             </div>
 
             {/* Editable fields */}
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-4 space-y-3">
               {field("First name", "firstname", { placeholder: "First name", autoComplete: "given-name" })}
               {field("Last name", "lastname", { placeholder: "Last name", autoComplete: "family-name" })}
-              {field("Mobile", "mobileno", {
-                placeholder: "Mobile",
-                type: "tel",
-                inputMode: "numeric",
-                maxLength: 10,
-                autoComplete: "tel",
-              })}
+              {/* No maxLength/pattern — Android accepts any text here. */}
+              {field("Mobile", "mobileno", { placeholder: "Mobile", type: "tel", autoComplete: "tel" })}
               {field("Email", "emailid", { placeholder: "Email id", type: "email", autoComplete: "email" })}
 
               <button
