@@ -192,6 +192,12 @@ export default function PaymentSummary() {
         firstname, email, phone,
         surl: window.location.origin, furl: window.location.origin,
         ...udf, hash,
+        // Revenue split — native passes body.bussinessshare_json as
+        // split_payments (CommonPaymentInfoFragment:416,716). The FoFi Easebuzz
+        // account is a split/marketplace merchant: WITHOUT this, a transaction
+        // carries no settlement instruction and Easebuzz errors "Payment
+        // settlement not set properly". Not part of the hash.
+        ...(info.bussinessshare_json ? { split_payments: info.bussinessshare_json } : {}),
       };
 
       addTid(txnid);
