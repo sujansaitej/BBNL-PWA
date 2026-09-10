@@ -2,7 +2,7 @@ import React from "react";
 
 export default function Terms() {
     return (
-        <div className="rounded-lg max-h-[68vh] overflow-y-auto space-y-2 text-gray-800 text-sm leading-relaxed">
+        <div className="rounded-lg max-h-[68vh] overflow-y-auto space-y-2 text-gray-800 dark:text-gray-100 text-sm leading-relaxed">
             <p className="text-lg font-bold">Terms and Conditions</p>
             <p className="text-bold">Please read these terms and conditions carefully before subscribing to our internet service.</p>
 

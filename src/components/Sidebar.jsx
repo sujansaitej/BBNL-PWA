@@ -3,15 +3,21 @@ import { XMarkIcon, GlobeAltIcon, Cog6ToothIcon, UsersIcon, BellAlertIcon, Archi
 import { useContext, useEffect, useState } from "react";
 import { Modal } from "@/components/ui";
 import { useNavigate } from "react-router-dom";
-import { getWalBal } from "../services/generalApis";
-import { lsClearAll } from "../services/lsCache";
+import { getWalBal, getCachedWalletBalance } from "../services/generalApis";
 import { ThemeContext } from '../ThemeContext.jsx'
+import { useAuth } from "../context/AuthContext";
 import useBodyScrollLock from "../hooks/useBodyScrollLock";
 export default function Sidebar({ open, onClose }) {
   const navigate = useNavigate();
+  const { logout: endSession } = useAuth();
   useBodyScrollLock(open);
   const { theme, toggleTheme } = useContext(ThemeContext);
   const [modalOpen, setModalOpen] = useState(false);
+  // The drawer's "Log out" used to call logout() straight from the click, so
+  // the session ended with no way back — while the header's 3-dot menu asked
+  // first. Two doors to the same destructive action, one of them unguarded.
+  // Both franchise and customer branches below route through this instead.
+  const [confirmLogout, setConfirmLogout] = useState(false);
   const user   = JSON.parse(localStorage.getItem('user') || 'null');
   const fname  = user?.firstname ? user.firstname.charAt(0).toUpperCase() + user.firstname.slice(1) : '';
   const lname  = user?.lastname ? user.lastname.charAt(0).toUpperCase() + user.lastname.slice(1) : '';
@@ -20,7 +26,11 @@ export default function Sidebar({ open, onClose }) {
   const photo  = (user?.photo && user?.photo !='path') ? import.meta.env.VITE_API_BASE_URL + import.meta.env.VITE_API_APP_USER_IMG_PATH + user?.photo : import.meta.env.VITE_API_APP_DIR_PATH + import.meta.env.VITE_API_APP_DEFAULT_USER_IMG_PATH;
 
   const logUname = user?.username || '';
-  const [intWB, setIntWB] = useState(null); // null = not yet fetched
+  // Seeded from the last known reading so opening the sidebar shows a figure
+  // immediately. The effect below still refetches with skipCache, so what is
+  // on screen is replaced by a fresh value the moment it arrives — but the
+  // operator never watches an empty box through a 4–45s myWallet call.
+  const [intWB, setIntWB] = useState(() => getCachedWalletBalance(logUname, 'internet'));
   const isCustomer = localStorage.getItem('loginType') === 'customer'? true : false;
   // Fetch wallet balance every time the sidebar opens (skip cache for fresh data)
   useEffect(() => {
@@ -34,10 +44,11 @@ export default function Sidebar({ open, onClose }) {
     }
   }, [open]);
 
+  // Same reasoning as Header.logout — AuthContext is the only writer of the
+  // session, so it must also be the only place that tears one down.
   function logout() {
-    lsClearAll();
-    localStorage.removeItem('user');
-    navigate("/login");
+    endSession();
+    navigate("/login", { replace: true });
   }
   function comingsoon() {
     // alert("The feature will be added very soon!");
@@ -57,7 +68,7 @@ export default function Sidebar({ open, onClose }) {
               <p className="text-xs text-teal-500 dark:text-gray-400">{import.meta.env.VITE_API_APP_DEFAULT_MOB_NO_PREFIX + ' ' + mobile}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"><XMarkIcon className="h-6 w-6" /></button>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-800"><XMarkIcon className="h-6 w-6" /></button>
         </div>
         {!isCustomer &&
         <div className="bg-blue-600 text-white mt-1 p-4 shadow"> {/* rounded-xl mx-4 */}
@@ -114,22 +125,22 @@ export default function Sidebar({ open, onClose }) {
           <nav className="space-y-1">
             {!isCustomer ? (
             <>
-            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); navigate('/customers'); }}><UsersIcon className="h-5 w-5 text-blue bg-blue" /> All Users</button>
-            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); navigate('/customers?filter=expiring'); }}><BellAlertIcon className="h-5 w-5" /> Today's Expiry</button>
-            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); navigate('/tickets'); }}><TicketIcon className="h-5 w-5" /> Tickets</button>
-            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><ArchiveBoxIcon className="h-5 w-5" /> Order History</button>
-            {/* <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><Cog6ToothIcon className="h-5 w-5" /> Settings</button> */}
-            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); navigate('/support'); }}><ChatBubbleOvalLeftEllipsisIcon className="h-5 w-5" /> Support</button>
-            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={toggleTheme}>{theme === 'dark' ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}{theme === 'dark' ? 'Light Theme' : 'Dark Theme'}</button>
-            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); logout(); }}><ArrowRightOnRectangleIcon className="h-5 w-5" /> Log out</button>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); navigate('/customers'); }}><UsersIcon className="h-5 w-5 text-blue bg-blue" /> All Users</button>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); navigate('/customers?filter=expiring'); }}><BellAlertIcon className="h-5 w-5" /> Today's Expiry</button>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); navigate('/tickets'); }}><TicketIcon className="h-5 w-5" /> Tickets</button>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); navigate('/orders'); }}><ArchiveBoxIcon className="h-5 w-5" /> Order History</button>
+            {/* <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><Cog6ToothIcon className="h-5 w-5" /> Settings</button> */}
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); navigate('/support'); }}><ChatBubbleOvalLeftEllipsisIcon className="h-5 w-5" /> Support</button>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-800 w-full text-left" onClick={toggleTheme}>{theme === 'dark' ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}{theme === 'dark' ? 'Light Theme' : 'Dark Theme'}</button>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); setConfirmLogout(true); }}><ArrowRightOnRectangleIcon className="h-5 w-5" /> Log out</button>
             </>
             ) : (
             <>
-            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); navigate('/cust/profile'); }}><UserIcon className="h-5 w-5 text-blue bg-blue" /> Profile</button>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); navigate('/cust/profile'); }}><UserIcon className="h-5 w-5 text-blue bg-blue" /> Profile</button>
             {/* Renew / Bills / Tickets removed — no customer-facing functionality yet. Re-add when built. */}
-            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); comingsoon(); }}><ChatBubbleOvalLeftEllipsisIcon className="h-5 w-5" /> Support</button>
-            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={toggleTheme}>{theme === 'dark' ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}{theme === 'dark' ? 'Light Theme' : 'Dark Theme'}</button>
-            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); logout(); }}><ArrowRightOnRectangleIcon className="h-5 w-5" /> Log out</button>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); navigate('/cust/support'); }}><ChatBubbleOvalLeftEllipsisIcon className="h-5 w-5" /> Support</button>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-800 w-full text-left" onClick={toggleTheme}>{theme === 'dark' ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}{theme === 'dark' ? 'Light Theme' : 'Dark Theme'}</button>
+            <button className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-800 w-full text-left" onClick={() => { onClose(); setConfirmLogout(true); }}><ArrowRightOnRectangleIcon className="h-5 w-5" /> Log out</button>
             </>
             )}
           </nav>
@@ -164,13 +175,38 @@ export default function Sidebar({ open, onClose }) {
       </aside>
     </div>
 
+      {/* Same question, same wording and same button order as the header's
+          3-dot menu (Header.jsx) — one confirmation the operator recognises
+          wherever they log out from. Android asks here too
+          (DashboardLatest.java:301-320). Rendered outside the drawer so it
+          survives the onClose() that closed it. */}
+      <Modal isOpen={confirmLogout} onClose={() => setConfirmLogout(false)} title="Log out?">
+        <p className="text-sm text-gray-600 dark:text-gray-300">Are you sure you want to log out?</p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setConfirmLogout(false)}
+            className="px-4 py-2 rounded-lg text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => { setConfirmLogout(false); logout(); }}
+            className="px-4 py-2 rounded-lg text-sm bg-red-600 text-white font-semibold"
+          >
+            Log out
+          </button>
+        </div>
+      </Modal>
+
       <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)}>
         <h2 className="text-xl font-semibold text-center text-red-500 mb-2">Coming Soon!</h2>
         <img src={import.meta.env.VITE_API_APP_DIR_PATH + 'img/under_dev.jpg'} alt="Modal Info" className="w-70 h-70 mx-auto" />
         <p className="text-center text-violet-900 mt-1">We're working on this feature — check back soon!</p>
         <button
           onClick={() => setModalOpen(false)}
-          className="mt-4 w-full py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium transition"
+          className="mt-4 w-full py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700 dark:text-gray-300 font-medium transition"
         >
           Cancel
         </button>

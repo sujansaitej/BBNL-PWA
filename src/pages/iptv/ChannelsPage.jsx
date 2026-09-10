@@ -38,7 +38,7 @@ const AdBanner = memo(function AdBanner({ ad }) {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="mb-4 rounded-xl overflow-hidden relative col-span-2" style={{ willChange: 'transform, opacity' }}>
-      <div className="aspect-[16/7] bg-gray-50 overflow-hidden">
+      <div className="aspect-[16/7] bg-gray-50 dark:bg-gray-900 overflow-hidden">
         <a href={ad.redirectlink || "#"} target="_blank" rel="noopener noreferrer">
           <motion.img src={proxyImageUrl(ad.content)} alt={ad.description || "Ad"} initial={{ scale: 1.15 }} animate={{ scale: 1 }} transition={{ duration: AD_ZOOM_DURATION, ease: "easeOut" }} className="w-full h-full object-cover" onError={(e) => { e.target.closest(".rounded-xl").style.display = "none"; }} />
         </a>
@@ -59,8 +59,8 @@ const ChannelCard = memo(function ChannelCard({ channel, index, onPlay }) {
   const [cachedSrc, logoRef] = useCachedLogo(hasLogo ? imgSrc : null);
 
   return (
-    <div ref={logoRef} onClick={() => onPlay(channel)} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden cursor-pointer hover:shadow-md active:scale-[0.98] transition-[shadow,transform] duration-150" style={{ contain: 'layout style', contentVisibility: 'auto', containIntrinsicSize: 'auto 185px' }}>
-      <div className="relative aspect-video bg-gray-50 flex items-center justify-center">
+    <div ref={logoRef} onClick={() => onPlay(channel)} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 shadow-sm overflow-hidden cursor-pointer hover:shadow-md active:scale-[0.98] transition-[shadow,transform] duration-150" style={{ contain: 'layout style', contentVisibility: 'auto', containIntrinsicSize: 'auto 185px' }}>
+      <div className="relative aspect-video bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         {cachedSrc ? (<img loading={index < 6 ? undefined : "lazy"} src={cachedSrc} alt={channel.chtitle} className="w-full h-full object-contain p-3" />) : (
           <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-100 to-cyan-100 flex items-center justify-center"><Tv className="w-7 h-7 text-blue-500" /></div>
         )}
@@ -69,7 +69,7 @@ const ChannelCard = memo(function ChannelCard({ channel, index, onPlay }) {
         </div>
       </div>
       <div className="px-3 py-2.5">
-        <h4 className="text-xs font-semibold text-gray-800 truncate">{channel.chtitle}</h4>
+        <h4 className="text-xs font-semibold text-gray-800 dark:text-gray-100 truncate">{channel.chtitle}</h4>
         {channel.chprice !== undefined && (
           <p className="text-[10px] text-gray-400 mt-0.5">{parseFloat(channel.chprice) === 0 ? "Free" : `₹${channel.chprice}`}</p>
         )}
@@ -250,29 +250,29 @@ export default function ChannelsPage() {
     <Layout>
       <div className="px-4 py-5 max-w-lg mx-auto">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-3 mb-4">
-          <button onClick={() => navigate(-1)} className="w-11 h-11 rounded-xl bg-gray-100 flex items-center justify-center hover:bg-gray-200 active:bg-gray-300 transition-colors flex-shrink-0">
+          <button onClick={() => navigate(-1)} className="w-11 h-11 rounded-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-gray-700 active:bg-gray-300 transition-colors flex-shrink-0">
             <ArrowLeft className="w-5 h-5 text-gray-600" />
           </button>
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center shadow-sm flex-shrink-0">
             <LayoutGrid className="w-5 h-5 text-white" />
           </div>
           <div className="min-w-0">
-            <h2 className="text-lg font-bold text-gray-800 truncate">{pageTitle}</h2>
+            <h2 className="text-lg font-bold text-gray-800 dark:text-gray-100 truncate">{pageTitle}</h2>
             <p className="text-xs text-gray-400">{loading ? "Loading..." : `${filteredChannels.length} channel${filteredChannels.length !== 1 ? "s" : ""} available`}</p>
           </div>
         </motion.div>
 
         <div className="relative mb-4">
-          <div className={`flex items-center bg-white border rounded-xl px-3 py-3 shadow-sm transition-[border-color,box-shadow] min-h-[48px] ${listening ? 'border-blue-400 ring-2 ring-blue-200' : 'border-gray-200 focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-200'}`}>
+          <div className={`flex items-center bg-white dark:bg-gray-800 border rounded-xl px-3 py-3 shadow-sm transition-[border-color,box-shadow] min-h-[48px] ${listening ? 'border-blue-400 ring-2 ring-blue-200' : 'border-gray-200 dark:border-gray-700 focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-200'}`}>
             <Search className="w-4 h-4 text-gray-400 mr-2 flex-shrink-0" />
-            <input type="text" placeholder={listening ? "Listening..." : "Search by name or channel number..."} value={search} onChange={(e) => setSearch(e.target.value)} className="w-full outline-none text-sm text-gray-700 dark:text-white bg-transparent placeholder-gray-400" />
+            <input type="text" placeholder={listening ? "Listening..." : "Search by name or channel number..."} value={search} onChange={(e) => setSearch(e.target.value)} className="w-full outline-none text-sm text-gray-700 dark:text-white bg-transparent placeholder-gray-400 dark:placeholder-gray-500" />
             {search && (<button onClick={() => setSearch("")} className="ml-2 flex-shrink-0"><X className="w-4 h-4 text-gray-400" /></button>)}
             {hasSpeechSupport && (
               <div className="flex items-center gap-1 ml-2 flex-shrink-0">
-                <button onClick={cycleVoiceLang} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-[9px] font-bold text-gray-500 hover:bg-gray-200 active:bg-gray-300 transition-colors">
+                <button onClick={cycleVoiceLang} className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-[9px] font-bold text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700 active:bg-gray-300 transition-colors">
                   {voiceLangs.find(l => l.code === voiceLang)?.label}
                 </button>
-                <button onClick={startVoiceSearch} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${micBlocked ? 'bg-gray-200 cursor-not-allowed' : listening ? 'bg-blue-500 animate-pulse' : 'bg-gray-100 hover:bg-gray-200 active:bg-gray-300'}`}>
+                <button onClick={startVoiceSearch} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${micBlocked ? 'bg-gray-200 cursor-not-allowed' : listening ? 'bg-blue-500 animate-pulse' : 'bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 active:bg-gray-300'}`}>
                   {micBlocked ? <MicOff className="w-4 h-4 text-red-400" /> : <Mic className={`w-4 h-4 ${listening ? 'text-white' : 'text-gray-500'}`} />}
                 </button>
               </div>
@@ -320,7 +320,7 @@ export default function ChannelsPage() {
 
         {!loading && !error && filteredChannels.length === 0 && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center justify-center py-20">
-            <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center mb-4"><LayoutGrid className="w-7 h-7 text-gray-300" /></div>
+            <div className="w-14 h-14 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4"><LayoutGrid className="w-7 h-7 text-gray-300" /></div>
             <p className="text-sm text-gray-500 font-medium">No channels found</p>
             <p className="text-xs text-gray-400 mt-1">Try a different search or language</p>
             {search && (<button onClick={() => setSearch("")} className="mt-3 text-sm text-blue-600 font-semibold hover:underline">Clear search</button>)}

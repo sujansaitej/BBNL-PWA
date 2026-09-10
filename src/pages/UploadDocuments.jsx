@@ -614,14 +614,14 @@ export default function UploadDocuments() {
 
   if (!customerData) {
     return (
-      <div className="min-h-dvh flex items-center justify-center bg-gray-50">
+      <div className="min-h-dvh flex items-center justify-center bg-gray-50 dark:bg-gray-900 pb-safe">
         <p className="text-gray-500">No customer data available</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-dvh flex flex-col bg-white">
+    <div className="min-h-dvh flex flex-col bg-white dark:bg-gray-800 pb-safe">
       {/* Blue Gradient Header */}
       <header className="sticky top-0 z-40 flex items-center px-4 pb-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
         <button onClick={() => navigate(-1)} className="p-1 mr-3">
@@ -630,7 +630,7 @@ export default function UploadDocuments() {
         <h1 className="text-lg font-medium text-white">Uploaded Documents</h1>
       </header>
 
-      <div className="flex-1 px-4 py-5 pb-24 bg-gray-50">
+      <div className="flex-1 px-4 py-5 pb-24 bg-gray-50 dark:bg-gray-900">
         {loading ? (
           <Loader text="Loading documents..." />
         ) : uploading ? (
@@ -640,7 +640,7 @@ export default function UploadDocuments() {
         ) : (
           <div className="space-y-5">
             {/* Photo Proof Section */}
-            <div className="bg-white rounded-lg p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
@@ -675,7 +675,7 @@ export default function UploadDocuments() {
                 ) : (
                   <button
                     onClick={() => handleFileUpload('photoProof')}
-                    className="w-28 h-32 border-2 border-dashed border-indigo-300 rounded-xl flex items-center justify-center hover:border-indigo-500 hover:bg-indigo-50 transition-colors bg-white shadow-sm"
+                    className="w-28 h-32 border-2 border-dashed border-indigo-300 rounded-xl flex items-center justify-center hover:border-indigo-500 hover:bg-indigo-50 transition-colors bg-white dark:bg-gray-800 shadow-sm"
                   >
                     <span className="text-5xl text-indigo-600 font-light">+</span>
                   </button>
@@ -684,7 +684,7 @@ export default function UploadDocuments() {
             </div>
 
             {/* Address Proof Section */}
-            <div className="bg-white rounded-lg p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
@@ -722,7 +722,7 @@ export default function UploadDocuments() {
                   <button
                     key={`add-${idx}`}
                     onClick={() => handleFileUpload('addressProof')}
-                    className="w-28 h-32 border-2 border-dashed border-indigo-300 rounded-xl flex items-center justify-center hover:border-indigo-500 hover:bg-indigo-50 transition-colors bg-white shadow-sm"
+                    className="w-28 h-32 border-2 border-dashed border-indigo-300 rounded-xl flex items-center justify-center hover:border-indigo-500 hover:bg-indigo-50 transition-colors bg-white dark:bg-gray-800 shadow-sm"
                   >
                     <span className="text-5xl text-indigo-600 font-light">+</span>
                   </button>
@@ -731,7 +731,7 @@ export default function UploadDocuments() {
             </div>
 
             {/* ID Proof Section */}
-            <div className="bg-white rounded-lg p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
@@ -769,7 +769,7 @@ export default function UploadDocuments() {
                   <button
                     key={`add-${idx}`}
                     onClick={() => handleFileUpload('idProof')}
-                    className="w-28 h-32 border-2 border-dashed border-indigo-300 rounded-xl flex items-center justify-center hover:border-indigo-500 hover:bg-indigo-50 transition-colors bg-white shadow-sm"
+                    className="w-28 h-32 border-2 border-dashed border-indigo-300 rounded-xl flex items-center justify-center hover:border-indigo-500 hover:bg-indigo-50 transition-colors bg-white dark:bg-gray-800 shadow-sm"
                   >
                     <span className="text-5xl text-indigo-600 font-light">+</span>
                   </button>

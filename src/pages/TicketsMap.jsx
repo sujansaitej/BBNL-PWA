@@ -304,7 +304,7 @@ const TicketsMap = () => {
                       {(type === 'PENDING' && closeinit) && 
                       <>
                       <textarea
-                        className={`border p-2 w-full rounded ${closeinitcnt > 0 ? 'border-red-600' : 'border-gray-300'}`}
+                        className={`border p-2 w-full rounded ${closeinitcnt > 0 ? 'border-red-600' : 'border-gray-300 dark:border-gray-600'}`}
                         placeholder="Enter reason to close the job"
                         ref={reasonRef}
                       />

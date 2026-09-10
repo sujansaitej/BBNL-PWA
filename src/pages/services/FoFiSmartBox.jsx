@@ -8,6 +8,7 @@ import { ServiceSelectionModal, Badge, Loader, Alert } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { getUser } from "../../services/safeStorage";
 import { canonicalServiceKey } from "../../constants/services";
+import { fofiAmountDeductable, fofiOperatorShare } from "../../services/fofiPaymentBreakdown";
 
 // Lazy-load QRScanner — only downloaded when user triggers QR scanning
 const QRScanner = lazy(() => import("../../components/QRScanner"));
@@ -35,6 +36,7 @@ import { extractBoxFromItem, detectLinkedTvType, getLinkedTvIdentifier, extractB
 import { raceForFirstMatch } from "../../utils/raceForFirst";
 import { findLinkFofiboxSrvid } from "../../utils/specialPlans";
 import { lsRemove, lsGetStale, lsSet, lsGet } from "../../services/lsCache";
+import { invalidateSubscriptionCaches } from "../../services/subscriptionCache";
 import { refreshServiceController } from "../../services/navigationController";
 import { loadKycWithRetry } from "../../utils/kycRetry";
 import { isExpiredDate } from "../../utils/dateParse";
@@ -950,65 +952,15 @@ function resolveFoFiRegistrationFields(plan) {
     };
 }
 
-function parseFoFiCurrency(value) {
-    if (value === undefined || value === null || value === '') return null;
-    const amount = parseFloat(String(value).replace(/,/g, ''));
-    return Number.isFinite(amount) ? amount : null;
-}
+// parseFoFiCurrency / compactFoFiPlanName / isFoFiFtaOnlyPlan /
+// isFoFiDhamakaOfferPlan removed — see services/fofiPaymentBreakdown.js.
 
-function compactFoFiPlanName(value) {
-    return firstTrimmedValue(value).toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-function isFoFiFtaOnlyPlan(planName) {
-    return compactFoFiPlanName(planName).includes('ftaonly');
-}
-
-function isFoFiDhamakaOfferPlan(planName) {
-    const compact = compactFoFiPlanName(planName);
-    return compact.includes('dhamakaoffer') || compact.includes('dhamaka');
-}
-
-function resolveFoFiAmountDeductable(paymentBody, fallbackPlanName = '') {
-    const planName = firstTrimmedValue(
-        paymentBody?.planname,
-        paymentBody?.plan_name,
-        paymentBody?.serv_name,
-        fallbackPlanName
-    );
-
-    if (isFoFiFtaOnlyPlan(planName)) return 0;
-
-    const explicitAmount = parseFoFiCurrency(
-        paymentBody?.deduction?.totalamount ??
-        paymentBody?.amount_deductable ??
-        paymentBody?.amountdeductable ??
-        paymentBody?.fofi_wallet_deduction ??
-        paymentBody?.wallet_deduction
-    );
-    if (explicitAmount !== null && explicitAmount > 0) return explicitAmount;
-
-    const fofiShare = parseFoFiCurrency(paymentBody?.fofishare);
-    if (fofiShare !== null && fofiShare > 0) return fofiShare;
-
-    const fofiSplit = parseFoFiCurrency(
-        paymentBody?.final_split_data?.FOFI?.amount ??
-        paymentBody?.final_split_data?.fofi?.amount
-    );
-    if (fofiSplit !== null && fofiSplit > 0) return fofiSplit;
-
-    if (isFoFiDhamakaOfferPlan(planName)) return 35.40;
-
-    const totalAmount = parseFoFiCurrency(
-        paymentBody?.total_amt ??
-        paymentBody?.totalamount ??
-        paymentBody?.grandtotal ??
-        paymentBody?.paidamount
-    );
-    if (totalAmount !== null && totalAmount > 0) return totalAmount;
-
-    return explicitAmount !== null ? explicitAmount : 0;
-}
+// Operator Share / Amount Deductable come from services/fofiPaymentBreakdown.js,
+// one Android-parity implementation shared with FofiPayment.jsx:
+//     amountDeductable = total_amt - final_split_data.OPERATOR.amount
+// The copy that lived here climbed a ladder of guesses topped by two hardcoded
+// plan-name rules, and "FOFI-Box + FTA ONLY" hit one of them and returned 0
+// where the Android app showed 181.12. A plan name can never determine a price.
 
 // "Last-known-good" store for the Link-FoFi "Select Plan" dropdown.
 // The backend plan list (registrationNecessities / specialInternetPlans)
@@ -1533,16 +1485,14 @@ function FoFiSmartBox() {
             // behind pre-payment assigned-items or plan details.
             const skipStatusCache = !!refreshData;
 
-            // Invalidate caches if coming back from payment
+            // Invalidate caches if coming back from payment.
+            // This drops the CABLETV plan views as well as the fofi ones: the
+            // subscription that was just renewed is the same one the Cable TV
+            // page reads, so leaving plandets_cabletv_* cached is what made
+            // that page keep showing the pre-payment expiry date.
             if (refreshData) {
-                lsRemove(`uai_fofi_${userid}`);
-                lsRemove(`uai_multi_${userid}`);
-                lsRemove(`uai_voip_${userid}`);
-                lsRemove(`uai_internet_${userid}`);
+                invalidateSubscriptionCaches({ userid });
                 lsRemove(`walbal_${logUname}_fofi`);
-                // Order history will pick up the new transaction
-                lsRemove(`orderhist_${userid}_fofi`);
-                lsRemove(`orderhist_${userid}_all`);
             }
 
             // SWR: only show the spinner when there's nothing to render.
@@ -2334,8 +2284,8 @@ function FoFiSmartBox() {
             const extractedTotal = paymentBody?.total_amt || 0;
             const otherCharges = paymentBody?.other_amt || 0;
             const balanceAmount = paymentBody?.balance_amt || 0;
-            const operatorShare = paymentBody?.oprtrshare || 0;
-            const amountDeductable = resolveFoFiAmountDeductable(paymentBody, resolvedPlan.planName || fofiServiceDetails?.planName);
+            const operatorShare = fofiOperatorShare(paymentBody);
+            const amountDeductable = fofiAmountDeductable(paymentBody);
 
             navigate('/fofi-payment', {
                 state: {
@@ -3018,13 +2968,13 @@ function FoFiSmartBox() {
             const balanceAmount = paymentBody?.balance_amt || 0;
             
             // Extract share info directly from paymentBody
-            const operatorShare = paymentBody?.oprtrshare || 0;
+            const operatorShare = fofiOperatorShare(paymentBody);
             const bbnlShare = parseFloat(paymentBody?.bbnl_share) || 0;
             const softCharge = paymentBody?.softwarecharges || 0;
             const tds = paymentBody?.tds || 0;
             const fofiShare = paymentBody?.fofishare || 0;
             
-            const amountDeductable = resolveFoFiAmountDeductable(paymentBody, selectedPlan?.planname || selectedPlan?.serv_name || selectedPlan?.plan_name);
+            const amountDeductable = fofiAmountDeductable(paymentBody);
 
             const fofiPaymentData = {
                 // Customer & Plan identifiers (using fofi_plans structure)
@@ -3963,11 +3913,11 @@ function FoFiSmartBox() {
                 const extractedTotal = paymentBody?.total_amt || 0;
                 const otherCharges = paymentBody?.other_amt || 0;
                 const balanceAmount = paymentBody?.balance_amt || 0;
-                const operatorShare = paymentBody?.oprtrshare || 0;
+                const operatorShare = fofiOperatorShare(paymentBody);
                 const bbnlShare = parseFloat(paymentBody?.bbnl_share) || 0;
                 const softCharge = paymentBody?.softwarecharges || 0;
                 const tds = paymentBody?.tds || 0;
-                const amountDeductable = resolveFoFiAmountDeductable(paymentBody, selectedPlan?.planname || selectedPlan?.serv_name || selectedPlan?.plan_name);
+                const amountDeductable = fofiAmountDeductable(paymentBody);
 
                 const fofiPaymentData = {
                     userid: username,
@@ -4113,13 +4063,13 @@ function FoFiSmartBox() {
                 const balanceAmount = paymentBody?.balance_amt || 0;
                 
                 // Extract share info directly from paymentBody
-                const operatorShare = paymentBody?.oprtrshare || 0;
+                const operatorShare = fofiOperatorShare(paymentBody);
                 const bbnlShare = parseFloat(paymentBody?.bbnl_share) || 0;
                 const softCharge = paymentBody?.softwarecharges || 0;
                 const tds = paymentBody?.tds || 0;
                 const fofiShare = paymentBody?.fofishare || 0;
                 
-                const amountDeductable = resolveFoFiAmountDeductable(paymentBody, selectedPlan?.planname || selectedPlan?.plan_name);
+                const amountDeductable = fofiAmountDeductable(paymentBody);
 
                 // Prepare payment data for the review page
                 const fofiPaymentData = {
@@ -4310,7 +4260,7 @@ function FoFiSmartBox() {
 
     if (!customerData) {
         return (
-            <div className="min-h-dvh flex flex-col bg-gray-50">
+            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900 pb-safe">
                 <header className="sticky top-0 z-40 flex items-center px-4 pb-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
                     <button onClick={() => navigate(-1)} className="p-1 mr-3">
                         <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -4363,7 +4313,7 @@ function FoFiSmartBox() {
         // ~50 ms instead of a blank loader for 1+ RTT.
 
         return (
-            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
+            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900 pb-safe">
                 {successAlert}
 
                 {/* Header - Matching Internet module exactly */}
@@ -4486,7 +4436,7 @@ function FoFiSmartBox() {
                                             FoFi Box ID
                                         </h3>
                                         {cableTvBoxes.length > 1 ? (
-                                            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-gray-800 rounded-xl border border-indigo-200 dark:border-gray-700 overflow-hidden">
+                                            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-none dark:bg-gray-800 rounded-xl border border-indigo-200 dark:border-gray-700 overflow-hidden">
                                                 <select
                                                     value={selectedCableBoxIdx}
                                                     onChange={e => setSelectedCableBoxIdx(Number(e.target.value))}
@@ -4499,7 +4449,7 @@ function FoFiSmartBox() {
                                                 </select>
                                             </div>
                                         ) : (
-                                            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-gray-800 px-4 py-3 rounded-xl border border-indigo-200 dark:border-gray-700">
+                                            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-none dark:bg-gray-800 px-4 py-3 rounded-xl border border-indigo-200 dark:border-gray-700">
                                                 <p className="text-indigo-600 dark:text-indigo-300 font-semibold text-base break-all">{selectedCableBox.boxId}</p>
                                             </div>
                                         )}
@@ -4573,7 +4523,7 @@ function FoFiSmartBox() {
                                                 <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
                                                 Linked TV Device
                                             </h3>
-                                            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-gray-800 px-4 py-3 rounded-xl border border-indigo-200 dark:border-gray-700 space-y-1">
+                                            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-none dark:bg-gray-800 px-4 py-3 rounded-xl border border-indigo-200 dark:border-gray-700 space-y-1">
                                                 {linkedDeviceNoPlan.deviceType && (
                                                     <p className="text-xs text-indigo-500 dark:text-indigo-400">{linkedDeviceNoPlan.deviceType}</p>
                                                 )}
@@ -4618,7 +4568,7 @@ function FoFiSmartBox() {
                                             FoFi Box ID
                                         </h3>
                                         {allFofiBoxes.length > 1 ? (
-                                            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-gray-800 rounded-xl border border-indigo-200 dark:border-gray-700 overflow-hidden">
+                                            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-none dark:bg-gray-800 rounded-xl border border-indigo-200 dark:border-gray-700 overflow-hidden">
                                                 <select
                                                     value={selectedBoxIdx}
                                                     onChange={e => handleBoxSelect(Number(e.target.value))}
@@ -4633,7 +4583,7 @@ function FoFiSmartBox() {
                                                 </select>
                                             </div>
                                         ) : (
-                                            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-gray-800 px-4 py-3 rounded-xl border border-indigo-200 dark:border-gray-700">
+                                            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-none dark:bg-gray-800 px-4 py-3 rounded-xl border border-indigo-200 dark:border-gray-700">
                                                 <p className="text-indigo-600 dark:text-indigo-300 font-semibold text-base">{fofiServiceDetails?.boxId || 'N/A'}</p>
                                                 {fofiServiceDetails?.deviceType && (
                                                     <p className="text-xs text-indigo-500 dark:text-indigo-400 mt-0.5">{fofiServiceDetails.deviceType}</p>
@@ -4742,7 +4692,7 @@ function FoFiSmartBox() {
     // =====================================================
     if (view === 'upgrade-plans') {
         return (
-            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
+            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900 pb-safe">
                 {successAlert}
 
                 {/* Header - Blue/Indigo gradient matching app theme */}
@@ -4922,7 +4872,7 @@ function FoFiSmartBox() {
         const confirmBoxId = fofiServiceDetails?.boxId || 'N/A';
         
         return (
-            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
+            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900 pb-safe">
                 {successAlert}
 
                 {/* Header - Blue/Indigo gradient matching app theme */}
@@ -5017,7 +4967,7 @@ function FoFiSmartBox() {
     const selectedPlanPrice = selectedPlan?.planrate || selectedPlan?.serv_rates?.prices?.[0] || selectedPlan?.price || selectedPlan?.amount || selectedPlan?.rate || '0';
     
     return (
-        <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
+        <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900 pb-safe">
             {/* QR Scanner Modal — lazy loaded */}
             {showQRScanner && (
                 <Suspense fallback={<Loader text="Loading scanner..." />}>
@@ -5091,7 +5041,7 @@ function FoFiSmartBox() {
                             <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
                             <h2 className="text-lg font-semibold text-indigo-600 dark:text-indigo-400">Linked TV Device</h2>
                         </div>
-                        <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-gray-700/40 px-4 py-3 rounded-xl border border-indigo-200 dark:border-gray-600 space-y-1">
+                        <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-none dark:bg-gray-700/40 px-4 py-3 rounded-xl border border-indigo-200 dark:border-gray-600 space-y-1">
                             {isMeaningfulFoFiValue(boxId) && (
                                 <p className="text-indigo-600 dark:text-indigo-300 font-semibold text-base break-all">{boxId}</p>
                             )}
@@ -5140,7 +5090,7 @@ function FoFiSmartBox() {
                                 value={boxId}
                                 onChange={(e) => setBoxId(e.target.value)}
                                 placeholder="FOFI Box Id*"
-                                className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-800 dark:text-white bg-white dark:bg-gray-700 placeholder-gray-400 transition-[border-color,box-shadow] duration-200"
+                                className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-800 dark:text-white bg-white dark:bg-gray-700 placeholder-gray-400 dark:placeholder-gray-500 transition-[border-color,box-shadow] duration-200"
                             />
                             <button type="button" onClick={handleQRScan} className="absolute right-3 top-1/2 transform -translate-y-1/2 cursor-pointer">
                                 {/* Barcode Icon */}
@@ -5173,7 +5123,7 @@ function FoFiSmartBox() {
                                 value={macAddress}
                                 onChange={(e) => setMacAddress(e.target.value)}
                                 placeholder="FOFI MAC ID*"
-                                className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-800 dark:text-white bg-white dark:bg-gray-700 font-mono text-sm placeholder-gray-400 transition-[border-color,box-shadow] duration-200"
+                                className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-800 dark:text-white bg-white dark:bg-gray-700 font-mono text-sm placeholder-gray-400 dark:placeholder-gray-500 transition-[border-color,box-shadow] duration-200"
                             />
                             <button type="button" onClick={handleQRScan} className="absolute right-3 top-1/2 transform -translate-y-1/2 cursor-pointer">
                                 {/* Barcode Icon */}

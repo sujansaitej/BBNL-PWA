@@ -2,7 +2,9 @@ import React, { useState, useEffect } from "react";
 import { TicketIcon } from '@heroicons/react/24/outline'
 const TicketDialog = ({
   open,
-  type = "close", // "close" | "transfer"
+  type = "close", // "close" | "resolve" | "transfer"
+  // "resolve" is native's Resolve button on the New Connection /
+  // Disconnection tabs (Apis/autoResolve): same reason field as close.
   ticket = {},
   employees = [],
   employeesLoading = false,
@@ -13,6 +15,7 @@ const TicketDialog = ({
   const [selectedEmp, setSelectedEmp] = React.useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const needsReason = type === "close" || type === "resolve";
 
   React.useEffect(() => {
     if (!open) {
@@ -24,7 +27,7 @@ const TicketDialog = ({
   }, [open]);
 
   const handleSubmit = async () => {
-    if (type === "close" && !reason.trim()) {
+    if (needsReason && !reason.trim()) {
       setError("Reason/remark is required.");
       return;
     }
@@ -41,7 +44,7 @@ const TicketDialog = ({
       // toEmpname / toEmpLoginId / toEmpMob for transferTicket.
       const sel = employees.find((e) => String(e.loginid) === String(selectedEmp));
       await onSubmit(
-        type === "close"
+        needsReason
           ? { reason }
           : { toEmpname: sel?.empname || '', toEmpLoginId: sel?.loginid || '', toEmpMob: sel?.empmobile || '' }
       );
@@ -70,10 +73,10 @@ const TicketDialog = ({
             : "opacity-0 scale-95 translate-y-4 invisible"
         }`}
       >
-        <div onClick={(e) => e.stopPropagation()} className="bg-white w-full max-w-md rounded-2xl shadow-xl p-6 flex flex-col gap-2">
+        <div onClick={(e) => e.stopPropagation()} className="scheme-light bg-white w-full max-w-md rounded-2xl shadow-xl p-6 flex flex-col gap-2">
           <h2 className="text-lg font-semibold text-blue-600 dark:text-blue-500 mb-2 justify-center flex">
             <TicketIcon className="h-6 w-6 text-indigo-700 dark:text-indigo-500 mt-0.5 mr-2" />
-            {type === "close" ? "Close Job" : "Transfer Job"}
+            {type === "close" ? "Close Job" : type === "resolve" ? "Resolve Job" : "Transfer Job"}
           </h2>
           <div className={`flex`}>
             <p className="w-24 text-sm text-gray-600">Job ID</p>
@@ -89,24 +92,24 @@ const TicketDialog = ({
           </div>
 
           {/* Conditional fields */}
-          {type === "close" ? (
+          {needsReason ? (
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-500 mb-1">
                 Reason / Remarks <span className="text-red-500">*</span>
               </label>
               <textarea
                 className={`w-full border rounded-lg p-2 text-sm dark:text-gray-500 focus:ring-1 focus:outline-none ${
-                  error && type === "close"
+                  error && needsReason
                     ? "border-red-500"
                     : "border-gray-300"
                 }`}
                 rows="3"
                 value={reason}
                 onChange={(e) => { setReason(e.target.value); setError(""); }}
-                placeholder="Enter reason/remarks for closing the job..."
+                placeholder={type === "resolve" ? "How was the job resolved? (stored with the ticket)" : "Enter reason/remarks for closing the job..."}
                 disabled={loading}
               />
-              {error && type === "close" && (
+              {error && needsReason && (
                 <p className="text-red-500 text-xs">{error}</p>
               )}
             </div>
@@ -142,7 +145,7 @@ const TicketDialog = ({
 
           {/* Buttons */}
           <div className="mt-2 flex justify-center gap-3">
-            {type === "close" ? (
+            {needsReason ? (
               <button
                 onClick={handleSubmit}
                 // disabled={!reason.trim()}
@@ -175,6 +178,8 @@ const TicketDialog = ({
                 ? "Processing..."
                 : type === "close"
                 ? "Close"
+                : type === "resolve"
+                ? "Resolve"
                 : "Transfer"}
               </button>
             ) : (

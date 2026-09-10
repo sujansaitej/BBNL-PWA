@@ -8,7 +8,6 @@ import { loadKycWithRetry } from "../utils/kycRetry";
 import BottomNav from "../components/BottomNav";
 import { formatCustomerId } from "../services/helpers";
 import { useToast } from "@/components/ui/Toast";
-import { Modal } from "@/components/ui";
 import { getUser } from "../services/safeStorage";
 
 // Only these 4 services are shown (matches production)
@@ -78,7 +77,6 @@ export default function Services() {
     const [loading, setLoading] = useState(false);
     const [selectedService, setSelectedService] = useState(null);
     const [uploadLoading, setUploadLoading] = useState(false);
-    const [comingSoonOpen, setComingSoonOpen] = useState(false);
 
     useEffect(() => {
         const userid = customerData?.customer_id || customerData?.username || customerId;
@@ -133,11 +131,6 @@ export default function Services() {
     })();
 
     const handleServiceSelect = (service) => {
-        // Voice Call is not yet available — show Coming Soon popup
-        if (service.id === 'voice') {
-            setComingSoonOpen(true);
-            return;
-        }
         const userid = customerData?.customer_id || customerData?.username || customerId;
         const logUname = getUser()?.username || '';
         prioritizeCustomerService(userid, logUname, service.id);
@@ -174,7 +167,7 @@ export default function Services() {
 
     if (!customerData) {
         return (
-            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
+            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900 pb-safe">
                 <header className="sticky top-0 z-40 flex items-center justify-between px-4 pb-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
                     <div className="flex items-center">
                         <button onClick={() => navigate(-1)} className="p-1 mr-3"><ArrowLeftIcon className="h-6 w-6 text-white" /></button>
@@ -193,7 +186,7 @@ export default function Services() {
     }
 
     return (
-        <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
+        <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900 pb-safe">
             <header className="sticky top-0 z-40 flex items-center justify-between px-4 pb-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
                 <div className="flex items-center">
                     <button onClick={() => navigate(-1)} className="p-1 mr-3"><ArrowLeftIcon className="h-6 w-6 text-white" /></button>
@@ -261,7 +254,7 @@ export default function Services() {
                                         : 'border-gray-300 dark:border-gray-500'
                                 }`}>
                                     {selectedService === service.id && (
-                                        <div className="w-2.5 h-2.5 rounded-full bg-white" />
+                                        <div className="w-2.5 h-2.5 rounded-full bg-white dark:bg-gray-800" />
                                     )}
                                 </div>
                                 <span className="text-base text-gray-800 dark:text-gray-200 font-normal">
@@ -274,13 +267,6 @@ export default function Services() {
             </div>
 
             <BottomNav />
-
-            {/* Coming Soon Modal for Voice Call */}
-            <Modal isOpen={comingSoonOpen} onClose={() => setComingSoonOpen(false)}>
-                <h2 className="text-xl font-semibold text-center text-red-500 mb-2">Coming Soon!</h2>
-                <img src={import.meta.env.VITE_API_APP_DIR_PATH + 'img/under_dev.jpg'} alt="Coming Soon" className="w-70 h-70 mx-auto" />
-                <p className="text-center text-violet-900 mt-1">We're working on this feature — check back soon!</p>
-            </Modal>
         </div>
     );
 }

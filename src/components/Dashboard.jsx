@@ -1,13 +1,15 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { UsersIcon, BellAlertIcon, SignalIcon, TicketIcon, ChartBarIcon, ArchiveBoxIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
+import { UsersIcon, BellAlertIcon, SignalIcon, TicketIcon, ChartBarIcon, ArchiveBoxIcon, ArrowPathIcon, CpuChipIcon } from '@heroicons/react/24/outline'
 import { getAdvertisements, getIptvMobile } from "../services/iptvApi"
 import { proxyImageUrl } from "../services/iptvImage"
 import { Swiper, SwiperSlide } from 'swiper/react'
 import { Autoplay } from 'swiper/modules'
 import 'swiper/css'
-import { getCustList, getTickets, getWalBal } from "../services/generalApis";
+import { getCustList, getTickets, getWalBal, getCachedWalletBalance } from "../services/generalApis";
+import { getFleetCounts } from "../services/ontApis";
+import { ONLINE_THRESHOLD_MIN } from "../constants/ontParams";
 import { Modal } from "@/components/ui";
 import { getUser } from "../services/safeStorage";
 
@@ -16,17 +18,30 @@ export default function Dashboard() {
   const logUname = user.username || "";
   const opId = user.op_id || "";
   const location = useLocation();
-  // null = not yet fetched (shows loading), string = confirmed by backend
-  const [intWB, setIntWB] = useState(null);
-  const [fofiWB, setFofiWB] = useState(null);
+  // null = nothing to show yet (renders the pulsing skeleton), string = a figure.
+  //
+  // Seeded from the LAST KNOWN balance so the card paints immediately instead
+  // of pulsing through the whole round trip. getWalBal caches for 5 minutes,
+  // so every visit past that TTL used to be a cold miss: the operator watched
+  // an empty box for the full myWallet call, which runs 4–45s on this backend.
+  // Reading a stale value first is safe — it is the same number the operator
+  // saw a moment ago, and the network result overwrites it as soon as it
+  // lands. The rest of this app already seeds from lsGetStale for exactly
+  // this reason (Customerlist, IPTVService plan card, FoFiSmartBox overview).
+  const [intWB, setIntWB] = useState(() => getCachedWalletBalance(logUname, 'internet'));
+  const [fofiWB, setFofiWB] = useState(() => getCachedWalletBalance(logUname, 'fofi'));
   const [adList, setAdList] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
-  const [greet, setGreet] = useState(false);
+  const [comingSoonOpen, setComingSoonOpen] = useState(false);
   const [dashboardCounts, setDashboardCounts] = useState({
     todayExpiry: 0,
     liveUsers: 0,
     tickets: 0,
   });
+  // ONT fleet counts come from the ACS, which is a different backend to
+  // everything else on this screen. null = not loaded yet; the tile stays usable
+  // either way, so an ACS outage never blocks the dashboard.
+  const [ontCounts, setOntCounts] = useState(null);
 
   // Show welcome greeting on first login (once)
   useEffect(() => {
@@ -35,7 +50,6 @@ export default function Dashboard() {
     }
     if (localStorage.getItem('firstLogin') === 'true') {
       const timer = setTimeout(() => {
-        setGreet(true);
         setModalOpen(true);
         localStorage.setItem('firstLogin', 'false');
       }, 1000);
@@ -48,15 +62,19 @@ export default function Dashboard() {
   // (e.g. after a payment that changed the actual balance on the server).
   function refreshWalletBalances(skipCache = false) {
     if (!logUname) return;
-    Promise.all([
-      getWalBal({ loginuname: logUname, servicekey: 'internet' }, skipCache).catch(() => null),
-      getWalBal({ loginuname: logUname, servicekey: 'fofi' }, skipCache).catch(() => null),
-    ]).then(([intData, fofiData]) => {
-      if (intData?.status?.err_code === 0)
-        setIntWB((intData?.body?.wallet_balance ?? 0).toFixed(2));
-      if (fofiData?.status?.err_code === 0)
-        setFofiWB((fofiData?.body?.wallet_balance ?? 0).toFixed(2));
-    });
+    // Independent, NOT Promise.all. These are two separate myWallet calls and
+    // one is routinely much slower than the other; batching them made the fast
+    // figure wait for the slow one, so both boxes sat empty for the duration of
+    // the worst call. Each now paints the moment its own call lands.
+    const apply = (servicekey, setter) =>
+      getWalBal({ loginuname: logUname, servicekey }, skipCache)
+        .then((data) => {
+          if (data?.status?.err_code === 0) setter((data?.body?.wallet_balance ?? 0).toFixed(2));
+        })
+        .catch(() => { /* keep the seeded figure rather than blanking it */ });
+
+    apply('internet', setIntWB);
+    apply('fofi', setFofiWB);
     // Warm the cabletv wallet cache too (not displayed here). The cable
     // Checkout screen reads walbal_*_cabletv; without this prefetch its first
     // open is a cold miss and shows "Wallet Balance: Loading…" for the whole
@@ -82,6 +100,14 @@ export default function Dashboard() {
         tickets: ticketData?.status?.err_code === 0 && Array.isArray(ticketData?.body) ? ticketData.body.length : 0,
       });
     });
+
+    // Fired separately from the batch above: the ACS is a different backend on
+    // a different host, so a slow or down ACS must not hold up the customer and
+    // ticket counts that share the Promise.all. Failure is swallowed — the tile
+    // simply shows no figure.
+    getFleetCounts({ opId, thresholdMin: ONLINE_THRESHOLD_MIN, skipCache })
+      .then(setOntCounts)
+      .catch(() => setOntCounts(null));
   }
 
   useEffect(() => {
@@ -146,15 +172,15 @@ export default function Dashboard() {
     { id: 'todayExpiry', title: 'Today Expiry', Icon: BellAlertIcon, path: '/customers?filter=expiring' },
     { id: 'liveUsers', title: 'Live Users', Icon: SignalIcon, path: '/customers?filter=live' },
     { id: 'tickets', title: 'Tickets', Icon: TicketIcon, path: '/tickets' },
-    { id: 'usage', title: 'Data Usage', Icon: ChartBarIcon, path: '#' },
-    { id: 'orders', title: 'Order History', Icon: ArchiveBoxIcon, path: '#' },
-    { id: 'reset', title: 'Reset Mac', Icon: ArrowPathIcon, path: '#' },
+    // Parked 5 Sep 2026: the fleet screen needs more work before operators
+    // see it, so the tile opens the Coming Soon card instead of /devices.
+    // The route itself stays for direct links and for when this flips back.
+    { id: 'devices', title: 'Routers', Icon: CpuChipIcon, path: '/devices', comingSoon: true },
+    { id: 'usage', title: 'Data Usage', Icon: ChartBarIcon, path: '/data-usage' },
+    { id: 'orders', title: 'Order History', Icon: ArchiveBoxIcon, path: '/orders' },
+    { id: 'reset', title: 'Reset Mac', Icon: ArrowPathIcon, path: '/reset-mac' },
   ]
 
-  const underDev = () => {
-    setGreet(false);
-    setModalOpen(true);
-  };
   return (
     <div className="px-4 py-4 space-y-6">
       {/* Wallet Card */}
@@ -179,8 +205,14 @@ export default function Dashboard() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-4 gap-3">
-        {cardItems.map(({ id, title, Icon, path }) => (
-          <Link to={path} key={id} className="bg-white dark:bg-gray-800 rounded-xl p-3 text-center shadow" onClick={path === '#' ? (e) => { e.preventDefault(); underDev(); } : null}>
+        {cardItems.map(({ id, title, Icon, path, comingSoon }) => (
+          <Link
+            to={path}
+            key={id}
+            onClick={comingSoon ? (e) => { e.preventDefault(); setComingSoonOpen(true); } : undefined}
+            aria-haspopup={comingSoon ? "dialog" : undefined}
+            className="bg-white dark:bg-gray-800 rounded-xl p-3 text-center shadow"
+          >
             <div className="mx-auto w-9 h-9 rounded-lg bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center mb-1">
               <Icon className="h-5 w-5 text-indigo-600 dark:text-indigo-300" />
             </div>
@@ -188,6 +220,16 @@ export default function Dashboard() {
             {id === 'todayExpiry' && <p className="mt-1 text-[12px] font-semibold text-indigo-600 dark:text-indigo-300">{dashboardCounts.todayExpiry}</p>}
             {id === 'liveUsers' && <p className="mt-1 text-[12px] font-semibold text-indigo-600 dark:text-indigo-300">{dashboardCounts.liveUsers}</p>}
             {id === 'tickets' && <p className="mt-1 text-[12px] font-semibold text-indigo-600 dark:text-indigo-300">P-{dashboardCounts.tickets}</p>}
+            {/* Online/offline rather than a single total — the offline figure is
+                the one that needs acting on, and burying it inside a total hides
+                exactly the thing worth surfacing on a home screen. */}
+            {id === 'devices' && ontCounts && !comingSoon && (
+              <p className="mt-1 text-[12px] font-semibold">
+                <span className="text-emerald-600 dark:text-emerald-400">{ontCounts.online}</span>
+                <span className="text-gray-400"> / </span>
+                <span className={ontCounts.offline > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-gray-400'}>{ontCounts.offline}</span>
+              </p>
+            )}
           </Link>
         ))}
       </div>
@@ -231,21 +273,26 @@ export default function Dashboard() {
           ))}
         </div>
       </div> */}
+      {/* Coming Soon — the SAME card the sidebar shows (Sidebar.jsx), so the
+          two cannot drift apart in wording or artwork. Currently only the
+          Routers tile opens it. */}
+      <Modal isOpen={comingSoonOpen} onClose={() => setComingSoonOpen(false)}>
+        <h2 className="text-xl font-semibold text-center text-red-500 mb-2">Coming Soon!</h2>
+        <img src={import.meta.env.VITE_API_APP_DIR_PATH + 'img/under_dev.jpg'} alt="Modal Info" className="w-70 h-70 mx-auto" />
+        <p className="text-center text-violet-900 dark:text-violet-300 mt-1">We're working on this feature — check back soon!</p>
+        <button
+          onClick={() => setComingSoonOpen(false)}
+          className="mt-4 w-full py-2 rounded-lg bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 font-medium transition"
+        >
+          Cancel
+        </button>
+      </Modal>
+
+      {/* Welcome. */}
       <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)}>
-        {greet ? (
-          <>
-          <h2 className="text-xl font-semibold text-center text-purple-500 mb-2">Warm Welcome!</h2>
-          <img src={import.meta.env.VITE_API_APP_DIR_PATH + 'img/welcome.png'} alt="Modal Info" className="w-70 h-70 mx-auto" />
-          <p className="text-center text-blue-600 mt-1">We're thrilled to introduce our new platform independent app - designed to bring you a faster, smarter, and more seamless experience!</p>
-          </>
-        ):(
-          <>
-          <h2 className="text-xl font-semibold text-center text-red-500 mb-2">Coming Soon!</h2>
-          <img src={import.meta.env.VITE_API_APP_DIR_PATH + 'img/under_dev.jpg'} alt="Modal Info" className="w-70 h-70 mx-auto" />
-          <p className="text-center text-violet-900 mt-1">We're working on this feature - check back soon!</p>
-          </>
-        )
-        }
+        <h2 className="text-xl font-semibold text-center text-purple-500 mb-2">Warm Welcome!</h2>
+        <img src={import.meta.env.VITE_API_APP_DIR_PATH + 'img/welcome.png'} alt="Modal Info" className="w-70 h-70 mx-auto" />
+        <p className="text-center text-blue-600 mt-1">We're thrilled to introduce our new platform independent app - designed to bring you a faster, smarter, and more seamless experience!</p>
       </Modal>
 
     </div>

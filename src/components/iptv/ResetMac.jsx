@@ -13,7 +13,7 @@ export default function ResetMac({ customer, onBack }) {
     };
 
     return (
-        <div className="min-h-dvh bg-gray-50">
+        <div className="min-h-dvh bg-gray-50 dark:bg-gray-900 pb-safe">
             {/* Header */}
             <div className="bg-teal-500 text-white px-4 py-4 flex items-center gap-3">
                 <button onClick={onBack} className="p-1">
@@ -46,7 +46,7 @@ export default function ResetMac({ customer, onBack }) {
                             type="text"
                             value={customerId}
                             onChange={(e) => setCustomerId(e.target.value)}
-                            className="w-full px-4 py-3 border-b-2 border-gray-300 focus:border-teal-500 outline-none bg-transparent"
+                            className="w-full px-4 py-3 border-b-2 border-gray-300 dark:border-gray-600 focus:border-teal-500 outline-none bg-transparent"
                             placeholder="Enter customer ID"
                         />
                         <PencilIcon className="h-5 w-5 text-teal-500 absolute right-2 top-1/2 -translate-y-1/2" />

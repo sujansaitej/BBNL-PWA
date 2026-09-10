@@ -65,10 +65,10 @@ export default function OrderDetail() {
 
   if (!order) {
     return (
-      <div className="min-h-dvh flex flex-col bg-gray-50">
+      <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900 pb-safe">
         <Header />
         <div className="flex-1 flex items-center justify-center px-4">
-          <div className="text-center py-10 px-6 bg-white rounded-2xl shadow-lg">
+          <div className="text-center py-10 px-6 bg-white dark:bg-gray-800 rounded-2xl shadow-lg">
             <DocumentTextIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <p className="text-gray-500 font-medium mb-4">No order selected</p>
             <button
@@ -91,7 +91,7 @@ export default function OrderDetail() {
   const openInvoice = () => openDocument(getInvoiceUrl(v.orderNumber));
 
   return (
-    <div className="min-h-dvh flex flex-col bg-gray-50">
+    <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900 pb-safe">
       <Header />
 
       {/* Customer banner — Name + User Id */}
@@ -115,7 +115,7 @@ export default function OrderDetail() {
 
       <div className="flex-1 px-4 py-4 pb-24">
         {/* Detail table */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           {serviceType === "internet" ? (
             <>
               {/* Internet TV has no order number — native shows customer + plan. */}
@@ -147,7 +147,7 @@ export default function OrderDetail() {
           <div className="grid grid-cols-2 gap-4 mt-5">
             <button
               onClick={openReceipt}
-              className="flex flex-col items-center gap-2 bg-white rounded-2xl shadow-sm border border-gray-100 py-5 hover:shadow-md active:scale-[0.98] transition-all"
+              className="flex flex-col items-center gap-2 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 py-5 hover:shadow-md active:scale-[0.98] transition-all"
             >
               <span className="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center">
                 <ReceiptRefundIcon className="w-6 h-6 text-indigo-600" />
@@ -156,7 +156,7 @@ export default function OrderDetail() {
             </button>
             <button
               onClick={openInvoice}
-              className="flex flex-col items-center gap-2 bg-white rounded-2xl shadow-sm border border-gray-100 py-5 hover:shadow-md active:scale-[0.98] transition-all"
+              className="flex flex-col items-center gap-2 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 py-5 hover:shadow-md active:scale-[0.98] transition-all"
             >
               <span className="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center">
                 <DocumentArrowDownIcon className="w-6 h-6 text-indigo-600" />

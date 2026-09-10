@@ -7,7 +7,8 @@ import { generateFofiOrder, getFofiPaymentInfo, killFofiTxn, linkFoFiBox, upgrad
 import { getWalBal, getMyPlanDetails, getUserAssignedItems } from "../services/generalApis";
 import { getFofiOrderHistory } from "../services/orderApis";
 import { getUser } from "../services/safeStorage";
-import { lsRemove } from "../services/lsCache";
+import { fofiAmountDeductable } from "../services/fofiPaymentBreakdown";
+import { invalidateSubscriptionCaches } from "../services/subscriptionCache";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -32,24 +33,8 @@ function normalizeText(value) {
   return String(value ?? "").trim().toLowerCase();
 }
 
-function parseFoFiCurrency(value) {
-  if (value === undefined || value === null || value === '') return null;
-  const amount = parseFloat(String(value).replace(/,/g, ''));
-  return Number.isFinite(amount) ? amount : null;
-}
-
-function compactFoFiPlanName(value) {
-  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-function isFoFiFtaOnlyPlan(planName) {
-  return compactFoFiPlanName(planName).includes('ftaonly');
-}
-
-function isFoFiDhamakaOfferPlan(planName) {
-  const compact = compactFoFiPlanName(planName);
-  return compact.includes('dhamakaoffer') || compact.includes('dhamaka');
-}
+// parseFoFiCurrency / compactFoFiPlanName / isFoFiFtaOnlyPlan /
+// isFoFiDhamakaOfferPlan removed — see services/fofiPaymentBreakdown.js.
 
 function getAssignedFoFiItems(response) {
   const body = response?.body || {};
@@ -110,50 +95,12 @@ function planLooksActivated(planResponse, expectedPlanId, expectedPlanName) {
   return hasExpiry && (backendName || backendIds.length > 0);
 }
 
-function resolveFoFiAmountDeductable(paymentBody, { fallback = 0, planName = '' } = {}) {
-  const resolvedPlanName = String(
-    paymentBody?.planname ??
-    paymentBody?.plan_name ??
-    paymentBody?.serv_name ??
-    planName ??
-    ''
-  ).trim();
-
-  if (isFoFiFtaOnlyPlan(resolvedPlanName)) return 0;
-
-  const explicitAmount = parseFoFiCurrency(
-    paymentBody?.deduction?.totalamount ??
-    paymentBody?.amount_deductable ??
-    paymentBody?.amountdeductable ??
-    paymentBody?.fofi_wallet_deduction ??
-    paymentBody?.wallet_deduction
-  );
-  if (explicitAmount !== null && explicitAmount > 0) return explicitAmount;
-
-  const fofiShare = parseFoFiCurrency(paymentBody?.fofishare);
-  if (fofiShare !== null && fofiShare > 0) return fofiShare;
-
-  const fofiSplit = parseFoFiCurrency(
-    paymentBody?.final_split_data?.FOFI?.amount ??
-    paymentBody?.final_split_data?.fofi?.amount
-  );
-  if (fofiSplit !== null && fofiSplit > 0) return fofiSplit;
-
-  if (isFoFiDhamakaOfferPlan(resolvedPlanName)) return 35.40;
-
-  const totalAmount = parseFoFiCurrency(
-    paymentBody?.total_amt ??
-    paymentBody?.totalamount ??
-    paymentBody?.grandtotal ??
-    paymentBody?.paidamount
-  );
-  if (totalAmount !== null && totalAmount > 0) return totalAmount;
-
-  const fallbackAmount = parseFoFiCurrency(fallback);
-  if (fallbackAmount !== null) return fallbackAmount;
-
-  return explicitAmount !== null ? explicitAmount : 0;
-}
+// Operator Share / Amount Deductable come from services/fofiPaymentBreakdown.js,
+// one Android-parity implementation shared with FoFiSmartBox.jsx. The copy that
+// lived here derived the deductable from a ladder of guesses topped by two
+// hardcoded plan-name rules, and "FOFI-Box + FTA ONLY" hit one of them and
+// returned 0 where the app showed 181.12. A plan name can never determine a
+// price — see that module.
 
 function getFoFiOrderRows(response) {
   const body = response?.body;
@@ -330,16 +277,10 @@ export default function FofiPayment() {
     for (let attempt = 0; attempt < delays.length; attempt += 1) {
       if (delays[attempt] > 0) await sleep(delays[attempt]);
 
-      try {
-        lsRemove(`uai_fofi_${userid}`);
-        lsRemove(`uai_multi_${userid}`);
-        lsRemove(`uai_voip_${userid}`);
-        lsRemove(`uai_internet_${userid}`);
-        lsRemove(`plandets_fofi_${userid}_${fofiboxid}`);
-        lsRemove(`plandets_fofi_${userid}_`);
-        lsRemove(`orderhist_${userid}_fofi`);
-        lsRemove(`orderhist_${userid}_all`);
-      } catch (_) { /* best-effort cache invalidation */ }
+      // Clears the cabletv views too, not just fofi. They are the SAME
+      // subscription under two service keys, so this renewal just moved the
+      // Cable TV expiry date as well — see services/subscriptionCache.js.
+      invalidateSubscriptionCaches({ userid });
 
       const [assignedFofiResp, assignedMultiResp, assignedVoipResp, assignedInternetResp, planResp] = await Promise.all([
         getUserAssignedItems('fofi', userid, true).catch(() => null),
@@ -524,7 +465,12 @@ export default function FofiPayment() {
           // Backend team (May 2026): use logged-in operator username
           // instead of hardcoded "superadmin"
           username: loginuname,
-          voipnumber: '',
+          // Was hardcoded ''. Native sends the number the REGISTRATION
+          // response allocated (RegistrationPaymentOverviewActivity.java:306
+          // → PaymnentInfoDetailsRequest.voipnumber, set from body.voipno in
+          // ServiceSubscriptionsActivity.java:1219). Callers that have no VOIP
+          // line pass nothing and still send '', so this is a no-op for them.
+          voipnumber: paymentData?.voipnumber || '',
         });
         if (refreshResp?.status?.err_code !== 0) {
           throw new Error(refreshResp?.status?.err_msg || 'Could not refresh payment details. Please go back and try again.');
@@ -533,9 +479,10 @@ export default function FofiPayment() {
         if (!transactionId) {
           throw new Error('Payment service did not issue a transaction id. Please go back and try again.');
         }
-        refreshedAmountDeductable = resolveFoFiAmountDeductable(refreshResp?.body, {
+        // total_amt − final_split_data.OPERATOR.amount, exactly as native.
+        // Display + overview only; paidamount below stays the full total_amt.
+        refreshedAmountDeductable = fofiAmountDeductable(refreshResp?.body, {
           fallback: refreshedAmountDeductable,
-          planName: paymentData?.planName || paymentDetails?.["Plan Name"] || '',
         });
         // Fresh full total (native's generateorder paidamount) from paymentinfo.
         refreshedTotal = parseFloat(refreshResp?.body?.total_amt) || refreshedTotal;
@@ -627,7 +574,9 @@ export default function FofiPayment() {
         // Backend team (May 2026): use logged-in operator username.
         // Operator identity is represented by the paymentinfo/generateorder username.
         username: loginuname,
-        voipnumber: ""
+        // Must match the voipnumber sent to paymentinfo above — the backend
+        // binds the transaction id to the pair.
+        voipnumber: paymentData?.voipnumber || ""
       };
 
       console.log('🔴 [STEP 1] generateorder REQUEST payload:', JSON.stringify(orderPayload, null, 2));
@@ -649,6 +598,31 @@ export default function FofiPayment() {
         // The backend explicitly rejected the order, so nothing was charged —
         // a clean failure the operator can safely retry.
         const errMsg = orderResponse?.status?.err_msg || orderResponse?.result || 'Failed to generate order';
+
+        // Native, RegistrationPaymentOverviewActivity:398-400 — the same
+        // screen that serves the FoFi upgrade leg:
+        //     if (err_msg.contains("invalid")) closePreviousTransaction(txn);
+        // "Invalid transaction id" means the reservation is unusable but still
+        // OPEN server-side, and nothing else reclaims it: native's back press
+        // (:145-151) does not, and the retry path below re-quotes rather than
+        // reusing the id. Substring match on "invalid" is native's own test,
+        // kept verbatim — a wallet or plan rejection must NOT void an id the
+        // operator can still pay with.
+        if (String(errMsg).toLowerCase().includes('invalid')) {
+          try {
+            await killFofiTxn({
+              userid: orderPayload.userid,
+              username: orderPayload.username,
+              servid: orderPayload.servid,
+              transactionid: orderPayload.transactionid,
+            });
+          } catch (killErr) {
+            // Best-effort, as native treats it: requestFailed() (:565-569)
+            // suppresses the toast for this request tag alone.
+            console.warn('FoFi: could not close the rejected transaction:', killErr?.message);
+          }
+        }
+
         throw Object.assign(new Error(errMsg), { cleanFailure: true });
       }
       // Payment is now done. Any later step that throws must NOT turn this into a
@@ -782,7 +756,8 @@ export default function FofiPayment() {
         <h1 className="text-lg font-medium">Review</h1>
       </div>
 
-      <div className="bg-gray-50 min-h-dvh px-4 py-4">
+      {/* Inside <Layout> — its <main> already pays the bottom inset. */}
+      <div className="bg-gray-50 dark:bg-gray-900 min-h-dvh px-4 py-4">
         <div className="space-y-3">
           {/* Payment Details Heading */}
           <div className="text-center">
@@ -793,7 +768,7 @@ export default function FofiPayment() {
           </div>
 
           {/* Payment Details Card with Purple Left Border */}
-          <div className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 border-l-4 border-purple-600">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 border-l-4 border-purple-600">
             <div className="px-4 py-3">
               {paymentDetails && Object.entries(paymentDetails).map(([key, value], index) => (
                 <div
@@ -806,7 +781,7 @@ export default function FofiPayment() {
                   <span className="text-sm text-gray-600 mx-2">:</span>
                   <span className={`text-sm ${key === 'Total Amount'
                     ? 'text-purple-600 font-semibold'
-                    : 'text-gray-800'
+                    : 'text-gray-800 dark:text-gray-100'
                     }`}>
                     {key === "Plan Name" ? value : `₹${formatToDecimals(value)}`}
                     </span>
@@ -816,7 +791,7 @@ export default function FofiPayment() {
             </div>
 
             {/* More Details Card with Purple Left Border */}
-            <div className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 border-l-4 border-purple-600">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 border-l-4 border-purple-600">
               <div className="px-4 py-3">
                 <h3 className="text-sm font-medium text-purple-600 mb-2">More Details</h3>
                 {moreDetails && Object.entries(moreDetails).map(([key, value], index) => (
@@ -830,7 +805,7 @@ export default function FofiPayment() {
                     <span className="text-sm text-gray-600 mx-2">:</span>
                     <span className={`text-sm ${key === 'Amount Deductable'
                       ? 'text-purple-600 font-semibold'
-                      : 'text-gray-800'
+                      : 'text-gray-800 dark:text-gray-100'
                       }`}>
                       ₹{formatToDecimals(value)}
                     </span>

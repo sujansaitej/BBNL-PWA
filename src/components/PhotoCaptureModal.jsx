@@ -244,9 +244,9 @@ export default function PhotoCaptureModal({
                             onClick={handleShutter}
                             disabled={converting}
                             aria-label="Take photo"
-                            className="pointer-events-auto w-20 h-20 rounded-full bg-white shadow-2xl ring-4 ring-white/40 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed transition-transform active:scale-95"
+                            className="pointer-events-auto w-20 h-20 rounded-full bg-white dark:bg-gray-800 shadow-2xl ring-4 ring-white/40 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed transition-transform active:scale-95"
                         >
-                            <span className="w-[4.25rem] h-[4.25rem] rounded-full border-[3px] border-gray-800 bg-white" />
+                            <span className="w-[4.25rem] h-[4.25rem] rounded-full border-[3px] border-gray-800 bg-white dark:bg-gray-800" />
                         </button>
                     </div>
                 )}

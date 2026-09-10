@@ -231,7 +231,7 @@ export default function InternetPaymentSummary() {
                 <select
                   value={selIdx}
                   onChange={(e) => setSelIdx(Number(e.target.value))}
-                  className="w-full border rounded-lg py-2.5 px-3 text-sm bg-gray-100 dark:bg-gray-900 dark:border-gray-700 text-gray-800 dark:text-white focus:outline-none [&>option]:text-gray-800"
+                  className="w-full border rounded-lg py-2.5 px-3 text-sm bg-gray-100 dark:bg-gray-900 dark:border-gray-700 text-gray-800 dark:text-white focus:outline-none [&>option]:bg-white [&>option]:text-gray-800 dark:[&>option]:bg-gray-900 dark:[&>option]:text-white"
                 >
                   {months.map((m, i) => (
                     <option key={i} value={i}>{m.title || `${m.month} month(s)`}</option>

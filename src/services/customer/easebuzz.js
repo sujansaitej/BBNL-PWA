@@ -113,8 +113,54 @@ export async function initiateLink({ env, params }) {
     },
     body,
   });
+  if (resp.status === 502) {
+    // The .htaccess rule fires this when mod_proxy is missing, rather than
+    // letting the SPA fallback answer with an HTML shell.
+    throw new Error(
+      "Payments are not reachable: the ezpay proxy is not enabled on this server " +
+      "(needs mod_proxy + SSLProxyEngine)."
+    );
+  }
+  if (resp.status === 500) {
+    // THE SPECIFIC SHAPE OF A HALF-WIRED SEAM.
+    // `RewriteRule [P]` to an https backend without `SSLProxyEngine On` makes
+    // Apache answer 500 — the rule matched, the proxy could not be opened.
+    // Easebuzz itself never answers this endpoint with a 500 (a refusal comes
+    // back as HTTP 200 with status:0), so a 500 here is our own deployment.
+    throw new Error(
+      "Payments are not reachable: the server matched the ezpay route but could not " +
+      "open the connection. Enable SSLProxyEngine On in the vhost (Easebuzz is " +
+      "https-only), or add a ProxyPass there as production does."
+    );
+  }
   if (!resp.ok) throw new Error(`Could not start payment (HTTP ${resp.status}).`);
-  const data = await resp.json();
+
+  // THE SPA SHELL COMES BACK AT HTTP 200, so resp.ok does not catch it.
+  // When the deployed .htaccess has no ezpay rule the POST is just an
+  // unmatched path: neither a file nor a directory, so the SPA fallback
+  // rewrites it to index.html. resp.json() then threw
+  // "Unexpected token '<'" into a toast, which tells the operator nothing and
+  // points at Easebuzz rather than at our own deployment.
+  // Measured 2026-08-31: netmontest answered this POST with 10462 bytes of
+  // text/html. Same trap the qr-api seam had — see services/qrAuth.js.
+  const text = await resp.text();
+  if (/^\s*<(?:!doctype|html)/i.test(text)) {
+    throw new Error(
+      "Payments are not reachable: this deployment is missing the ezpay proxy rule, " +
+      "so the request was answered with the app itself. Re-deploy including the " +
+      ".htaccess from this build, and make sure SSLProxyEngine is on."
+    );
+  }
+
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (_) {
+    throw new Error(
+      `Payments returned an unexpected response: "${text.trim().replace(/\s+/g, " ").slice(0, 80)}"`
+    );
+  }
+
   // Success: { status: 1, data: "<access_key>" }. Failure: { status: 0, data: <msg> }.
   if (Number(data?.status) !== 1 || !data?.data) {
     throw new Error(typeof data?.data === "string" ? data.data : "Could not start payment.");

@@ -33,23 +33,23 @@ const Input = forwardRef(
           maxLength={maxLength}
           placeholder=" "
           required={required}
-          className={`peer w-full rounded-xl border px-3 pb-2.5 pt-4 text-base sm:text-sm dark:text-gray-700 bg-white outline-none transition-colors
+          className={`peer w-full rounded-xl border px-3 pb-2.5 pt-4 text-base sm:text-sm text-gray-900 bg-white dark:text-gray-100 dark:bg-gray-800 outline-none transition-colors
             ${error
               ? "border-red-500 focus:border-red-500 focus:ring-red-500"
-              : "border-gray-300 focus:border-blue-500 focus:ring-blue-500"}
+              : "border-gray-300 dark:border-gray-600 focus:border-blue-500 focus:ring-blue-500"}
             ${className}`}
           {...props}
         />
 
         <label
           htmlFor={name}
-          className={`absolute left-2.5 z-[1] bg-white px-1.5 py-0.5 pointer-events-none transition-all duration-200
+          className={`absolute left-2.5 z-[1] bg-white dark:bg-gray-800 px-1.5 py-0.5 pointer-events-none transition-all duration-200
             top-0 text-xs font-medium
             peer-placeholder-shown:top-[26px] peer-placeholder-shown:text-sm peer-placeholder-shown:font-normal
             peer-focus:top-0 peer-focus:text-xs peer-focus:font-medium
             ${error
               ? "text-red-500 peer-focus:text-red-500"
-              : "text-purple-700 peer-placeholder-shown:text-gray-400 peer-focus:text-blue-600"
+              : "text-purple-700 dark:text-purple-300 peer-placeholder-shown:text-gray-400 peer-focus:text-blue-600 dark:peer-focus:text-blue-400"
             }
           `}
         >

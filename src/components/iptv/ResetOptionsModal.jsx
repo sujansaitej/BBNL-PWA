@@ -14,16 +14,16 @@ export default function ResetOptionsModal({ isOpen, onClose, onSelectOption }) {
             onClick={onClose}
         >
             <div
-                className="bg-white rounded-md shadow-2xl w-full max-w-sm"
+                className="bg-white dark:bg-gray-800 rounded-md shadow-2xl w-full max-w-sm"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
-                    <h2 className="text-lg font-semibold text-gray-900">Reset Settings</h2>
+                <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Reset Settings</h2>
                     {/* Close Button */}
                     <button
                         onClick={onClose}
-                        className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full p-1 transition-colors"
+                        className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-800 rounded-full p-1 transition-colors"
                         aria-label="Close"
                     >
                         <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -37,7 +37,7 @@ export default function ResetOptionsModal({ isOpen, onClose, onSelectOption }) {
                     {options.map((option, index) => (
                         <div
                             key={option.id}
-                            className="flex items-center px-5 py-3 cursor-pointer hover:bg-gray-50 transition-colors"
+                            className="flex items-center px-5 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-900 transition-colors"
                             onClick={() => {
                                 onSelectOption(option.id);
                                 onClose();
@@ -47,7 +47,7 @@ export default function ResetOptionsModal({ isOpen, onClose, onSelectOption }) {
                             <span className="text-2xl mr-4">{option.icon}</span>
 
                             {/* Option Name */}
-                            <span className="text-base text-gray-800 font-normal">
+                            <span className="text-base text-gray-800 dark:text-gray-100 font-normal">
                                 {option.name}
                             </span>
                         </div>

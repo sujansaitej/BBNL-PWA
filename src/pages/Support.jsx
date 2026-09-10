@@ -7,8 +7,19 @@ import { AppWindow, Globe, Headset, Tv, PhoneCall, Mail, Smartphone, IndianRupee
 import { WhatsappIcon } from "../components/icons/Whatsappicon";
 import useOpenWhatsApp from "../hooks/useOpenWhatsApp";
 
-export default function Support() {
+/**
+ * Contact card for the support desks.
+ *
+ * `audience` gates the two operator-only blocks. The Android customer app
+ * has no support SCREEN at all — support there is the `call_center_number`
+ * preference plus Raise Ticket — so a customer seeing the Netmon/CRM
+ * helpline and the operator billing desk would be reading numbers that are
+ * not for them. Everything customer-relevant (Internet & VoIP, IPTV) is
+ * shown to both.
+ */
+export default function Support({ audience = "operator" }) {
   const navigate = useNavigate();
+  const isOperator = audience !== "customer";
   const Callto = ({ phone, children }) => {
     return <a href={`tel:${phone}`}>{children}</a>;
  }
@@ -99,6 +110,7 @@ export default function Support() {
           </p>
         </div>
 
+        {isOperator && (<>
         <div className="bg-blue-50 dark:bg-gray-800 rounded-xl p-4 mb-2 text-left space-y-2">
           <div className="flex items-center space-x-2">
             <AppWindow className="w-6 h-8 text-blue-600" />
@@ -134,6 +146,7 @@ export default function Support() {
             </div>
           </p>
         </div>
+        </>)}
 
         {/* <div className="flex items-center justify-center text-blue-600 dark:text-blue-400 font-medium gap-1">
           <span>Continue using browser</span>
@@ -142,18 +155,18 @@ export default function Support() {
       </div>
       {/* <div className="max-w-2xl mx-auto space-y-2 px-3 py-2">
         <div className="space-y-3">
-            <div className="items-center justify-between bg-white p-3 rounded-xl shadow">
-                <h2 className="text-md font-semibold dark:text-gray-700 mb-2">Plan Details</h2>
+            <div className="items-center justify-between bg-white dark:bg-gray-800 p-3 rounded-xl shadow">
+                <h2 className="text-md font-semibold dark:text-gray-100 mb-2">Plan Details</h2>
                 <div className="flex flex-col gap-2 text-sm">
                     
                     <div className="flex">
-                        <span className="w-28 font-medium text-gray-700 dark:text-gray-600">Service Type</span>
-                        <span className="text-gray-500 dark:text-gray-600">Internet</span>
+                        <span className="w-28 font-medium text-gray-700 dark:text-gray-300">Service Type</span>
+                        <span className="text-gray-500 dark:text-gray-400">Internet</span>
                     </div>
 
                     <div className="flex">
-                        <span className="w-28 font-medium text-gray-700 dark:text-gray-600">Plan Name</span>
-                        <span className="text-gray-500 dark:text-gray-600">{ selectedPlan.serv_name }</span>
+                        <span className="w-28 font-medium text-gray-700 dark:text-gray-300">Plan Name</span>
+                        <span className="text-gray-500 dark:text-gray-400">{ selectedPlan.serv_name }</span>
                     </div>
 
                     <div className="flex gap-4">

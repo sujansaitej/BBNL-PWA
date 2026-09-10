@@ -4,6 +4,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { formatToDecimals } from "../services/helpers";
 import { getWalBal } from "../services/generalApis";
 import { getPayDets, payNow } from "../services/registrationApis";
+import { buildInternetBreakdown, amount as toAmount } from "../services/internetPaymentBreakdown";
 import { Button, Loader, Badge, Alert } from "@/components/ui";
 import { getUser, safeGetJSON } from "../services/safeStorage";
 
@@ -24,15 +25,27 @@ export default function Subscribe() {
   // a page refresh between attempts doesn't erase the warning.
   const pendingTimeoutRef = useRef(false);
   const activePaymentRef = useRef(false);
+  // True once the dedicated wallet endpoint has answered. makepayment echoes a
+  // balance too and the two calls race; the dedicated one wins because that is
+  // the figure native gates the payment on.
+  const walletFromApiRef = useRef(false);
 
   // Alert state
   const [alertOpen, setAlertOpen] = useState(false);
   const [alertConfig, setAlertConfig] = useState({ type: 'success', title: '', message: '' });
 
-  const [intWB, setIntWB] = useState(0);
+  // null = wallet balance not known yet. Kept distinct from 0 so the
+  // low-balance gate below cannot block a payment just because the balance
+  // lookup failed.
+  const [intWB, setIntWB] = useState(null);
 
   const [paydet, setPaydet] = useState({});
   const [sharedet, setSharedet] = useState({});
+  // Set when makepayment came back without a usable 1-month breakdown. The
+  // screen then shows the backend's reason instead of a fabricated bill.
+  const [breakdownError, setBreakdownError] = useState("");
+  // result.ispending — native surfaces a notice for anything but "no".
+  const [isPending, setIsPending] = useState(false);
 
   const user = getUser();
   const logUname = user?.username;
@@ -55,7 +68,27 @@ export default function Subscribe() {
   const userid = paymentData?.userid || savedPayment?.userid || regData?.username;
   const servicekey = paymentData?.servicekey || savedPayment?.servicekey || 'internet';
   const customer_op_id = paymentData?.op_id || savedPayment?.op_id || op_id;
-  
+
+  // apiopid, per leg. Native splits this and the PWA did not:
+  //
+  //   renewal / upgrade  RegistrationPaymentOverviewActivity.java:212-214 and
+  //                      EmployeeCommonPaymentInfoFragment.java:151,387 both
+  //                      read PREFS_KEY_OPID — the op_id stored at LOGIN
+  //                      (LoginActivity.java:146), i.e. the operator running
+  //                      the app.
+  //   registration       RegistrationPaymentOverviewActivity.java:219 reads the
+  //                      op_id captured on the new-customer form.
+  //
+  // The PWA sent the CUSTOMER's op_id (from the customer list) on both legs.
+  // For a franchisee paying their own customer the two are identical, which is
+  // why this went unnoticed; they diverge for superadmin and any cross-operator
+  // context, and apiopid is what the backend computes the share split from.
+  // The customer op_id stays as a fallback so an operator whose session is
+  // missing op_id is no worse off than before.
+  const payOpId = regData
+    ? (regData?.op_id || op_id || "")
+    : (op_id || customer_op_id || "");
+
   // Payment attribution must follow the logged-in operator.
   // Do not fall back to a hardcoded actor.
   const payDoneBy = logUname || "";
@@ -68,7 +101,7 @@ export default function Subscribe() {
   // The 'cashpaid' / 'noofmonth' values are populated from the
   // makepayment response below — see getPayDet().
   const payDetsInp = {
-    apiopid: customer_op_id,
+    apiopid: payOpId,
     apptype: import.meta.env.VITE_API_APP_KEY_TYPE,
     apiuserid: userid,
     // Registration leg only — matches native's !isinternetUpgrade branch.
@@ -81,7 +114,11 @@ export default function Subscribe() {
   };
 
   const [payNowInp, setPayNowInp] = useState({
-    apiopid: customer_op_id,
+    // Same split as payDetsInp — native's generateInternetOrder sends the
+    // logged-in operator's op_id on the renewal leg
+    // (EmployeeCommonPaymentInfoFragment.java:446) and the registration form's
+    // on the registration leg (RegistrationPaymentOverviewActivity.java:273).
+    apiopid: payOpId,
     apiuserid: userid,
     applicationname: import.meta.env.VITE_API_APP_KEY_TYPE || "crmapp",
     paymode: "cash",
@@ -96,172 +133,16 @@ export default function Subscribe() {
     noofmonth: 1,
   });
 
-  const parseAmount = (value) => {
-    if (value === null || typeof value === "undefined" || value === "") return null;
-    if (typeof value === "object") {
-      return firstAmount(value.amt, value.amount, value.value, value.total, value.tax_amount);
-    }
-    const cleaned = typeof value === "number"
-      ? String(value)
-      : String(value).replace(/[^\d.-]/g, "");
-    if (!cleaned || cleaned === "-" || cleaned === "." || cleaned === "-.") return null;
-    const num = Number(cleaned);
-    return Number.isFinite(num) ? num : null;
-  };
-
-  const firstAmount = (...values) => {
-    for (const value of values) {
-      const parsed = parseAmount(value);
-      if (parsed !== null) return parsed;
-    }
-    return null;
-  };
-
-  const firstPositiveAmount = (...values) => {
-    for (const value of values) {
-      const parsed = parseAmount(value);
-      if (parsed !== null && parsed > 0) return parsed;
-    }
-    return null;
-  };
-
-  const toAmount = (value) => firstAmount(value) ?? 0;
-
-  const roundCurrency = (value) => Math.round(toAmount(value) * 100) / 100;
-
-  const hasPendingBillingSignal = (raw = {}, det = {}) => {
-    const pendingFlag = String(raw?.ispending ?? det?.ispending ?? "").trim().toLowerCase();
-    if (["yes", "y", "true", "1", "pending"].includes(pendingFlag)) return true;
-
-    const payableSignal = firstPositiveAmount(
-      det?.shareinfo?.checkuserpayable,
-      raw?.shareinfo?.checkuserpayable,
-      det?.checkuserpayable,
-      raw?.checkuserpayable
-    );
-    const penaltySignal = firstPositiveAmount(
-      raw?.penalty?.total,
-      raw?.penalty?.amt,
-      det?.shareinfo?.penaltyamt,
-      raw?.shareinfo?.penaltyamt,
-      det?.penaltyamt,
-      raw?.penaltyamt
-    );
-
-    return payableSignal !== null || penaltySignal !== null;
-  };
-
-  const normalizeInternetBalanceAmount = (raw = {}, det = {}, fallback = {}) => {
-    const oldTotal = firstAmount(raw?.oldtotamt, det?.oldtotamt);
-    const oldPaid = firstAmount(raw?.oldpaidamt, det?.oldpaidamt);
-    const oldBalance =
-      oldTotal !== null && oldPaid !== null && oldTotal > oldPaid
-        ? oldTotal - oldPaid
-        : null;
-
-    const balance = firstPositiveAmount(
-      det?.shareinfo?.balamt,
-      raw?.shareinfo?.balamt,
-      det?.balamt,
-      raw?.balamt,
-      det?.balance_amt,
-      raw?.balance_amt,
-      det?.balanceamount,
-      raw?.balanceamount,
-      det?.balance_amount,
-      raw?.balance_amount,
-      det?.dueamount,
-      raw?.dueamount,
-      raw?.prevbalance,
-      det?.prevbalance,
-      oldBalance,
-      fallback.balanceAmount
-    );
-
-    if (balance === null) return 0;
-    if (hasPendingBillingSignal(raw, det)) return roundCurrency(balance);
-
-    // Preserve the earlier GST-rounding fix: tiny legacy residuals (Re.1
-    // and similar) are not a real customer due unless the API marks the
-    // account/payment as pending.
-    if (balance <= 5) return 0;
-
-    return roundCurrency(balance);
-  };
-
-  const readNestedTaxValue = (source, key) => {
-    if (!source) return undefined;
-    const taxSource = source?.taxdetails?.subtaxes ?? source?.subtaxes ?? source?.tax_details;
-    if (Array.isArray(taxSource)) {
-      const match = taxSource.find((tax) => String(tax?.key || tax?.name || tax?.taxname || tax?.title || tax?.label || "").toUpperCase() === key);
-      return match?.value ?? match?.amount ?? match?.tax_amount ?? match?.amt;
-    }
-    if (taxSource && typeof taxSource === "object") {
-      const direct = taxSource[key] ?? taxSource[key.toLowerCase()];
-      return direct?.value ?? direct?.amount ?? direct?.tax_amount ?? direct?.amt ?? direct;
-    }
-    return undefined;
-  };
-
-  // Read the percentage (rate) of a sub-tax (e.g. CGST "9") from the
-  // same nested taxdetails.subtaxes structure. Used to recompute the
-  // precise tax amount, because makepayment rounds the tax `value` to
-  // whole rupees while the actual invoice/receipt bills the precise
-  // decimal — see computeNestedTax() below.
-  const readNestedTaxPerc = (source, key) => {
-    if (!source) return undefined;
-    const taxSource = source?.taxdetails?.subtaxes ?? source?.subtaxes ?? source?.tax_details;
-    if (Array.isArray(taxSource)) {
-      const match = taxSource.find((tax) => String(tax?.key || tax?.name || tax?.taxname || tax?.title || tax?.label || "").toUpperCase() === key);
-      return match?.perc ?? match?.percent ?? match?.percentage ?? match?.rate;
-    }
-    if (taxSource && typeof taxSource === "object") {
-      const direct = taxSource[key] ?? taxSource[key.toLowerCase()];
-      return direct?.perc ?? direct?.percent ?? direct?.percentage ?? direct?.rate;
-    }
-    return undefined;
-  };
-
-  // Resolve a single GST sub-tax (CGST / SGST) to the PRECISE rupee
-  // amount that the backend invoice/receipt actually bills.
-  //
-  // Why this exists: apis/makepayment returns the tax `value` ROUNDED to
-  // whole rupees (e.g. a real ₹4.58 CGST comes back as 5.00), but
-  // internet/paymentinfo and the printed receipt bill the exact decimal
-  // (4.58). Trusting makepayment's rounded value inflates the displayed
-  // Total above the real invoice; the ~₹1 gap (2 × ₹0.42) is then
-  // recorded as a phantom "Balance Amount" that is not collected on the
-  // first payment and silently eats ₹1 from the operator wallet on every
-  // subsequent renewal, accumulating 1 → 2 → 3 … (QA report 1.3).
-  //
-  // Fix: when the sub-tax percentage and a taxable base are available,
-  // recompute amount = round(base × perc / 100, 2) so Payment Details
-  // matches the receipt exactly. Fall back to the rounded value only when
-  // we cannot recompute (missing perc / base).
-  const computeNestedTax = (det, raw, key, base, fallbackValue) => {
-    const perc = toAmount(readNestedTaxPerc(det, key) ?? readNestedTaxPerc(raw, key));
-    const rawValue = readNestedTaxValue(det, key) ?? readNestedTaxValue(raw, key) ?? fallbackValue;
-    if (perc > 0 && base > 0) {
-      return roundCurrency(base * perc / 100);
-    }
-    return roundCurrency(toAmount(rawValue));
-  };
-
-  // Native parity: `cashpaid` is the FULL customer bill, not the operator
-  // wallet debit. Both native internet paths do exactly this:
-  //   RegistrationPaymentOverviewActivity.java:261  cashpaid = totalAmount
-  //   EmployeeCommonPaymentInfoFragment.java:434     cashpaid = totalAmount
-  // ...where totalAmount = planrates.get_$1().getTotal(). The PWA used to
-  // send shareinfo.totbbnlshare (the "Amount Deductable" figure) here since
-  // the initial commit — a value native never puts in this field. The
-  // wallet debit is derived server-side from the share split; the client
-  // does not get a vote.
-  //
-  // ponytail: prefer the backend's own total; fall back to our computed
-  // total only on the no-planrates paths where native would have bailed out
-  // entirely (it errors instead of paying).
-  const nativeCashPaid = (strict) =>
-    strict.backendTotal > 0 ? strict.backendTotal : strict.totalAmount;
+  // Every figure on this screen now comes from one place —
+  // services/internetPaymentBreakdown.js — which is a field-for-field port of
+  // what the Android app reads out of apis/makepayment. The ~400 lines of
+  // tax/total/balance/deductable derivation that used to live here diverged
+  // from the app on live data (wrong Plan Rate field, recomputed GST,
+  // recomputed Total, wrong Deductable formula) and, worse, silently rendered
+  // a fabricated all-zero bill when the response had no 1-month entry. Please
+  // do not re-inline any of it: the module is pure and covered by
+  // internetPaymentBreakdown.test.js, which pins each row against both the QA
+  // screenshot and the captured production response.
 
   // Native sends othamt/othreason on the REGISTRATION leg only, read from
   // the new-customer model (RegistrationPaymentOverviewActivity.java:217-218
@@ -274,238 +155,14 @@ export default function Subscribe() {
       : {};
 
   // Display-only snapshot of what the operator is looking at when they tap
-  // PROCEED TO PAY. Nothing here reaches the wire — the payload is native's
-  // (see nativeCashPaid) — but it's logged next to the request so a
-  // mismatch between screen and backend is diagnosable from one log line.
-  const deriveInternetSettlement = (details = {}) => ({
-    totalAmount: roundCurrency(details?.["Total Amount"]),
-    balanceAmount: roundCurrency(details?.["Balance Amount"]),
+  // PROCEED TO PAY. Nothing here reaches the wire — the payload is native's —
+  // but it's logged next to the request so a mismatch between screen and
+  // backend is diagnosable from one log line.
+  const deriveInternetSettlement = (details = {}, shares = {}) => ({
+    totalAmount: toAmount(details?.["Total Amount"]),
+    balanceAmount: toAmount(details?.["Balance Amount"]),
+    amountDeductable: toAmount(shares?.["Amount Deductable"]),
   });
-
-  const getMonthOnePlan = (raw) => {
-    if (!raw) return null;
-    if (Array.isArray(raw?.planrates_android)) {
-      return raw.planrates_android.find((p) => Number(p?.month) === 1) || null;
-    }
-    if (raw?.planrates?.["1"]) {
-      return raw.planrates["1"];
-    }
-    if (raw?.planrates && typeof raw.planrates === "object") {
-      const entries = Object.entries(raw.planrates).map(([monthKey, val]) => ({
-        ...(val || {}),
-        month: Number((val && val.month) ?? monthKey),
-      }));
-      return entries.find((p) => Number(p?.month) === 1) || null;
-    }
-    return null;
-  };
-
-  const buildStrictInternetRenewal = (raw, fallback = {}) => {
-    const monthOnePlan = getMonthOnePlan(raw);
-    const det = monthOnePlan || raw || {};
-    const explicitMonthOne = Boolean(monthOnePlan);
-
-    const planRate = toAmount(
-      det?.planrate ??
-      det?.rate ??
-      fallback.planRate
-    );
-
-    // GST is charged on the post-discount taxable base. The backend
-    // exposes it as `subtotal` (falls back to planamt / plan rate when a
-    // breakdown isn't present). We recompute each sub-tax precisely from
-    // its percentage against this base — makepayment rounds the raw tax
-    // `value` to whole rupees, which is what creates the phantom ₹1
-    // balance on renewals (QA report 1.3, see computeNestedTax()).
-    const taxBase = toAmount(
-      det?.subtotal ??
-      det?.planamt ??
-      planRate
-    );
-    const cgst = computeNestedTax(det, raw, "CGST", taxBase, raw?.cgst ?? det?.cgst ?? fallback.cgst);
-    const sgst = computeNestedTax(det, raw, "SGST", taxBase, raw?.sgst ?? det?.sgst ?? fallback.sgst);
-    const otherCharges = toAmount(firstPositiveAmount(
-      raw?.othcharge?.amt,
-      det?.othcharge?.amt,
-      raw?.other_charges,
-      det?.other_charges,
-      raw?.othercharges,
-      det?.othercharges,
-      raw?.other_amt,
-      det?.other_amt,
-      raw?.othamt,
-      det?.othamt,
-      raw?.shareinfo?.othamt,
-      det?.shareinfo?.othamt,
-      fallback.otherCharges
-    ) ?? firstAmount(
-      raw?.othcharge?.amt,
-      det?.othcharge?.amt,
-      raw?.other_charges,
-      det?.other_charges,
-      raw?.othercharges,
-      det?.othercharges,
-      raw?.other_amt,
-      det?.other_amt,
-      raw?.othamt,
-      det?.othamt,
-      raw?.shareinfo?.othamt,
-      det?.shareinfo?.othamt,
-      fallback.otherCharges
-    ));
-    const balanceAmount = normalizeInternetBalanceAmount(raw, det, fallback);
-    const computedTotal = roundCurrency(planRate + cgst + sgst + otherCharges);
-    const candidateTotal = toAmount(
-      explicitMonthOne
-        ? (det?.total ?? det?.totalamt)
-        : 0
-    );
-    const backendPayable = firstPositiveAmount(
-      det?.shareinfo?.checkuserpayable,
-      raw?.shareinfo?.checkuserpayable,
-      det?.checkuserpayable,
-      raw?.checkuserpayable,
-      det?.payable_amt,
-      raw?.payable_amt,
-      det?.payableamount,
-      raw?.payableamount,
-      det?.grandtotal,
-      raw?.grandtotal
-    );
-    const baseTotal = roundCurrency(
-      computedTotal ||
-      (candidateTotal > 0 ? candidateTotal : fallback.totalAmount)
-    );
-    const totalAmount = roundCurrency(
-      backendPayable && backendPayable > 0
-        ? backendPayable
-        : balanceAmount > 0 && baseTotal < roundCurrency(computedTotal + balanceAmount)
-          ? roundCurrency(baseTotal + balanceAmount)
-          : baseTotal
-    );
-
-    const candidateOperatorDebit = toAmount(
-      explicitMonthOne
-        ? (det?.shareinfo?.totbbnlshare ?? det?.totbbnlshare)
-        : 0
-    );
-    const operatorDebit = roundCurrency(
-      candidateOperatorDebit > 0
-        ? candidateOperatorDebit
-        : (
-          fallback.operatorDebit ??
-          raw?.shareinfo?.totbbnlshare ??
-          raw?.totbbnlshare ??
-          totalAmount
-        )
-    );
-
-    // Internet renewals never display a carry-forward balance. Every
-    // backend balance signal here — oldtotamt/oldpaidamt difference,
-    // prevbalance, balanceamount, or shareinfo.balamt — is a
-    // share-settlement residual (customer total − operator wallet
-    // debit), NOT a real customer due. Surfacing it as "Balance Amount"
-    // is exactly what made the receipt accumulate 20 → 40 → 60 on each
-    // renewal. The customer pays the full cycle bill, so the displayed
-    // balance is always zero.
-    // Updated behavior: normalized backend balances are displayed; only
-    // tiny non-pending rounding residuals are suppressed upstream.
-    const displayBalanceAmount = balanceAmount;
-
-    return {
-      planName: raw?.planname || det?.planname || fallback.planName || "N/A",
-      planRate,
-      cgst,
-      sgst,
-      otherCharges,
-      balanceAmount: displayBalanceAmount,
-      totalAmount,
-      // The backend's own `total` for the 1-month entry, untouched. This
-      // is the exact value the native app sends as `cashpaid`
-      // (RegistrationPaymentOverviewActivity.generateInternetOrder →
-      // planrates.get_$1().getTotal()). Kept separate from `totalAmount`
-      // because the PWA recomputes GST precisely for DISPLAY, and the
-      // wire value must stay byte-identical to native.
-      backendTotal: candidateTotal,
-      operatorShare: toAmount(
-        raw?.optrshare ??
-        det?.shareinfo?.optrshare ??
-        det?.optrshare ??
-        fallback.operatorShare
-      ),
-      bbnlShare: toAmount(
-        raw?.bbnlshare ??
-        det?.shareinfo?.bbnlshare ??
-        det?.bbnlshare ??
-        fallback.bbnlShare
-      ),
-      softwareCharges: toAmount(
-        raw?.softcharge ??
-        det?.shareinfo?.softcharge ??
-        det?.softcharge ??
-        fallback.softwareCharges
-      ),
-      tds: toAmount(
-        raw?.tds ??
-        det?.shareinfo?.tds ??
-        det?.tds ??
-        fallback.tds
-      ),
-      operatorDebit,
-    };
-  };
-
-  const applyInternetPaymentBreakdown = (raw) => {
-    const strict = buildStrictInternetRenewal(raw, {
-      planName: paydet?.["Plan Name"],
-      planRate: paydet?.["Plan Rate"],
-      cgst: paydet?.["CGST"],
-      sgst: paydet?.["SGST"],
-      otherCharges: paydet?.["Other Charges"],
-      totalAmount: paydet?.["Total Amount"],
-      balanceAmount: paydet?.["Balance Amount"],
-      operatorShare: sharedet?.["Operator Share"],
-      bbnlShare: sharedet?.["BBNL Share"],
-      softwareCharges: sharedet?.["Software Charges"],
-      tds: sharedet?.["TDS"],
-      // Seed from the displayed Amount Deductable, NOT payNowInp.cashpaid —
-      // that field now carries native's customer total, so using it here
-      // would show the full bill as the wallet debit.
-      operatorDebit: sharedet?.["Amount Deductable"],
-    });
-
-    setPaydet(prev => ({
-      ...prev,
-      "Plan Name": strict.planName,
-      "Plan Rate": strict.planRate,
-      "CGST": strict.cgst,
-      "SGST": strict.sgst,
-      "Other Charges": strict.otherCharges,
-      "Balance Amount": strict.balanceAmount,
-      "Total Amount": strict.totalAmount,
-    }));
-
-    setSharedet(prev => ({
-      ...prev,
-      "Operator Share": strict.operatorShare,
-      "BBNL Share": strict.bbnlShare,
-      "Software Charges": strict.softwareCharges,
-      "TDS": strict.tds,
-      "Amount Deductable": strict.operatorDebit,
-    }));
-
-    setPayNowInp(prev => ({
-      ...prev,
-      cashpaid: nativeCashPaid(strict),
-      noofmonth: 1,
-    }));
-
-    return {
-      totalAmount: strict.totalAmount,
-      balanceAmount: strict.balanceAmount,
-      operatorDebit: strict.operatorDebit,
-    };
-  };
 
   useEffect(() => {
     if (userid) {
@@ -562,7 +219,11 @@ export default function Subscribe() {
       };
       const data = await getWalBal(payload);
       if (data?.status?.err_code === 0) {
-        setIntWB(data?.body?.wallet_balance || 0);
+        // Authoritative: native gates the payment on this endpoint's value,
+        // not on the balance echoed inside the makepayment response. The two
+        // calls race, so mark it and stop getPayDet from overwriting it.
+        walletFromApiRef.current = true;
+        setIntWB(toAmount(data?.body?.wallet_balance));
       } else {
         console.error("Failed to fetch wallet balance:", data?.status?.err_msg || "Unknown error");
       }
@@ -574,210 +235,76 @@ export default function Subscribe() {
   async function getPayDet(params) {
     setLoading(true);
     try {
-      console.log("🔵 getPayDet request params:", params);
       const data = await getPayDets(params);
-      console.log("🟢 getPayDet API response:", data);
-      console.log("🟢 Result data:", data?.result);
-      console.log("🟢 planrates_android:", data?.result?.planrates_android);
-      console.log("🟢 planrates:", data?.result?.planrates);
+      const breakdown = buildInternetBreakdown(data);
 
-      // Check for different possible data structures
-      const rawPlanRates = (Array.isArray(data?.result?.planrates_android) && data.result.planrates_android.length > 0)
-        ? data.result.planrates_android
-        : data?.result?.planrates;
-      const normalizedPlanRates = Array.isArray(rawPlanRates)
-        ? rawPlanRates
-        : (rawPlanRates && typeof rawPlanRates === 'object')
-          ? Object.entries(rawPlanRates).map(([monthKey, val]) => ({
-            ...(val || {}),
-            month: Number((val && val.month) ?? monthKey)
-          }))
-          : [];
-      const hasPlanRates = normalizedPlanRates.length > 0;
-
-      console.log("🟢 Using planRates:", normalizedPlanRates);
-      console.log("🟢 hasPlanRates:", hasPlanRates);
-
-      // Process result if it exists
-      if (data?.result) {
-        // Set wallet balance
-        setIntWB(data?.result?.wallet?.avlbal || 0);
-        
-        // Also store the passed planDetails from navigation state for fallback
-        const passedPlanDetails = paymentData?.planDetails?.body || savedPayment?.planDetails?.body || {};
-        const passedInternetService = passedPlanDetails?.subscribed_services?.find(s => s?.servicekey?.toLowerCase() === 'internet');
-        const passedPlanName = passedInternetService?.planname || passedInternetService?.plan_name || passedPlanDetails?.planname || 'N/A';
-        const passedPlanRate = parseFloat(passedInternetService?.planrate || passedInternetService?.serv_rates?.prices?.[0] || passedPlanDetails?.planrate || 0);
-
-        // Last-resort seed: when arriving from the registration
-        // flow the backend may not yet have propagated the plan
-        // association — getPayDets returns a result with no
-        // planrates and no direct fields. Without a fallback the
-        // operator stares at a "Plan Name: N/A, Total: ₹0.00"
-        // screen and the PROCEED TO PAY button does nothing
-        // useful. The plan they picked is stored in localStorage
-        // by Plans.jsx, so we use it as the displayed plan when
-        // the API gives us nothing.
-        const localPlan = !hasPlanRates && (!data?.result?.planname && !data?.result?.total) ? safeGetJSON('selectedPlan', null) : null;
-
-        if (hasPlanRates) {
-          // Pick the 1-month entry from the planrates array.
-          // The API returns entries for months 1, 3, 6, 12 —
-          // we MUST always pick the 1-month breakdown for standard renewals.
-          let det = normalizedPlanRates.find(p => Number(p.month) === 1)
-            || normalizedPlanRates.find(p => String(p.title || '').includes('1'))
-            || normalizedPlanRates[0];
-          
-          console.log("🟢 Selected plan details (det):", det);
-
-          // CRITICAL FIX: If the backend only returned multi-month plans,
-          // we still force noofmonth to 1, but we should log a warning.
-          const noofmonth = 1;
-
-          if (det && Number(det.month) !== 1) {
-            console.error("❌ CRITICAL: Backend did not return a 1-month plan rate. Selected month:", det.month);
-            // We'll still proceed with noofmonth=1 but the operator should be aware.
-          }
-
-          // IMPORTANT: Use nullish coalescing (??) for ALL numeric fields.
-
-          // The || operator treats 0 as falsy and falls through to wrong
-          // fallback values. The API legitimately returns 0 for many fields
-          // (CGST, SGST, TDS, Balance, etc.).
-          //
-          // Also: det.othcharge is an OBJECT { amt, reason }, not a number —
-          // always read .amt from it.
-          const strict = buildStrictInternetRenewal(data?.result, {
-            planName: passedPlanName,
-            planRate: passedPlanRate,
-          });
-
-          setPaydet({
-            "Plan Name": strict.planName,
-            "Plan Rate": strict.planRate,
-            "CGST": strict.cgst,
-            "SGST": strict.sgst,
-            "Other Charges": strict.otherCharges,
-            "Balance Amount": strict.balanceAmount,
-            "Total Amount": strict.totalAmount,
-          });
-
-          // Amount Deductable = totbbnlshare (sum of bbnlshare + softcharge + tds + gst).
-          // The API does NOT have a dedicated "amountdeductable" field —
-          // totbbnlshare is the correct pre-computed deductable total.
-          setSharedet({
-            "Operator Share": strict.operatorShare,
-            "BBNL Share": strict.bbnlShare,
-            "Software Charges": strict.softwareCharges,
-            "TDS": strict.tds,
-            "Amount Deductable": strict.operatorDebit
-          });
-          setPayNowInp(prev => ({ ...prev, cashpaid: nativeCashPaid(strict), noofmonth }));
-          console.log("✅ Payment details loaded — cashpaid:", nativeCashPaid(strict), "noofmonth:", noofmonth);
-        } else {
-          // No plan rates array, try to use direct result fields
-          console.log("⚠️ No planrates array found, checking direct result fields");
-          console.log("🟢 All result keys:", Object.keys(data?.result));
-
-          // First fallback: planDetails passed from InternetService via navigation state
-          const passedPlanDetails = paymentData?.planDetails?.body || savedPayment?.planDetails?.body || {};
-          const passedInternetService = passedPlanDetails?.subscribed_services?.find(s => s?.servicekey?.toLowerCase() === 'internet');
-          
-          // Second fallback: seed from selectedPlan in localStorage if backend returned
-          // nothing useful. selectedPlan came from Plans.jsx and has
-          // serv_name + serv_rates.prices[0] populated.
-          const localPlan = safeGetJSON('selectedPlan', null);
-
-          const planRate = parseFloat(passedInternetService?.planrate || passedInternetService?.serv_rates?.prices?.[0] || localPlan?.serv_rates?.prices?.[0]) || 0;
-          const planName = passedInternetService?.planname || passedInternetService?.plan_name || localPlan?.serv_name || '';
-
-          const strict = buildStrictInternetRenewal(data?.result, {
-            planName,
-            planRate,
-            totalAmount: passedInternetService?.total ?? planRate,
-          });
-          const cashpaid = nativeCashPaid(strict);
-          // CRITICAL FIX: Always default to 1 month for standard renewals in fallback path too.
-          const noofmonth = 1; // Force 1 month for all standard renewals
-
-          // Set basic details from result, falling back to passed planDetails then localPlan
-          setPaydet({
-            "Plan Name": strict.planName,
-            "Plan Rate": strict.planRate,
-            "CGST": strict.cgst,
-            "SGST": strict.sgst,
-            "Other Charges": strict.otherCharges,
-            "Balance Amount": strict.balanceAmount,
-            "Total Amount": strict.totalAmount,
-          });
-          setSharedet({
-            "Operator Share": strict.operatorShare,
-            "BBNL Share": strict.bbnlShare,
-            "Software Charges": strict.softwareCharges,
-            "TDS": strict.tds,
-            "Amount Deductable": strict.operatorDebit,
-          });
-          setPayNowInp(prev => ({ ...prev, cashpaid, noofmonth }));
-          if (passedInternetService || localPlan) {
-            console.warn("⚠️ Fallback payment details using passed planDetails or localStorage — backend hasn't propagated the plan association yet. cashpaid:", cashpaid, "noofmonth:", noofmonth, "planName:", planName);
-          } else {
-            console.log("⚠️ Fallback payment details from direct result fields — cashpaid:", cashpaid, "noofmonth:", noofmonth);
-          }
-        }
-      } else {
-        console.error("❌ No result in API response — checking passed planDetails or localStorage selectedPlan");
-        // First fallback: use planDetails passed from InternetService via navigation state
-        const passedPlanDetails = paymentData?.planDetails?.body || savedPayment?.planDetails?.body || {};
-        const passedInternetService = passedPlanDetails?.subscribed_services?.find(s => s?.servicekey?.toLowerCase() === 'internet');
-        
-        if (passedInternetService) {
-          const planRate = parseFloat(passedInternetService?.planrate || passedInternetService?.serv_rates?.prices?.[0] || 0);
-          const planName = passedInternetService?.planname || passedInternetService?.plan_name || 'Internet Plan';
-          setPaydet({
-            "Plan Name": planName,
-            "Plan Rate": planRate,
-            "CGST": 0, "SGST": 0,
-            "Other Charges": 0,
-            "Balance Amount": 0,
-            "Total Amount": planRate,
-          });
-          setSharedet({
-            "Operator Share": 0,
-            "BBNL Share": 0,
-            "Software Charges": 0,
-            "TDS": 0,
-            "Amount Deductable": planRate,
-          });
-          setPayNowInp(prev => ({ ...prev, cashpaid: planRate, noofmonth: 1 }));
-          console.warn("⚠️ Using planDetails from navigation state — getPayDets returned no result. PROCEED TO PAY may still work if the backend has the plan associated.");
-        } else {
-          // Second fallback: seed display from localStorage selectedPlan
-          const localPlan = safeGetJSON('selectedPlan', null);
-          if (localPlan) {
-            const planRate = parseFloat(localPlan?.serv_rates?.prices?.[0]) || 0;
-            const planName = localPlan?.serv_name || 'N/A';
-            setPaydet({
-              "Plan Name": planName,
-              "Plan Rate": planRate,
-              "CGST": 0, "SGST": 0,
-              "Other Charges": 0,
-              "Balance Amount": 0,
-              "Total Amount": planRate,
-            });
-            setSharedet({
-              "Operator Share": 0,
-              "BBNL Share": 0,
-              "Software Charges": 0,
-              "TDS": 0,
-              "Amount Deductable": planRate,
-            });
-            setPayNowInp(prev => ({ ...prev, cashpaid: planRate, noofmonth: 1 }));
-            console.warn("⚠️ Seeded Paynow display from localStorage selectedPlan only — getPayDets returned no result. PROCEED TO PAY may still fail if the backend hasn't associated the plan yet.");
-          }
-        }
+      // makepayment carries the operator's balance; getWalBalance() overwrites
+      // it from the dedicated endpoint when there is a customer context. That
+      // is the same pair of calls native makes on this screen
+      // (requestServerForWallet + requestServerForInternet).
+      if (breakdown.walletBalance !== null && !walletFromApiRef.current) {
+        setIntWB(breakdown.walletBalance);
       }
+
+      if (!breakdown.ok) {
+        // No usable 1-month breakdown. This used to fall through to a screen
+        // seeded from navigation state — plan rate from the previous page and
+        // zeros everywhere else — which reads as a real bill and left PROCEED
+        // TO PAY armed with that number as cashpaid, under-billing the
+        // customer. Native hides the payment UI and shows result.message[0]
+        // instead (EmployeeCommonPaymentInfoFragment.java:303-308); so do we.
+        console.error("❌ makepayment returned no usable breakdown", {
+          endpoint: "apis/makepayment",
+          request: params,
+          message: breakdown.message,
+          resultShape:
+            data?.result && typeof data.result === "object"
+              ? Object.keys(data.result)
+              : typeof data?.result,
+        });
+        setBreakdownError(breakdown.message);
+        setIsPending(false);
+        setPaydet({});
+        setSharedet({});
+        setPayNowInp((prev) => ({ ...prev, cashpaid: 0, noofmonth: 1 }));
+        return;
+      }
+
+      setBreakdownError("");
+      setIsPending(breakdown.isPending);
+      setPaydet({
+        "Plan Name": breakdown.planName,
+        "Plan Rate": breakdown.planRate,
+        "CGST": breakdown.cgst,
+        "SGST": breakdown.sgst,
+        "Other Charges": breakdown.otherCharges,
+        "Balance Amount": breakdown.balanceAmount,
+        "Total Amount": breakdown.totalAmount,
+      });
+      setSharedet({
+        "Operator Share": breakdown.operatorShare,
+        "ISP Share": breakdown.ispShare,
+        "Software Charges": breakdown.softwareCharges,
+        "TDS": breakdown.tds,
+        "Amount Deductable": breakdown.amountDeductable,
+      });
+      // cashpaid is the customer's FULL bill, not the wallet debit — the split
+      // is settled server-side (see internetPaymentBreakdown.js).
+      setPayNowInp((prev) => ({ ...prev, cashpaid: breakdown.cashpaid, noofmonth: 1 }));
+      console.log(
+        "✅ Payment details loaded — total:", breakdown.totalAmount,
+        "deductable:", breakdown.amountDeductable,
+        "cashpaid:", breakdown.cashpaid
+      );
     } catch (err) {
       console.error("❌ Error getting payment details:", err);
+      setBreakdownError(
+        err?.message || "Could not load payment details. Please check your network and try again."
+      );
+      setIsPending(false);
+      setPaydet({});
+      setSharedet({});
+      setPayNowInp((prev) => ({ ...prev, cashpaid: 0, noofmonth: 1 }));
     } finally {
       setLoading(false);
     }
@@ -815,6 +342,37 @@ export default function Subscribe() {
   };
 
   const paynow = async (payNowInp) => {
+    // ── Native's pre-pay gate ────────────────────────────────────────
+    // EmployeeCommonPaymentInfoFragment.onViewClicked() :403-413 refuses to
+    // submit unless there is a real bill AND the wallet covers the deductable.
+    // The PWA had neither check, so an operator with an empty wallet reached
+    // savePaymentApi and got a raw backend rejection instead of a clear
+    // "load your wallet" message.
+    const bill = deriveInternetSettlement(paydet, sharedet);
+
+    if (breakdownError || !(bill.totalAmount > 0)) {
+      setAlertConfig({
+        type: 'warning',
+        title: 'No Amount to Pay',
+        message: breakdownError
+          || 'This plan has no payable amount right now. Please go back and reload the customer, then try again.',
+      });
+      setAlertOpen(true);
+      return;
+    }
+
+    // intWB is null only while the balance is genuinely unknown (both lookups
+    // failed) — don't block a legitimate payment on a failed balance read.
+    if (intWB !== null && intWB < bill.amountDeductable) {
+      setAlertConfig({
+        type: 'warning',
+        title: 'Wallet Low Balance',
+        message: `This payment deducts ₹${formatToDecimals(bill.amountDeductable)} from your wallet, which currently holds ₹${formatToDecimals(intWB)}. Load your wallet and try again.`,
+      });
+      setAlertOpen(true);
+      return;
+    }
+
     // One-click guard after a previous timeout: the backend may have
     // already debited the customer even though the browser never got a
     // response. Force the operator to acknowledge before retrying so a
@@ -894,10 +452,10 @@ export default function Subscribe() {
         setAlertOpen(true);
         return;
       }
-      const settlement = deriveInternetSettlement(paydet);
+      const settlement = deriveInternetSettlement(paydet, sharedet);
       const forcedNoofMonth = 1;
-      // Byte-for-byte native parity (see nativeCashPaid): cashpaid carries
-      // the backend's own customer total and `paidamount` is not part of
+      // Byte-for-byte native parity: cashpaid carries the backend's own
+      // customer total (planrates["1"].total) and `paidamount` is not part of
       // this endpoint's native contract at all — neither native internet
       // path sends it. Anything we derive here is display-only.
       const nativeTotal = payNowInp.cashpaid;
@@ -916,6 +474,8 @@ export default function Subscribe() {
         displayOnly: {
           totalAmount: settlement.totalAmount,
           balanceAmount: settlement.balanceAmount,
+          amountDeductable: settlement.amountDeductable,
+          walletBalance: intWB,
         },
       }, null, 2));
       const data = await payNow({
@@ -934,7 +494,7 @@ export default function Subscribe() {
           endpoint: "apis/savePaymentApi",
           request: {
             apiuserid: userid,
-            apiopid: customer_op_id,
+            apiopid: payOpId,
             cashpaid: nativeTotal,
             noofmonth: forcedNoofMonth,
           },
@@ -959,9 +519,13 @@ export default function Subscribe() {
         pendingTimeoutRef.current = false;
         clearPaymentLock();
         try { sessionStorage.removeItem('paymentTimeoutAt'); } catch (_) {}
-        // Optimistic: zero balance display so the operator sees the
-        // payment landed before InternetService re-fetches.
-        setIntWB(0);
+        // Optimistic: reflect the wallet debit that just happened so the
+        // header doesn't still show the pre-payment balance for the 5s before
+        // we navigate. Previously this set the wallet to ₹0.00 outright, which
+        // told the operator their whole wallet had been emptied.
+        setIntWB(prev =>
+          prev === null ? prev : Math.max(0, Math.round((prev - settlement.amountDeductable) * 100) / 100)
+        );
         setPaydet(prev => ({ ...prev, "Balance Amount": 0 }));
         setAlertConfig({
           type: 'success',
@@ -1060,7 +624,9 @@ export default function Subscribe() {
           </button>
           <h1 className="text-lg font-medium">Payment</h1>
         </div>
-        <div className="bg-gray-50 min-h-dvh flex flex-col items-center justify-center px-4">
+        {/* No pb-safe here: this sits inside <Layout>, whose <main> already
+            pays the bottom inset. Both would double it. */}
+        <div className="bg-gray-50 dark:bg-gray-900 min-h-dvh flex flex-col items-center justify-center px-4">
           <p className="text-gray-500 text-center mb-4">No payment data available. Please navigate here from a customer page.</p>
           <button
             onClick={() => navigate('/')}
@@ -1085,21 +651,70 @@ export default function Subscribe() {
         <h1 className="text-lg font-medium">Payment</h1>
       </div>
 
-      <div className="bg-gray-50 min-h-dvh px-4 py-4">
+      <div className="bg-gray-50 dark:bg-gray-900 min-h-dvh px-4 py-4">
         {loading ? (
           <Loader size={10} color="teal" text="Loading payment details..." className="py-10" />
+        ) : breakdownError ? (
+          /* The backend returned no billable 1-month breakdown. Showing a
+             zero-filled card here (what this screen used to do) looks like a
+             real bill and invites the operator to charge the wrong amount, so
+             the reason is surfaced and paying is not offered at all. Both
+             actions are live — never leave the operator on a dead end. */
+          <div className="space-y-3">
+            <div className="text-center">
+              <h3 className="text-base font-medium text-teal-500 mb-1">Payment details</h3>
+              {intWB !== null && (
+                <p className="text-sm font-semibold text-indigo-600">
+                  Wallet Balance : ₹{formatToDecimals(intWB)}
+                </p>
+              )}
+            </div>
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md border-l-4 border-red-500">
+              <div className="px-4 py-4">
+                <h4 className="text-sm font-semibold text-red-600 mb-1">
+                  Payment details unavailable
+                </h4>
+                <p className="text-sm text-gray-700 dark:text-gray-300">{breakdownError}</p>
+              </div>
+            </div>
+            <div className="pt-4 flex flex-col items-center gap-3">
+              <button
+                onClick={() => getPayDet(payDetsInp)}
+                className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold text-sm py-3 px-16 rounded-lg shadow-lg uppercase tracking-wider"
+              >
+                Try Again
+              </button>
+              <button
+                onClick={() => navigate(-1)}
+                className="text-sm font-medium text-indigo-600 hover:underline"
+              >
+                Go Back
+              </button>
+            </div>
+          </div>
         ) : (
           <div className="space-y-3">
             {/* Payment Details Heading */}
             <div className="text-center">
               <h3 className="text-base font-medium text-teal-500 mb-1">Payment details</h3>
               <p className="text-sm font-semibold text-indigo-600">
-                Wallet Balance : ₹{formatToDecimals(intWB)}
+                Wallet Balance : ₹{formatToDecimals(intWB ?? 0)}
               </p>
             </div>
 
+            {/* Pending-payment notice — native shows this whenever
+                result.ispending is anything but "no"
+                (EmployeeCommonPaymentInfoFragment.java:298). */}
+            {isPending && (
+              <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+                <p className="text-xs text-amber-700">
+                  This customer has a payment still pending on the backend. Verify in Order History before collecting again.
+                </p>
+              </div>
+            )}
+
             {/* Payment Details Card with Indigo Left Border */}
-            <div className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 border-l-4 border-indigo-600">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 border-l-4 border-indigo-600">
               <div className="px-4 py-3">
                 {paydet && Object.entries(paydet).map(([key, value], index) => (
                   <div
@@ -1112,7 +727,7 @@ export default function Subscribe() {
                     <span className="text-sm text-gray-600 mx-2">:</span>
                     <span className={`text-sm ${key === 'Total Amount'
                       ? 'text-indigo-600 font-semibold'
-                      : 'text-gray-800'
+                      : 'text-gray-800 dark:text-gray-100'
                       }`}>
                       {key === "Plan Name" ? value : `₹${formatToDecimals(value)}`}
                     </span>
@@ -1122,7 +737,7 @@ export default function Subscribe() {
             </div>
 
             {/* More Details Card with Indigo Left Border */}
-            <div className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 border-l-4 border-indigo-600">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 border-l-4 border-indigo-600">
               <div className="px-4 py-3">
                 <h3 className="text-sm font-medium text-indigo-600 mb-2">More Details</h3>
                 {sharedet && Object.entries(sharedet).map(([key, value], index) => (
@@ -1136,9 +751,9 @@ export default function Subscribe() {
                     <span className="text-sm text-gray-600 mx-2">:</span>
                     <span className={`text-sm ${key === 'Amount Deductable'
                       ? 'text-indigo-600 font-semibold'
-                      : 'text-gray-800'
+                      : 'text-gray-800 dark:text-gray-100'
                       }`}>
-                      ₹{parseFloat(value).toFixed(2)}
+                      ₹{formatToDecimals(value)}
                     </span>
                   </div>
                 ))}
@@ -1149,7 +764,7 @@ export default function Subscribe() {
             <div className="pt-6 flex flex-col items-center">
               <button
                 onClick={() => paynow(payNowInp)}
-                disabled={submitting}
+                disabled={submitting || !(toAmount(paydet?.["Total Amount"]) > 0)}
                 className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold text-sm py-3 px-16 rounded-lg shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wider transition-shadow duration-200"
               >
                 {submitting ? 'Processing...' : 'PROCEED TO PAY'}

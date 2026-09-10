@@ -822,7 +822,7 @@ export default function PlayerPage() {
                 <h3 className="text-[15px] font-bold text-white truncate" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>{currentChannel.chtitle}</h3>
                 <p className="text-[11px] text-white/40 font-medium">{currentChannel.chno ? `CH ${currentChannel.chno}` : ""}{currentChannel.chno && currentChannel.chprice !== undefined ? " · " : ""}{currentChannel.chprice !== undefined ? parseFloat(currentChannel.chprice) === 0 ? "Free" : `₹${currentChannel.chprice}` : ""}</p>
               </div>
-              {status === "playing" && (<div className="flex items-center gap-1.5 bg-red-600 px-3 py-1.5 rounded-md flex-shrink-0"><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" /><span className="relative inline-flex rounded-full h-2 w-2 bg-white" /></span><span className="text-[11px] font-bold text-white tracking-widest">LIVE</span></div>)}
+              {status === "playing" && (<div className="flex items-center gap-1.5 bg-red-600 px-3 py-1.5 rounded-md flex-shrink-0"><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white dark:bg-gray-800 opacity-75" /><span className="relative inline-flex rounded-full h-2 w-2 bg-white dark:bg-gray-800" /></span><span className="text-[11px] font-bold text-white tracking-widest">LIVE</span></div>)}
             </div>
           </motion.div>
         )}

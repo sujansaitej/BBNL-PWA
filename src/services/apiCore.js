@@ -27,6 +27,8 @@ import logger from "../utils/logger";
 import perfMonitor from "../utils/apiPerfMonitor";
 import { getServiceSignal, isBackgroundMode } from "./navigationController";
 import { isEnvelopeOk, envelopeError } from "./apiEnvelope";
+// pendingAuth imports nothing, so this cannot create a cycle.
+import { getPendingAuth } from "./pendingAuth";
 
 // Re-exported so callers have one import site. The implementations live in
 // apiEnvelope.js because they are pure and covered by apiEnvelope.test.js.
@@ -77,7 +79,25 @@ export function getBaseUrl() {
  * mistake it for a control.
  */
 function getAppKeyType() {
-  return localStorage.getItem("loginType") == "franchisee"
+  let type = null;
+  try {
+    type = localStorage.getItem("loginType");
+  } catch (_) {}
+
+  // During OTP verification there is deliberately no session, and loginType is
+  // a session key — anything that purges the session (logout, expiry, the
+  // schema check) removes it. Falling through to the customer default there
+  // sends a franchisee's custLoginVerification / custLoginResendOtp with
+  // appkeytype=customer, which the backend rejects as "Invalid User
+  // Credentials" and then rate-limits. The parked challenge remembers which
+  // portal the login started in, so use it as the fallback.
+  if (!type) {
+    try {
+      type = getPendingAuth()?.loginType || null;
+    } catch (_) {}
+  }
+
+  return type == "franchisee"
     ? import.meta.env.VITE_API_APP_USER_TYPE
     : import.meta.env.VITE_API_APP_USER_TYPE_CUST;
 }
@@ -120,14 +140,58 @@ function employeePaymentHeaders() {
   };
 }
 
+/**
+ * New-connection guest funnel credentials.
+ *
+ * Apis.php gates FIVE urls on its own key (Apis.php:33-35, :51):
+ *   registerNewConnection · loginNewCustomer · getAvailableServices
+ *   requestNewConnection  · getNewConnectionStatus
+ * Any other credential answers "Header Authorization Failed!". It happens to be
+ * the same triple as the QR web-login block, so it reuses VITE_WEBLOGIN_*
+ * rather than introducing a fifth set of secrets.
+ *
+ * No appkeytype/appversion — _headerAuth() compares only these three.
+ */
+function newConnHeaders() {
+  return {
+    Authorization: import.meta.env.VITE_WEBLOGIN_AUTH_KEY,
+    username: import.meta.env.VITE_WEBLOGIN_USERNAME,
+    password: import.meta.env.VITE_WEBLOGIN_PASSWORD,
+  };
+}
+
+/**
+ * The `apis/*` block — a FOURTH credential set, distinct from the three above.
+ *
+ * Constants.java in the customer app calls it CONGIF_*_APIS. It is what
+ * apis/cust/clientlatlong (nearby operators) and apis/custpayhistory accept;
+ * orderApis.js already hardcoded the same triple before this profile existed.
+ *
+ * `apptype` here is the literal "customerapp-v1", NOT the employee/customer
+ * value the main profile sends as `appkeytype`. Different header, different
+ * vocabulary — they are not interchangeable.
+ */
+function apisHeaders() {
+  return {
+    Authorization: "c4f79e15f8c6ed0715a8ea44aebc38d8",
+    username: "e2798af12a7a0f4f70b4d69efbc25f4d",
+    password: "c1f377afbaa874acbb6b61f66957710a",
+    apptype: "customerapp-v1",
+  };
+}
+
 export const PROFILE = {
   MAIN: "main",
   EMPLOYEE_PAYMENT: "employeePayment",
+  NEW_CONNECTION: "newConnection",
+  APIS: "apis",
 };
 
 const PROFILE_BUILDERS = {
   [PROFILE.MAIN]: mainHeaders,
   [PROFILE.EMPLOYEE_PAYMENT]: employeePaymentHeaders,
+  [PROFILE.NEW_CONNECTION]: newConnHeaders,
+  [PROFILE.APIS]: apisHeaders,
 };
 
 /**
@@ -171,6 +235,46 @@ export function dedupe(key, fn) {
   return p;
 }
 
+// ── Load-balancer reassignment retry ────────────────────────────────
+//
+// netmon sits behind a load balancer that pins a client to one node with a
+// `SERVERUSED` cookie. Proven 2026-08-26 against netmontest: send a valid
+// `SERVERUSED` and the LB honours it and does not re-set it; send an unknown
+// value or none at all and the LB PICKS a node and sets the cookie itself.
+//
+// Every call from here goes out `credentials: "omit"` (see the note in
+// apiFetch — it keeps the ci_session cookie off the wire because PHP holds an
+// exclusive lock on the session file for the life of a request, which
+// serialises anything sharing a session). That decision also drops
+// `SERVERUSED`, so EVERY API request arrives cookie-less and is routed afresh,
+// while the page and its assets — ordinary loads that do send cookies — stay
+// pinned to whichever node served them. That is why a bad pool member shows up
+// as an app that loads perfectly and then fails a random scattering of its API
+// calls rather than failing outright.
+//
+// The signature of one of those failures, from a QA console 2026-08-26:
+// HTTP 404 in 87-108ms. Measured against the same host, a REAL application 404
+// (a route CodeIgniter does not have) costs ~440ms and a success ~940ms — an
+// order of magnitude slower. Those 404s never reached the application.
+//
+// Retrying is worth doing precisely BECAUSE there is no affinity: a second,
+// still cookie-less attempt gets its own routing decision, so it can land on a
+// healthy node. It is a mitigation, not a cure — the cure is repairing the
+// pool member or giving the LB source-IP persistence.
+//
+// SAFETY: a retry must never re-run something that changed state, so this is
+// STRICTLY OPT-IN — `cfg.idempotent: true`, per call site, nothing inferred.
+//
+// The obvious design was "retry GET automatically, since GET is idempotent by
+// definition". That is wrong HERE: this backend files a complaint over
+// `GET apis/raiseTicket/?...` (services/customer/tickets.js). A method-based
+// default would have retried it and lodged duplicate tickets — the very thing
+// the pending-ticket guard exists to prevent. The HTTP verb says nothing about
+// what these endpoints do, so only a human reading the endpoint may declare it
+// safe, and the default for everything is NO retry.
+const RETRY_STATUSES = new Set([404, 502, 503, 504]);
+const RETRY_DELAY_MS = 250;
+
 // ── Fetch wrapper ───────────────────────────────────────────────────
 /**
  * fetch + timeout + navigation-abort + perf timing + security logging.
@@ -183,6 +287,10 @@ export function dedupe(key, fn) {
  * @param {number} [cfg.timeout=API_TIMEOUT]
  * @param {string} [cfg.group="General"]  perf-monitor grouping
  * @param {boolean} [cfg.linkNavigation=true]  abort when user navigates away
+ * @param {boolean} [cfg.idempotent=false]  does this endpoint only READ? Set
+ *   it so a load-balancer 404 can be retried onto a healthy node. Judge the
+ *   endpoint, not the verb — `raiseTicket` is a GET that files a ticket. NEVER
+ *   set it on anything that changes state. See RETRY_STATUSES above.
  */
 export async function apiFetch(url, options, label, cfg = {}) {
   const {
@@ -192,6 +300,7 @@ export async function apiFetch(url, options, label, cfg = {}) {
   } = cfg;
 
   const method = options.method || "GET";
+  const idempotent = cfg.idempotent === true;
   const endPerf = perfMonitor.start(method, url, group, label);
   logger.debug("API", `${label} → ${method} ${url}`);
 
@@ -247,6 +356,19 @@ export async function apiFetch(url, options, label, cfg = {}) {
 
   if (resp.status === 401 || resp.status === 403) {
     logger.security("API_AUTH_REJECTED", { endpoint: url, status: resp.status, label });
+  }
+
+  // One more go on a status that means "this node could not serve you", and
+  // only when re-sending is safe. The retry is cookie-less like the first
+  // attempt, so the load balancer routes it independently — see the note above
+  // RETRY_STATUSES. Bounded to a single extra attempt: if the whole pool is
+  // down, hammering it does not help and the caller needs the error.
+  if (RETRY_STATUSES.has(resp.status) && idempotent && !cfg._retried) {
+    logger.warn("API", `${label} got HTTP ${resp.status} — retrying once for a new route`, {
+      method, url, ms: entry.duration,
+    });
+    await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+    return apiFetch(url, options, label, { ...cfg, _retried: true });
   }
 
   return resp;

@@ -175,10 +175,10 @@ export default function PaymentHistory() {
 
   if (!customerData) {
     return (
-      <div className="min-h-dvh flex flex-col bg-gray-50">
+      <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900 pb-safe">
         <Header />
         <div className="flex-1 flex items-center justify-center px-4">
-          <div className="text-center py-10 px-6 bg-white rounded-2xl shadow-lg">
+          <div className="text-center py-10 px-6 bg-white dark:bg-gray-800 rounded-2xl shadow-lg">
             <DocumentTextIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <p className="text-gray-500 font-medium">No customer data available</p>
           </div>
@@ -189,7 +189,7 @@ export default function PaymentHistory() {
   }
 
   return (
-    <div className="min-h-dvh flex flex-col bg-gray-50">
+    <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900 pb-safe">
       <Header />
 
       {/* Customer banner — Name + User Id (native "Customer OverView" header) */}
@@ -227,7 +227,7 @@ export default function PaymentHistory() {
                 <button
                   key={v.orderNumber || idx}
                   onClick={() => openDetail(order)}
-                  className="w-full text-left bg-white rounded-2xl shadow-sm hover:shadow-md active:scale-[0.99] transition-all border border-gray-100 flex items-stretch overflow-hidden"
+                  className="w-full text-left bg-white dark:bg-gray-800 rounded-2xl shadow-sm hover:shadow-md active:scale-[0.99] transition-all border border-gray-100 flex items-stretch overflow-hidden"
                 >
                   <div className="flex-1 p-4 space-y-1.5 min-w-0">
                     {serviceType === "internet" ? (
@@ -266,11 +266,11 @@ export default function PaymentHistory() {
             })}
           </div>
         ) : (
-          <div className="bg-white rounded-2xl shadow-lg p-6 text-center">
-            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6 text-center">
+            <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
               <DocumentTextIcon className="w-8 h-8 text-gray-400" />
             </div>
-            <h3 className="text-gray-800 font-semibold mb-2">No Orders</h3>
+            <h3 className="text-gray-800 dark:text-gray-100 font-semibold mb-2">No Orders</h3>
             <p className="text-gray-500 text-sm">{error || "No order history found."}</p>
           </div>
         )}

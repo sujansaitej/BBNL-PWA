@@ -7,12 +7,14 @@
     "dev": "vite",
     "build": "vite build",
     "build:test": "vite build --mode test",
+    "build:preprod": "vite build --mode preprod",
     "preview": "vite preview",
     "start": "node server.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke": "node tools/contract-smoke.cjs",
-    "smoke:prod": "node tools/contract-smoke.cjs --prod"
+    "smoke:prod": "node tools/contract-smoke.cjs --prod",
+    "smoke:android": "node tools/android-parity-smoke.cjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",

@@ -439,7 +439,7 @@ function PackagesView({
               >
                 <input
                   type="checkbox"
-                  className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 flex-shrink-0 disabled:opacity-60"
+                  className="w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500 flex-shrink-0 disabled:opacity-60"
                   checked={selected || subscribed}
                   disabled={locked}
                   onChange={() =>
@@ -594,7 +594,7 @@ function PackageDetail({ data }) {
                   <img
                     src={proxyImageUrl(ch.chlogo)}
                     alt={title}
-                    className="w-7 h-7 rounded object-contain bg-white border border-gray-100 flex-shrink-0"
+                    className="w-7 h-7 rounded object-contain bg-white dark:bg-gray-800 border border-gray-100 flex-shrink-0"
                     loading="lazy"
                     onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
                   />

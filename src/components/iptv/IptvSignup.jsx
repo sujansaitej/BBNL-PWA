@@ -46,7 +46,7 @@ export default function IptvSignup({ name: initialName, mobile: initialMobile, o
         <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mb-4">
           <CheckCircle2 className="w-8 h-8 text-green-500" />
         </div>
-        <p className="text-sm font-semibold text-gray-800 mb-1 text-center">{success}</p>
+        <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-1 text-center">{success}</p>
         <p className="text-xs text-gray-400 text-center mb-5">You can now access Live TV channels.</p>
         <button onClick={onSuccess} className="px-6 py-2.5 bg-gradient-to-r from-red-500 to-rose-600 text-white text-sm font-semibold rounded-xl shadow-sm shadow-red-200 active:scale-95 transition-transform">
           Continue to Live TV
@@ -57,20 +57,20 @@ export default function IptvSignup({ name: initialName, mobile: initialMobile, o
 
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center justify-center py-10 px-4">
-      <div className="w-14 h-14 rounded-full bg-blue-50 flex items-center justify-center mb-3">
+      <div className="w-14 h-14 rounded-full bg-blue-50 dark:bg-blue-900/40 flex items-center justify-center mb-3">
         <Tv className="w-7 h-7 text-blue-500" />
       </div>
-      <h3 className="text-base font-bold text-gray-800 mb-1">Activate Live TV</h3>
+      <h3 className="text-base font-bold text-gray-800 dark:text-gray-100 mb-1">Activate Live TV</h3>
       <p className="text-xs text-gray-400 text-center mb-5 max-w-xs">Your account is not yet registered for Live TV. Activate now to start watching channels.</p>
 
       <div className="w-full max-w-xs space-y-3">
         <div>
-          <label className="text-[11px] font-semibold text-gray-500 ml-1">Name</label>
-          <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter your name" className="w-full mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 bg-white focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none transition-[border-color,box-shadow]" />
+          <label className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 ml-1">Name</label>
+          <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter your name" className="w-full mt-1 px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-700 dark:text-white bg-white dark:bg-gray-800 focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none transition-[border-color,box-shadow]" />
         </div>
         <div>
-          <label className="text-[11px] font-semibold text-gray-500 ml-1">Mobile Number</label>
-          <input type="tel" value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="Enter mobile number" maxLength={10} className="w-full mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 bg-white focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none transition-[border-color,box-shadow]" />
+          <label className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 ml-1">Mobile Number</label>
+          <input type="tel" value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="Enter mobile number" maxLength={10} className="w-full mt-1 px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-700 dark:text-white bg-white dark:bg-gray-800 focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none transition-[border-color,box-shadow]" />
         </div>
 
         {error && <p className="text-xs text-red-500 font-medium text-center">{error}</p>}

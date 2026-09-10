@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 // ── Ad Carousel Skeleton ──
 export function AdCarouselSkeleton() {
   return (
-    <div className="rounded-2xl overflow-hidden mb-5 bg-white shadow-lg shadow-black/5">
+    <div className="rounded-2xl overflow-hidden mb-5 bg-white dark:bg-gray-800 shadow-lg shadow-black/5">
       <div className="aspect-[16/7] skeleton" />
     </div>
   );
@@ -14,7 +14,7 @@ export function ChannelGridSkeleton({ count = 6 }) {
   return (
     <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div key={i} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="aspect-video skeleton" />
           <div className="px-3 py-2.5 space-y-2">
             <div className="skeleton h-3 w-3/4" />
@@ -33,7 +33,7 @@ export function ChannelListSkeleton({ count = 6 }) {
       {Array.from({ length: count }).map((_, i) => (
         <div
           key={i}
-          className="flex items-center gap-3 bg-white rounded-xl px-3 py-2.5 border border-gray-100 shadow-sm"
+          className="flex items-center gap-3 bg-white dark:bg-gray-800 rounded-xl px-3 py-2.5 border border-gray-100 shadow-sm"
         >
           <div className="skeleton w-7 h-4 rounded" />
           <div className="skeleton w-11 h-11 rounded-xl flex-shrink-0" />

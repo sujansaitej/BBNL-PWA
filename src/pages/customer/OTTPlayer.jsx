@@ -269,7 +269,7 @@ export default function OTTPlayer() {
 
   if (!content) {
     return (
-      <div className="min-h-dvh bg-black flex items-center justify-center">
+      <div className="min-h-dvh bg-black flex items-center justify-center pb-safe">
         <div className="text-center text-white">
           <p className="text-sm mb-4">No content selected.</p>
           <button onClick={() => navigate(-1)} className="text-purple-400 font-semibold">
@@ -410,7 +410,7 @@ export default function OTTPlayer() {
                         style={{ width: `${progress}%` }}
                       />
                       <div
-                        className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow"
+                        className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white dark:bg-gray-800 rounded-full shadow"
                         style={{ left: `${progress}%`, transform: `translate(-50%, -50%)` }}
                       />
                     </div>

@@ -7,33 +7,15 @@ import {
 } from "@heroicons/react/24/solid";
 import { Download, Smartphone, Info, ArrowRight, CheckCircle } from "lucide-react";
 import { UserToggle } from "../components/ui";
-import { isEnvelopeOk, envelopeError } from "../services/apiEnvelope";
+import { resolveLoginOutcome } from "../services/loginFlow";
 import { useAuth } from "../context/AuthContext";
-import { useNavigate } from "react-router-dom";
-import { useDarkMode } from "../hooks/useDarkMode";
+import { useNavigate, useLocation, Link } from "react-router-dom";
+import BrandLogo from "../components/BrandLogo";
 
 import { UserLogin } from "../services/generalApis";
-
-function publicAssetUrl(path) {
-  const base = import.meta.env.BASE_URL || import.meta.env.VITE_API_APP_DIR_PATH || "/";
-  return `${base.replace(/\/?$/, "/")}${String(path || "").replace(/^\/+/, "")}`;
-}
-
-function applyLogoFallback(event) {
-  const img = event.currentTarget;
-  const fallbackIndex = Number(img.dataset.fallbackIndex || "0");
-  const fallbacks = [
-    publicAssetUrl("icons/logo.png"),
-    publicAssetUrl("icons/icon-192.png"),
-  ];
-  const next = fallbacks[fallbackIndex];
-  if (!next || img.src.endsWith(next)) return;
-  img.dataset.fallbackIndex = String(fallbackIndex + 1);
-  img.src = next;
-}
+import { setPendingAuth, clearPendingAuth } from "../services/pendingAuth";
 
 export default function Login() {
-  const isDarkMode = useDarkMode();
   const [isInstalled, setIsInstalled] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState(null);
@@ -46,14 +28,13 @@ export default function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const { login } = useAuth();
+  const { login, logout } = useAuth();
   const navigate = useNavigate();
-
-  const logo = publicAssetUrl(
-    isDarkMode
-      ? import.meta.env.VITE_API_APP_LOGO_WHITE
-      : import.meta.env.VITE_API_APP_LOGO_BLACK
-  );
+  // SignUp navigates here on success and hands its message over as router
+  // state, so the confirmation survives the redirect instead of vanishing with
+  // a toast the way Android's does.
+  const location = useLocation();
+  const signupMessage = location.state?.signupMessage || "";
 
   useEffect(() => {
     const checkPWAInstalled = () => {
@@ -99,11 +80,19 @@ export default function Login() {
     };
   }, []);
 
+  // Landing on /login abandons any outstanding OTP challenge. This is the
+  // back-button path out of /verify-otp: the half-finished login is torn down
+  // rather than left parked where a later navigation could pick it up.
+  useEffect(() => {
+    clearPendingAuth();
+  }, []);
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setError("");
     // localStorage.clear();
     localStorage.removeItem('otprefid');
+    clearPendingAuth();
 
     if (!username || !password) {
       setError("Please enter the username and password.");
@@ -115,27 +104,69 @@ export default function Login() {
 
     try {
       const result = await UserLogin(username, password);
-      // Gate on the real contract (err_code === 0 is success), not on
-      // err_code === 1. The old check only caught code 1, so any other
-      // non-zero code fell through and was treated as a successful login.
-      if (!isEnvelopeOk(result)) {
-          setError(envelopeError(result));
+      const outcome = resolveLoginOutcome(result, loginType);
+
+      if (outcome.action === 'error') {
+        setError(outcome.message);
+        setLoading(false);
+        return;
+      }
+
+      // OTP outstanding → park the identity and create NO session. login()
+      // writes localStorage.user, which is what PrivateRoute and every
+      // getUser() call site treat as "authenticated"; calling it here (as this
+      // code used to, before the otpstatus branch) made the OTP screen pure
+      // decoration — back button, deep link or relaunching the app all landed
+      // inside with the second factor unmet.
+      if (outcome.action === 'otp') {
+        // Tear down any session still on the device BEFORE parking the
+        // challenge. Without this, an operator who was already logged in (and
+        // /login is reachable while authenticated — the catch-all route sends
+        // every unknown URL there) would hit OtpRoute, which sees the stale
+        // session, and be redirected straight to the dashboard with the new
+        // account's OTP never entered. Must run before setPendingAuth: logout()
+        // purges the escrow too.
+        logout();
+        // logout() purges loginType — it is a session key. Restore it at once:
+        // apiCore.getAppKeyType() reads localStorage.loginType to choose the
+        // employee-vs-customer `appkeytype` header, and OTPauth/resendOTP are
+        // sent while there is deliberately no session. Without this line a
+        // franchisee's OTP verify goes out as appkeytype=customer, the backend
+        // answers "Invalid User Credentials", and repeated tries trip its
+        // "Login attempts has exhausted, 15 min left" lockout. Customer logins
+        // were unaffected because their fallback is already 'customer'.
+        localStorage.setItem("loginType", loginType);
+        const parked = setPendingAuth({
+          user: outcome.user,
+          otprefid: outcome.otprefid,
+          loginType: outcome.loginType,
+          otpLength: outcome.otpLength,
+          otpDataType: outcome.otpDataType,
+        });
+        if (!parked) {
+          // Cannot hold the challenge (private mode / quota). Fail closed —
+          // never fall through to login() because storage misbehaved.
+          setError("Unable to start OTP verification on this device. Please try again.");
           setLoading(false);
           return;
+        }
+        navigate('/verify-otp', { replace: true });
+        setLoading(false);
+        return;
       }
-      if (!result?.body) {
-          setError("Invalid response from server");
-          setLoading(false);
-          return;
-      }
-      const userDet = (({ username, firstname, lastname, emailid, mobileno, op_id, photo }) => ({ username, firstname, lastname, emailid, mobileno, op_id, photo }))(result.body);
-      login(userDet);
-      localStorage.setItem("otprefid", result.body.otprefid);
-      const home = loginType === 'customer' ? '/cust/dashboard' : '/';
-      result.body.otpstatus === 'yes' ? navigate('/verify-otp', { replace: true }) : navigate(home, { replace: true });
+
+      // action === 'session' — backend asked for no second factor.
+      login(outcome.user);
+      navigate(outcome.home, { replace: true });
     } catch (err) {
       console.error("Login failed:", err);
-      setError("Login failed. Please try again.");
+      // A session that could not be written to storage has its own actionable
+      // message; the generic one would send the operator round the same loop.
+      setError(
+        err?.code === "SESSION_PERSIST_FAILED"
+          ? err.message
+          : "Login failed. Please try again."
+      );
     }
 
     setLoading(false);
@@ -185,8 +216,10 @@ export default function Login() {
     return (
       <>
       <div className="">
+      {/* Outside the card: the background here is the indigo/purple gradient
+          in BOTH themes, so this never follows the theme. */}
       <div className="flex justify-center mt-1 mb-3">
-        <img src={logo} onError={applyLogoFallback} alt="Fo-Fi Logo" className="h-12" />
+        <BrandLogo onDark className="h-12" plateClassName="inline-flex rounded-xl bg-white px-4 py-2 shadow-lg" />
       </div>
       <div className="bg-white dark:bg-gray-900 shadow-xl rounded-2xl p-4 max-w-lg w-full text-center animate-fade-in">
         <p className="mb-2 justify-center text-sm">Welcome to our newly launched platform independent app. We appreciate your continued support as we enhance our services.</p>
@@ -195,10 +228,10 @@ export default function Login() {
         </div>
 
         <h2 className="text-md font-bold text-gray-800 dark:text-gray-100">
-          Install Fo-Fi CRM
+          Install BBNL CRM
         </h2>
         <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
-          To get the best experience, please install this <b>Fo-Fi CRM</b> application to your home screen.
+          To get the best experience, please install this <b>BBNL CRM</b> application to your home screen.
         </p>
 
         {/* Install message */}
@@ -260,7 +293,7 @@ export default function Login() {
       <div className="text-sm bg-white dark:bg-gray-900 shadow-xl rounded-2xl p-8 max-w-md w-full text-center animate-fade-in">
         <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3 animate-pulse" />
         <h1 className="text-sm font-bold text-gray-800 dark:text-gray-100 mb-3">
-          Thank You for Installing Fo-Fi CRM!
+          Thank You for Installing BBNL CRM!
         </h1>
         <p className="text-gray-600 dark:text-gray-300 mb-4">
           You can now open the installed app from your home screen or app drawer.
@@ -277,16 +310,26 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-dvh flex items-center justify-center bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 px-4">
+    /* Centred, but the install-instructions variant is taller than an iPhone
+       SE viewport — once it overflows, the top of the card scrolls under the
+       notch and the bottom under the home indicator. pt-safe/pb-safe bound it. */
+    <div className="min-h-dvh flex items-center justify-center bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 px-4 pt-safe pb-safe">
       {!isInstalled ? (
         <InstallInstructions deferredPrompt={deferredPrompt} />
       ) : !isStandalone ? (
         <ThankYouMessage />
       ) : (
       <div className="w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl shadow-xl p-8">
-        {/* Logo */}
+        {/* Logo — the card behind it is white in light theme and gray-900 in
+            dark, so BrandLogo follows the theme and picks the reversed lockup
+            on dark.
+            h-16 was too heavy here: the lockup is 512x110, so 64px tall made
+            it ~298px wide — over three quarters of the card's 384px content
+            width, which read as a banner rather than a mark. h-12 lands at
+            ~223px. max-w keeps it inside the card if the art is ever
+            re-cropped to a different ratio. */}
         <div className="flex justify-center mb-6">
-          <img src={logo} onError={applyLogoFallback} alt="App Logo" className="h-16" />
+          <BrandLogo className="h-12 w-auto max-w-[224px] object-contain" alt="App Logo" />
         </div>
 
         {/* Title */}
@@ -297,9 +340,21 @@ export default function Login() {
           Sign in to continue
         </p>
 
+        {/* Handed over by SignUp on success. Android shows this as a Toast that
+            disappears; here it survives the redirect so the customer can read
+            what happened and knows which username to sign in with. */}
+        {signupMessage && (
+          <div
+            role="status"
+            className="mb-4 p-3 rounded-lg bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300 text-xs"
+          >
+            {signupMessage}
+          </div>
+        )}
+
         {/* Error Message */}
         {error && (
-          <div className="mb-4 p-3 rounded-lg bg-red-100 text-red-700 text-sm text-xs">
+          <div className="mb-4 p-3 rounded-lg bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 text-xs">
             {error}
           </div>
         )}
@@ -340,31 +395,33 @@ export default function Login() {
 
           {/* Username */}
           <div className="relative">
-            <UserIcon className="absolute left-3 top-3 h-5 w-5 text-gray-400 dark:text-white" />
+            <UserIcon className="absolute left-3 top-3 h-5 w-5 text-gray-400 dark:text-gray-500" />
             <input
               type="text"
               placeholder="Username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="off" 
-              className="w-full pl-10 pr-4 py-3 rounded-lg border text-gray-900 dark:text-blue-500 border-gray-300 dark:border-gray-700 
-                         focus:ring-2 focus:ring-blue-500 focus:outline-none dark:bg-gray-800 
-                         shadow-sm"
+              className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 dark:border-gray-700
+                         bg-white dark:bg-gray-800 text-gray-900 dark:text-white
+                         placeholder-gray-400 dark:placeholder-gray-500
+                         focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-sm"
             />
           </div>
 
           {/* Password */}
           <div className="relative">
-            <LockClosedIcon className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+            <LockClosedIcon className="absolute left-3 top-3 h-5 w-5 text-gray-400 dark:text-gray-500" />
             <input
               type={showPassword ? "text" : "password"}
               placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
-              className="w-full pl-10 pr-10 py-3 rounded-lg border border-gray-300 dark:border-gray-700 
-                         focus:ring-2 focus:ring-blue-500 focus:outline-none dark:bg-gray-800 
-                         text-gray-900 dark:text-white shadow-sm"
+              className="w-full pl-10 pr-10 py-3 rounded-lg border border-gray-300 dark:border-gray-700
+                         bg-white dark:bg-gray-800 text-gray-900 dark:text-white
+                         placeholder-gray-400 dark:placeholder-gray-500
+                         focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-sm"
             />
             <button
               type="button"
@@ -415,13 +472,22 @@ export default function Login() {
           </button>
         </form>
 
-        {/* Footer */}
-        {/* <p className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
-          Don’t have an account?{" "}
-          <a href="#" className="text-blue-600 hover:underline font-medium">
-            Sign up
-          </a>
-        </p> */}
+        {/* CUSTOMER TAB ONLY. Android shows "Sign Up" on its customer flavour's
+            login screen; the operator app has no self-registration at all —
+            franchisees are created by BBNL, not by filling in a form. This
+            footer was stubbed out here from the start; ServiceApis/custRegistration
+            is what makes it real. */}
+        {loginType === "customer" && (
+          <p className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
+            Don&rsquo;t have an account?{" "}
+            <Link
+              to="/signup"
+              className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
+            >
+              Sign up
+            </Link>
+          </p>
+        )}
       </div>
       )}
     </div>

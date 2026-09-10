@@ -1,7 +1,7 @@
 // import DashboardContent from "../../components/Dashboard";
 import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
-import { ArrowUpOnSquareStackIcon, ChartPieIcon, SignalIcon, GlobeAltIcon, UserIcon, TvIcon, CpuChipIcon } from '@heroicons/react/24/outline'
+import { ArrowUpOnSquareStackIcon, ChartPieIcon, SignalIcon, GlobeAltIcon, UserIcon, TvIcon, CpuChipIcon, PlusCircleIcon } from '@heroicons/react/24/outline'
 import { PlayCircleIcon } from '@heroicons/react/24/solid'
 import { Swiper, SwiperSlide } from 'swiper/react'
 import { Autoplay, Pagination } from 'swiper/modules'
@@ -9,9 +9,9 @@ import 'swiper/css'
 import 'swiper/css/pagination'
 import Layout from "../../layout/Layout";
 import { getIptvMobile, getPromoStream } from "../../services/iptvApi";
+import { getActiveAccount } from "../../services/customer/linkAccount";
 import { fixImageUrl } from "../../services/iptvImage";
-import { ads } from "../../services/customer/apis";
-import { lsGet, lsSet } from "../../services/lsCache";
+import { useAds } from "../../hooks/useAds";
 import { useToast } from "@/components/ui/Toast";
 import { Modal } from "@/components/ui";
 
@@ -21,11 +21,11 @@ export default function Dashboard() {
     }
 
     // const logUname = JSON.parse(localStorage.getItem('user')).username;
-    const [Advertisement, setAdvertisement] = useState([]);
-    const [adCnt, setAdCnt] = useState(0);
-    const [adLoading, setAdLoading] = useState(true);
+    // Ad banners are operator-managed and revalidate themselves, so the
+    // carousel tracks additions/removals without a reload. adCnt is DERIVED —
+    // it can never drift out of sync with the slides actually rendered.
+    const { adList: Advertisement, adCount: adCnt, adLoading } = useAds("custapp");
     const [modalOpen, setModalOpen] = useState(false);
-    const [greet, setGreet] = useState(false);
     const [promoLoading, setPromoLoading] = useState(null);
     const navigate = useNavigate();
     const toast = useToast();
@@ -36,7 +36,6 @@ export default function Dashboard() {
         }
         if (localStorage.getItem('firstLogin') === 'true') {
             const timer = setTimeout(() => {
-                setGreet(true);
                 setModalOpen(true);
                 localStorage.setItem('firstLogin', 'false');
             }, 1000);
@@ -44,10 +43,6 @@ export default function Dashboard() {
         }
     }, []);
 
-    useEffect(() => {
-        getAds();
-    }, []);
-    
     useEffect(() => {
         const handlePopState = () => {
             window.history.go(1); // prevent going back
@@ -60,30 +55,6 @@ export default function Dashboard() {
         };
     }, []);
     
-    async function getAds() {
-        try {
-            // Check cache first (30 min TTL)
-            const cached = lsGet("webads_custapp", 30 * 60 * 1000);
-            if (cached) {
-                setAdCnt(cached.length);
-                setAdvertisement(cached);
-                setAdLoading(false);
-                return;
-            }
-            const data = await ads("custapp");
-            const list = (data?.imglist || []).filter(a => a.content);
-            if (list.length > 0) {
-                setAdCnt(list.length);
-                setAdvertisement(list);
-                lsSet("webads_custapp", list);
-            }
-        } catch (err) {
-            console.error("Error fetching advertisement:", err);
-        } finally {
-            setAdLoading(false);
-        }
-    }
-
     async function handleAdClick(ad) {
         if (ad.redirectlink !== "yes") return;
         if (promoLoading) return;
@@ -120,26 +91,56 @@ export default function Dashboard() {
         }
     }
     
+    // The last three act on a LINKED SERVICE ACCOUNT, which a customer may
+    // not have yet — an app login carries no service identity at all (see
+    // services/customer/linkAccount.js). `needsAccount` marks those so the
+    // tile sends the customer to link one instead of opening a screen that
+    // can only render an empty state. Reset Mac is Android's `mac_reset`;
+    // the tile used to be labelled "Reset WiFi", which is not what it does.
     const cardItems = [
         { id: 'internet', title: 'Internet', Icon: GlobeAltIcon, path: '/cust/internet' },
         { id: 'fofi', title: 'FoFi Smart Box', Icon: CpuChipIcon, path: '/cust/fofi' },
         { id: 'iptv', title: 'IPTV', Icon: TvIcon, path: '/cust/iptv' },
         // Profile moved to the bottom nav.
-        { id: 'datausage', title: 'Data Usage', Icon: ChartPieIcon, path: '#' },
-        { id: 'updateKyc', title: 'Update KYC', Icon: ArrowUpOnSquareStackIcon, path: '#' },
-        { id: 'resetwifi', title: 'Reset WiFi', Icon: SignalIcon, path: '#' },
+        { id: 'datausage', title: 'Data Usage', Icon: ChartPieIcon, path: '/cust/internet/usage', needsAccount: true },
+        { id: 'updateKyc', title: 'Update KYC', Icon: ArrowUpOnSquareStackIcon, path: '/cust/kyc', needsAccount: true },
+        { id: 'resetmac', title: 'Reset Mac', Icon: SignalIcon, path: '/cust/internet/reset-mac', needsAccount: true },
+        // NO needsAccount: asking for a NEW connection is exactly the case
+        // where the customer may not have a linked one yet, so gating it on
+        // an existing account would hide it from the people who want it.
+        { id: 'newconnection', title: 'New Connection', Icon: PlusCircleIcon, path: '/cust/new-connection' },
     ]
-    
-    const underDev = () => {
-        setGreet(false);
-        setModalOpen(true);
+
+    /**
+     * Open a tile that needs a linked account.
+     *
+     * Update KYC reuses the operator document screen, which reads its
+     * customer from route state (`location.state.customer.customer_id`) —
+     * so the linked account's service user id is handed over the same way
+     * the operator surface hands over a selected customer. Android does the
+     * equivalent with `args.putString("userid", userId)`.
+     */
+    const openLinked = (e, item) => {
+        if (!item.needsAccount) return;
+        e.preventDefault();
+        const account = getActiveAccount();
+        if (!account?.userid) {
+            toast.add("Link your account first to use this.", { type: "error" });
+            navigate("/cust/internet");
+            return;
+        }
+        if (item.id === 'updateKyc') {
+            navigate(item.path, { state: { customer: { customer_id: account.userid } } });
+            return;
+        }
+        navigate(item.path);
     };
 
     return (
         <Layout>
           <div className="px-4 py-4 space-y-6">
       
-            {/* Hero Ad Banner â€” Hotstar Style */}
+            {/* Hero Ad Banner — Hotstar Style */}
             {adLoading ? (
               <div className="-mx-4 px-4">
                 <div className="aspect-[16/9] rounded-2xl skeleton dark:skeleton-dark" />
@@ -147,15 +148,21 @@ export default function Dashboard() {
             ) : adCnt > 0 && (
               <div className={adCnt > 1 ? "-mx-4" : ""}>
                 <Swiper
+                  /* Slide count drives slidesPerView, loop and pagination.
+                     Re-key on it so a changed banner list re-initialises
+                     Swiper cleanly instead of leaving stale dots behind. */
+                  key={adCnt}
                   spaceBetween={10}
                   slidesPerView={adCnt > 1 ? 1.08 : 1}
                   centeredSlides
                   loop={adCnt >= 3}
                   speed={500}
                   grabCursor
+                  observer
+                  observeParents
                   modules={[Autoplay, Pagination]}
                   autoplay={{ delay: 3500, disableOnInteraction: false, pauseOnMouseEnter: true }}
-                  pagination={adCnt > 1 ? { clickable: true, dynamicBullets: true } : false}
+                  pagination={adCnt > 1 ? { clickable: true } : false}
                   className="ad-swiper"
                 >
                   {Advertisement.map(ad => (
@@ -166,6 +173,21 @@ export default function Dashboard() {
                           ad.redirectlink === "yes" ? "cursor-pointer active:scale-[0.98] transition-transform duration-200" : ""
                         }`}
                       >
+                        {/* NOTHING MAY BE PAINTED OVER THIS ARTWORK.
+                            These banners are finished designs, not photos: the
+                            operator uploads a 16:9 composition that already
+                            carries the BBNL logo, a headline, body copy and —
+                            critically — the support phone numbers along the
+                            bottom edge. This slide used to lay a
+                            `from-black/80` gradient over the lower half and
+                            print `ad.description` on top of it, which is
+                            exactly where that content sits: "Best Support" was
+                            being stamped across the two numbers customers are
+                            meant to call.
+
+                            `description` is a LABEL, not a caption — the
+                            operator dashboard has always used it as alt text
+                            and drawn no overlay. Same here now. */}
                         <img
                           src={fixImageUrl(ad.content)}
                           alt={ad.description || "Advertisement"}
@@ -174,23 +196,18 @@ export default function Dashboard() {
                           draggable={false}
                         />
 
-                        {/* Gradient overlay */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent pointer-events-none" />
-
-                        {/* Bottom content */}
-                        <div className="absolute bottom-0 inset-x-0 p-4">
-                          {ad.description && (
-                            <p className="text-white font-semibold text-sm leading-snug line-clamp-2 drop-shadow-lg">
-                              {ad.description}
-                            </p>
-                          )}
-                          {ad.redirectlink === "yes" && (
-                            <div className="inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full bg-white/20 backdrop-blur-sm">
-                              <PlayCircleIcon className="w-4 h-4 text-white" />
-                              <span className="text-white text-[11px] font-semibold tracking-wider uppercase">Watch Now</span>
-                            </div>
-                          )}
-                        </div>
+                        {/* The one exception: a tappable banner still needs to
+                            look tappable. Kept to a small corner chip with its
+                            own backdrop instead of a full-width gradient, so it
+                            covers a badge-sized area rather than a third of the
+                            design. Only rendered when the ad actually links
+                            somewhere. */}
+                        {ad.redirectlink === "yes" && (
+                          <div className="absolute top-2 right-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/55 backdrop-blur-sm pointer-events-none">
+                            <PlayCircleIcon className="w-3.5 h-3.5 text-white" />
+                            <span className="text-white text-[10px] font-semibold tracking-wider uppercase">Watch Now</span>
+                          </div>
+                        )}
 
                         {/* Loading overlay */}
                         {promoLoading === ad.id && (
@@ -207,14 +224,17 @@ export default function Dashboard() {
       
             {/* Stats Grid */}
             <div className="grid grid-cols-4 gap-3">
-              {cardItems.map(({ id, title, Icon, path }) => (
-                <Link to={path} key={id} className="bg-white dark:bg-gray-800 rounded-xl p-3 text-center shadow" onClick={path === '#' ? (e) => { e.preventDefault(); underDev(); } : null}>
+              {cardItems.map((item) => {
+                const { id, title, Icon, path } = item;
+                return (
+                <Link to={path} key={id} className="bg-white dark:bg-gray-800 rounded-xl p-3 text-center shadow" onClick={(e) => openLinked(e, item)}>
                   <div className="mx-auto w-9 h-9 rounded-lg bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center mb-1">
                     <Icon className="h-5 w-5 text-indigo-600 dark:text-indigo-300" />
                   </div>
                   <p className="text-[13px] leading-tight font-semibold">{title}</p>
                 </Link>
-              ))}
+                );
+              })}
             </div>
       
             {/* Transactions */}
@@ -238,24 +258,15 @@ export default function Dashboard() {
                 ))}
               </div>
             </div> */}
+            {/* Welcome only — every tile routes somewhere real now, so the
+                "Coming Soon" arm of this modal has no caller left. */}
             <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)}>
-              {greet ? (
-                <>
-                <h2 className="text-xl font-semibold text-center text-green-500 mb-2">Warm Welcome!</h2>
-                <img src={import.meta.env.VITE_API_APP_DIR_PATH + 'img/welcome.png'} alt="Modal Info" className="w-70 h-70 mx-auto" />
-                <p className="text-center text-blue-600 mt-1">We're thrilled to introduce our new platform independent app â€” designed to bring you a faster, smarter, and more seamless experience!</p>
-                </>
-              ):(
-                <>
-                <h2 className="text-xl font-semibold text-center text-red-500 mb-2">Coming Soon!</h2>
-                <img src={import.meta.env.VITE_API_APP_DIR_PATH + 'img/under_dev.jpg'} alt="Modal Info" className="w-70 h-70 mx-auto" />
-                <p className="text-center text-violet-900 mt-1">We're working on this feature â€” check back soon!</p>
-                </>
-              )
-              }
+              <h2 className="text-xl font-semibold text-center text-green-500 mb-2">Warm Welcome!</h2>
+              <img src={import.meta.env.VITE_API_APP_DIR_PATH + 'img/welcome.png'} alt="Modal Info" className="w-70 h-70 mx-auto" />
+              <p className="text-center text-blue-600 mt-1">We're thrilled to introduce our new platform independent app — designed to bring you a faster, smarter, and more seamless experience!</p>
               <button
                 onClick={() => setModalOpen(false)}
-                className="mt-4 w-full py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium transition"
+                className="mt-4 w-full py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700 dark:text-gray-300 font-medium transition"
               >
                 Cancel
               </button>

@@ -1,29 +1,11 @@
 import { useState, useEffect } from "react";
 import { Download, CheckCircle } from "lucide-react";
-import { useDarkMode } from "../hooks/useDarkMode";
-import { lsClearAll } from "../services/lsCache";
+import BrandLogo from "./BrandLogo";
+import { clearPendingAuth } from "../services/pendingAuth";
 
 // Safe localStorage helpers — never throw (Safari private browsing, quota full)
 function lsGet(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (_) {} }
-
-function publicAssetUrl(path) {
-  const base = import.meta.env.BASE_URL || import.meta.env.VITE_API_APP_DIR_PATH || "/";
-  return `${base.replace(/\/?$/, "/")}${String(path || "").replace(/^\/+/, "")}`;
-}
-
-function applyLogoFallback(event) {
-  const img = event.currentTarget;
-  const fallbackIndex = Number(img.dataset.fallbackIndex || "0");
-  const fallbacks = [
-    publicAssetUrl("icons/logo.png"),
-    publicAssetUrl("icons/icon-192.png"),
-  ];
-  const next = fallbacks[fallbackIndex];
-  if (!next || img.src.endsWith(next)) return;
-  img.dataset.fallbackIndex = String(fallbackIndex + 1);
-  img.src = next;
-}
 
 /* ------------------------------------------------------------------ */
 /*  BrowserGate                                                       */
@@ -34,7 +16,6 @@ function applyLogoFallback(event) {
 /* ------------------------------------------------------------------ */
 
 export default function BrowserGate({ children }) {
-  const isDarkMode = useDarkMode();
   // import.meta.env.DEV is a Vite built-in: true ONLY during `npm run dev`,
   // false in EVERY build (production, staging, any --mode).
   // This guarantees BrowserGate can NEVER be bypassed in a deployed build,
@@ -71,23 +52,39 @@ export default function BrowserGate({ children }) {
     const handleBeforeInstall = (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
+
+      // The browser only offers this event when the app is NOT currently
+      // installed — once it is, Chrome shows "Open app" instead. So its
+      // arrival contradicts `pwaInstalledOnce`, which survives an uninstall
+      // (it is origin data, not app data) and would otherwise pin an operator
+      // who has just uninstalled the app on the thank-you screen below, with
+      // no install button and no way forward.
+      setIsInstalled(false);
     };
     window.addEventListener("beforeinstallprompt", handleBeforeInstall);
 
     /* --- app installed event --- */
     const handleInstalled = () => {
-      // Reinstall detection: if stale auth data exists from a previous
-      // install, clear it so the PWA opens to the login screen.
-      try {
-        if (localStorage.getItem("user")) {
-          localStorage.removeItem("user");
-          localStorage.removeItem("loginTimestamp");
-          localStorage.removeItem("loginType");
-          localStorage.removeItem("otprefid");
-          lsClearAll();
-          console.warn("[BrowserGate] Stale auth cleared on reinstall");
-        }
-      } catch (_) {}
+      // This used to delete `user` / `loginTimestamp` / `loginType` and flush
+      // the API caches whenever `appinstalled` fired, on the theory that it
+      // only ever means "reinstalled, so the old session is stale".
+      //
+      // It does not. `appinstalled` fires on the FIRST install too — including
+      // the ordinary path where an operator opens the site in Chrome, signs
+      // in, and then installs it. Signing them out there with no explanation
+      // was a large part of the "app logs itself out when I reopen it"
+      // report, and it is still not done here.
+      //
+      // Telling the two apart needs to know how many installs came before,
+      // which is what services/installGeneration.js counts. AuthContext owns
+      // that decision (it is the only place allowed to end a session) and
+      // listens for `appinstalled` itself; a re-install — generation 2 or
+      // higher — ends the session, a first install does not. This handler
+      // stays purely presentational.
+      //
+      // The half-finished OTP challenge IS still dropped: it lives in
+      // sessionStorage and must never survive into a fresh app context.
+      try { clearPendingAuth(); } catch (_) {}
 
       lsSet("pwaInstalledOnce", "true");
       setIsInstalled(true);
@@ -109,24 +106,20 @@ export default function BrowserGate({ children }) {
 
   if (isLocal || isStandalone) return children;
 
-  const logo = publicAssetUrl(
-    isDarkMode
-      ? import.meta.env.VITE_API_APP_LOGO_WHITE
-      : import.meta.env.VITE_API_APP_LOGO_BLACK
-  );
-
   /* ---- Already installed → Thank-you screen ---- */
   if (isInstalled) {
     return (
-      <div className="min-h-dvh flex items-center justify-center bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 px-4">
+      <div className="min-h-dvh flex items-center justify-center bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 px-4 pt-safe pb-safe">
         <div className="flex flex-col items-center">
+          {/* The gradient behind this is the same in BOTH themes, so the
+              surface is stated outright rather than read from the theme. */}
           <div className="flex justify-center mt-1 mb-3">
-            <img src={logo} onError={applyLogoFallback} alt="Fo-Fi Logo" className="h-12" />
+            <BrandLogo onDark className="h-12" plateClassName="inline-flex rounded-xl bg-white px-4 py-2 shadow-lg" />
           </div>
           <div className="text-sm bg-white dark:bg-gray-900 shadow-xl rounded-2xl p-8 max-w-md w-full text-center animate-fade-in">
             <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3 animate-pulse" />
             <h1 className="text-sm font-bold text-gray-800 dark:text-gray-100 mb-3">
-              Thank You for Installing Fo-Fi CRM!
+              Thank You for Installing BBNL CRM!
             </h1>
             <p className="text-gray-600 dark:text-gray-300 mb-4">
               You can now open the installed app from your home screen or app
@@ -158,10 +151,11 @@ export default function BrowserGate({ children }) {
   };
 
   return (
-    <div className="min-h-dvh flex items-center justify-center bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 px-4">
+    <div className="min-h-dvh flex items-center justify-center bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 px-4 pt-safe pb-safe">
       <div className="">
+        {/* Same fixed gradient as the thank-you screen above. */}
         <div className="flex justify-center mt-1 mb-3">
-          <img src={logo} onError={applyLogoFallback} alt="Fo-Fi Logo" className="h-12" />
+          <BrandLogo onDark className="h-12" plateClassName="inline-flex rounded-xl bg-white px-4 py-2 shadow-lg" />
         </div>
         <div className="bg-white dark:bg-gray-900 shadow-xl rounded-2xl p-4 max-w-lg w-full text-center animate-fade-in">
           <p className="mb-2 justify-center text-sm">
@@ -173,11 +167,11 @@ export default function BrowserGate({ children }) {
           </div>
 
           <h2 className="text-md font-bold text-gray-800 dark:text-gray-100">
-            Install Fo-Fi CRM
+            Install BBNL CRM
           </h2>
           <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
             To get the best experience, please install this{" "}
-            <b>Fo-Fi CRM</b> application to your home screen.
+            <b>BBNL CRM</b> application to your home screen.
           </p>
 
           {installMsg && (

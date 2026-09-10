@@ -26,6 +26,15 @@ const DEV_HOST_RE = /^https?:\/\/124\.40\.244\.211\/netmon\//i;
 // Legacy showimage token — still handled for backward compatibility
 const SHOWIMAGE_TOKEN = "/showimage/";
 
+/** Is this URL served by the same origin as the API? Never throws on junk. */
+function isApiOrigin(url) {
+  try {
+    return new URL(url, window.location.href).origin === new URL(API_BASE, window.location.href).origin;
+  } catch (_) {
+    return false;
+  }
+}
+
 /**
  * Rewrite IPTV image URLs for the current environment.
  *
@@ -121,9 +130,16 @@ export async function fetchImage(url, options = {}) {
     return fetch(u, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(timer));
   };
 
-  // External CDN (different domain) → no auth needed
-  // Production server (bbnlnetmon.bbnl.in) → auth needed
-  const isExternalCdn = IPTV_IMAGE_CDN && url.startsWith(IPTV_IMAGE_CDN) && !IPTV_IMAGE_CDN.includes('bbnlnetmon.bbnl.in');
+  // External CDN (different origin) → no auth needed
+  // CDN co-hosted with the API → auth needed
+  //
+  // This used to test the CDN string against the literal 'bbnlnetmon.bbnl.in',
+  // which baked ONE deployment's hostname into every bundle: the test and
+  // preproduction builds shipped the production hostname, and the check itself
+  // silently gave the wrong answer on any host but production. Comparing
+  // origins asks the real question — "is the image CDN a different server from
+  // the API?" — and is correct on all three deployments.
+  const isExternalCdn = IPTV_IMAGE_CDN && url.startsWith(IPTV_IMAGE_CDN) && !isApiOrigin(IPTV_IMAGE_CDN);
   const needsAuth = !isExternalCdn && IS_PROD;
 
   // Send NO custom headers to the external CDN. Any custom header (including

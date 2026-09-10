@@ -27,8 +27,37 @@ export default function QRScanner({ onScan, onClose, onError }) {
     const hardTimeoutRef = useRef(null);
     const startupTimeoutRef = useRef(null);
     const startRunRef = useRef(0);
-    const CAMERA_REQUEST_TIMEOUT_MS = 12000;
+    // Per-attempt getUserMedia budget. These are NOT the same number, and the
+    // difference is the whole reason the scanner used to take 20s+ to open:
+    //
+    // The FIRST call is the one that can raise the permission prompt, and the
+    // clock runs while the user reads it and finds "Allow". Anything under
+    // ~10s aborts a prompt the user was about to accept.
+    //
+    // Every LATER call happens with permission already settled, so it is
+    // purely "can this device open the camera with this constraint shape?" —
+    // which either succeeds in well under a second or is never going to. Giving
+    // those the prompt-sized budget meant a single unsupported constraint burnt
+    // 12s, and the ladder has eight rungs. Observed in the field: 480p timed
+    // out at 12s on a device where 720p opened instantly.
+    const CAMERA_PROMPT_TIMEOUT_MS = 12000;
+    const CAMERA_ATTEMPT_TIMEOUT_MS = 3500;
     const CAMERA_STARTUP_TIMEOUT_MS = 15000;
+    // A timed-out getUserMedia is NOT cancelled — there is no abort API for it.
+    // The call stays pending and keeps its claim on the camera, and this file's
+    // own re-entry guard exists because two overlapping getUserMedia calls fail
+    // with NotReadableError on most Samsung / OnePlus / Realme builds. So after
+    // a timeout, let the pending one settle before the next rung instead of
+    // racing it.
+    const CAMERA_SETTLE_AFTER_TIMEOUT_MS = 400;
+    // Hard ceiling on the whole ladder. Deliberately NOT CAMERA_STARTUP_TIMEOUT_MS:
+    // a legitimate permission prompt can eat 12s of that on its own, which would
+    // leave ~3s for the remaining seven rungs and strand devices that need a
+    // later one. The 15s startup timer is the USER-facing promise ("taking too
+    // long", offer Retry) and Retry bumps startRunRef, which cancels this ladder
+    // anyway — so the two do different jobs. This one exists only to stop the
+    // pathological cascade (8 rungs x 12s = 96s) that prompted the fix.
+    const CAMERA_LADDER_DEADLINE_MS = 20000;
 
     const stopStream = (stream) => {
         if (!stream) return;
@@ -40,7 +69,7 @@ export default function QRScanner({ onScan, onClose, onError }) {
         } catch (_) {}
     };
 
-    const getUserMediaWithTimeout = (constraints, timeoutMs = CAMERA_REQUEST_TIMEOUT_MS) => {
+    const getUserMediaWithTimeout = (constraints, timeoutMs = CAMERA_PROMPT_TIMEOUT_MS) => {
         return new Promise((resolve, reject) => {
             let settled = false;
             const timer = setTimeout(() => {
@@ -160,6 +189,24 @@ export default function QRScanner({ onScan, onClose, onError }) {
             // MIUI devices. Iterate until we get a LIVE track.
             const csAttempts = [
                 {
+                    // Android parity: CameraSource is built with
+                    // setRequestedPreviewSize(1600, 1024) and its own comment
+                    // says that is deliberate — "a higher resolution ... to
+                    // enable the barcode detector to detect small barcodes at
+                    // long distances" (BarcodeCaptureActivity:200-207). More
+                    // sensor detail also gives the autofocus above something to
+                    // lock onto. `ideal` is a hint, so a device that cannot do
+                    // it simply returns its nearest mode rather than failing.
+                    video: {
+                        facingMode: { ideal: 'environment' },
+                        width: { ideal: 1600 },
+                        height: { ideal: 1024 },
+                        frameRate: { ideal: 24, max: 30 },
+                    },
+                    audio: false,
+                    _name: 'ideal-env-1600',
+                },
+                {
                     video: {
                         facingMode: { ideal: 'environment' },
                         width: { ideal: 1280 },
@@ -208,16 +255,32 @@ export default function QRScanner({ onScan, onClose, onError }) {
                 { video: true, audio: false, _name: 'video-true' },
             ];
 
-            const runAttempts = async () => {
+            // Bounds the whole ladder — see CAMERA_LADDER_DEADLINE_MS.
+            const ladderDeadline = Date.now() + CAMERA_LADDER_DEADLINE_MS;
+
+            const runAttempts = async (pass = 0) => {
                 let s = null;
                 let last = null;
+                let attemptNo = 0;
                 for (const cs of csAttempts) {
+                    // Only the very first call of the very first pass can be
+                    // sitting on a permission prompt; everything after it is a
+                    // capability probe and gets the short budget.
+                    const isPromptAttempt = pass === 0 && attemptNo === 0;
+                    const budget = isPromptAttempt ? CAMERA_PROMPT_TIMEOUT_MS : CAMERA_ATTEMPT_TIMEOUT_MS;
+                    attemptNo++;
+
+                    const remaining = ladderDeadline - Date.now();
+                    if (remaining <= 0) {
+                        console.warn('📷 [QRScanner] ladder deadline reached — stopping attempts');
+                        break;
+                    }
                     try {
                         console.log(`📷 [QRScanner] Trying ${cs._name}...`);
                         // eslint-disable-next-line no-unused-vars
                         const { _name, ...constraint } = cs;
                         if (startRunRef.current !== runId) return { stream: null, lastErr: last };
-                        const got = await getUserMediaWithTimeout(constraint);
+                        const got = await getUserMediaWithTimeout(constraint, Math.min(budget, remaining));
                         if (startRunRef.current !== runId) {
                             stopStream(got);
                             return { stream: null, lastErr: last };
@@ -238,6 +301,14 @@ export default function QRScanner({ onScan, onClose, onError }) {
                             e.name === 'SecurityError') {
                             throw e;
                         }
+                        // See CAMERA_SETTLE_AFTER_TIMEOUT_MS: the timed-out call
+                        // is still pending on the camera. Racing it with the next
+                        // rung is what turns one slow attempt into a cascade of
+                        // NotReadableErrors.
+                        if (e.name === 'TimeoutError') {
+                            await new Promise(r => setTimeout(r, CAMERA_SETTLE_AFTER_TIMEOUT_MS));
+                            if (startRunRef.current !== runId) return { stream: null, lastErr: last };
+                        }
                     }
                 }
                 return { stream: s, lastErr: last };
@@ -248,20 +319,27 @@ export default function QRScanner({ onScan, onClose, onError }) {
                 if (stream) stopStream(stream);
                 return;
             }
-            // Samsung One UI cold-start NotFoundError quirk — wait
-            // 500ms, re-warm enumerateDevices, then retry the ladder
-            // once. If the camera really doesn't exist (tablets, dev
-            // boxes), the second pass will fail again and we surface
-            // the original error.
-            if (!stream && lastErr && lastErr.name === 'NotFoundError') {
-                console.warn('📷 [QRScanner] NotFoundError on cold start — retrying after 500ms warm-up');
+            // Samsung One UI cold-start quirk — wait 500ms, re-warm
+            // enumerateDevices, then retry the ladder once. If the camera really
+            // doesn't exist (tablets, dev boxes), the second pass fails again
+            // and we surface the original error.
+            //
+            // TimeoutError counts here too. A cold WebView can leave the FIRST
+            // getUserMedia hanging rather than rejecting, and the field log that
+            // prompted this showed exactly that shape: a rung timing out, then
+            // the very next pass opening 720p instantly on the same device. That
+            // is a warm-up problem, not an unsupported constraint, and it was
+            // being sent straight to "All camera-start attempts failed".
+            const warmableErr = lastErr && (lastErr.name === 'NotFoundError' || lastErr.name === 'TimeoutError');
+            if (!stream && warmableErr && Date.now() < ladderDeadline) {
+                console.warn(`📷 [QRScanner] ${lastErr.name} on cold start — retrying after 500ms warm-up`);
                 await new Promise(r => setTimeout(r, 500));
                 try {
                     if (navigator.mediaDevices.enumerateDevices) {
                         await navigator.mediaDevices.enumerateDevices();
                     }
                 } catch (_) {}
-                const second = await runAttempts();
+                const second = await runAttempts(1);
                 if (startRunRef.current !== runId) {
                     if (second.stream) stopStream(second.stream);
                     return;
@@ -281,6 +359,36 @@ export default function QRScanner({ onScan, onClose, onError }) {
             }
 
             streamRef.current = stream;
+
+            // ── Continuous autofocus — ANDROID PARITY, and the single biggest
+            // difference in how well this thing actually reads a code.
+            //
+            // Native (BarcodeCaptureActivity:211-213) builds its CameraSource
+            // with FOCUS_MODE_CONTINUOUS_PICTURE, and every call site passes
+            // AutoFocus=true (DashboardActivity:457, DashboardLatest:357). This
+            // component set no focus mode at all, so the camera kept whatever
+            // the browser defaulted to — frequently a one-shot focus locked at
+            // stream start. A QR held at reading distance then never sharpens,
+            // and jsQR cannot decode a blurred frame no matter how many passes
+            // it makes over it.
+            //
+            // Best-effort by construction: focusMode is an OPTIONAL constraint,
+            // absent on desktop and on some Android builds, and applyConstraints
+            // REJECTS (OverconstrainedError) rather than degrading when it is
+            // unsupported. Capability-check first, and never let a failure here
+            // stop a stream that is otherwise fine.
+            try {
+                const [track] = stream.getVideoTracks();
+                const caps = track?.getCapabilities?.();
+                if (caps && Array.isArray(caps.focusMode) && caps.focusMode.includes('continuous')) {
+                    await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+                    console.log('📷 [QRScanner] continuous autofocus enabled (Android parity)');
+                } else {
+                    console.log('📷 [QRScanner] continuous autofocus not offered by this device');
+                }
+            } catch (focusErr) {
+                console.warn(`📷 [QRScanner] could not set continuous focus: ${focusErr?.name}`);
+            }
 
             // Mid-stream track-loss handler — if another app grabs the
             // camera or the OS revokes the sensor (low-power mode,
@@ -615,12 +723,36 @@ export default function QRScanner({ onScan, onClose, onError }) {
                         console.log(`🔵 [QRScanner] jsQR ${attempts} attempts, no QR yet`);
                     }
 
-                    if (canvas.width !== videoRef.current.videoWidth) {
-                        canvas.width = videoRef.current.videoWidth;
-                        canvas.height = videoRef.current.videoHeight;
+                    // Cap the surface jsQR works on. The stream is now requested
+                    // at Android's 1600x1024, but jsQR is JavaScript and costs
+                    // O(pixels) — and this loop runs up to FOUR passes per frame
+                    // (centre/full x dontInvert/onlyInvert). Feeding it 1600x1024
+                    // raw would be ~4.4M px per frame against ~2.5M at 1280, so
+                    // the extra sensor detail would be paid for in scan latency
+                    // and detection would get WORSE, not better.
+                    //
+                    // Native has no such problem: Play Services' BarcodeDetector
+                    // is C++, which is exactly why native can afford the higher
+                    // preview size verbatim and this path cannot.
+                    //
+                    // So the camera runs at Android's resolution (the native
+                    // BarcodeDetector path below consumes the full-quality frame)
+                    // while drawImage downscales for jsQR — GPU-side, essentially
+                    // free. 1280 is the previous working width, so the JS path is
+                    // no slower than before while the optics improved.
+                    const JSQR_MAX_WIDTH = 1280;
+                    const vw = videoRef.current.videoWidth;
+                    const vh = videoRef.current.videoHeight;
+                    const scale = vw > JSQR_MAX_WIDTH ? JSQR_MAX_WIDTH / vw : 1;
+                    const dw = Math.round(vw * scale);
+                    const dh = Math.round(vh * scale);
+
+                    if (canvas.width !== dw || canvas.height !== dh) {
+                        canvas.width = dw;
+                        canvas.height = dh;
                     }
 
-                    ctx.drawImage(videoRef.current, 0, 0);
+                    ctx.drawImage(videoRef.current, 0, 0, dw, dh);
 
                     // Multi-region detection. Production "Scan from TV"
                     // failures were caused by holding the phone too

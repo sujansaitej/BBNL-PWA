@@ -15,7 +15,7 @@ export default function DataUsage({ customer, onBack }) {
     };
 
     return (
-        <div className="min-h-dvh bg-gray-50">
+        <div className="min-h-dvh bg-gray-50 dark:bg-gray-900 pb-safe">
             {/* Header */}
             <div className="bg-teal-500 text-white px-4 py-4 flex items-center gap-3">
                 <button onClick={onBack} className="p-1">
@@ -36,14 +36,14 @@ export default function DataUsage({ customer, onBack }) {
                 </div>
 
                 {/* Customer ID Display */}
-                <div className="bg-white rounded-lg p-4 shadow-sm">
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm">
                     <p className="text-sm text-gray-600">Customer ID</p>
-                    <p className="text-lg font-semibold text-gray-900">{customerId}</p>
+                    <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{customerId}</p>
                 </div>
 
                 {/* Usage Stats */}
-                <div className="bg-white rounded-lg p-6 shadow-sm space-y-4">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Usage Statistics</h3>
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-sm space-y-4">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Usage Statistics</h3>
 
                     {/* Progress Bar */}
                     <div>
@@ -80,7 +80,7 @@ export default function DataUsage({ customer, onBack }) {
                     </div>
 
                     {/* Last Updated */}
-                    <div className="pt-4 border-t border-gray-200">
+                    <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
                         <p className="text-xs text-gray-500">
                             Last updated: {usageData.lastUpdated}
                         </p>

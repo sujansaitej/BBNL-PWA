@@ -84,6 +84,7 @@ export default function RaiseTicket() {
   const gate = useRaiseGate({
     service,
     customerId: identity.customerId,
+    customerMobile: identity.custMobile,
     enabled: !!account?.userid,
   });
 
@@ -115,8 +116,19 @@ export default function RaiseTicket() {
       toast.add(res.message, { type: "success" });
       return;
     }
+    // A DUPLICATE IS A DIALOG, NOT A TOAST.
+    // `reGate` means the backend refused because a complaint is already open.
+    // That is the same situation the existing-complaint dialog exists for —
+    // it names the ticket and offers Close / Raise Back. A toast just says
+    // "no" and leaves the customer with nowhere to go, which is what QA hit.
+    // The gate normally catches this before the form is usable at all; this
+    // path covers the race where the ticket was opened elsewhere in between.
+    if (res.reGate) {
+      setExistingDismissed(false);
+      gate.refresh();
+      return;
+    }
     toast.add(res.message, { type: "error" });
-    if (res.reGate) gate.refresh();
   };
 
   if (!account?.userid) {
@@ -180,7 +192,14 @@ export default function RaiseTicket() {
             </div>
           ) : gate.state === "ready" ? (
             <>
-              {/* Line unreachable — informational only, the form stays usable. */}
+              {/* Informational only — the form stays usable either way.
+                  Nothing sets this today: the banner it used to show ("we
+                  couldn't reach your connection") came from the maintenance
+                  ping, which fails for EVERY customer on this deployment
+                  because the NAS does not answer ICMP. It was alarming, it was
+                  wrong about whose connection was unreachable, and the call
+                  cost 12.5s — so the gate no longer makes it. Kept as a slot
+                  for a warning that actually means something. */}
               {gate.warning && (
                 <div className="flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 p-3">
                   <ExclamationTriangleIcon className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />

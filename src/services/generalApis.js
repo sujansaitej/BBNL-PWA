@@ -1,7 +1,8 @@
 // General API services
 import logger from "../utils/logger";
 import perfMonitor from "../utils/apiPerfMonitor";
-import { lsGet, lsSet, lsRemoveByPrefix } from "./lsCache";
+import { lsGet, lsSet, lsGetStale, lsRemoveByPrefix } from "./lsCache";
+import { otpContradiction } from "./loginFlow";
 import {
   getBaseUrl,
   getHeadersJson,
@@ -36,6 +37,38 @@ export async function UserLogin(username, password) {
     logger.security("LOGIN_REJECTED", { username, reason: data?.status?.err_msg });
   } else {
     logger.info("Auth", `Login API success for user: ${username}`);
+  }
+
+  // Record what the backend actually decided about the second factor.
+  //
+  // Whether an OTP screen appears is 100% the backend's call: the PWA cannot
+  // invent a challenge, because verification needs an `otprefid` that only
+  // custlogin issues. Operators reported "sometimes OTP, mostly straight in",
+  // which is unfalsifiable without seeing this field, so it is logged on every
+  // login. `logger.security` uses console.warn, which survives the production
+  // build (only console.log/debug/info are stripped), and the logger redacts
+  // anything sensitive — no credentials pass through here.
+  if (data?.body) {
+    logger.security("LOGIN_OTP_DECISION", {
+      username,
+      otpstatus: data.body.otpstatus === undefined ? "ABSENT" : JSON.stringify(data.body.otpstatus),
+      otprefid_present: Boolean(data.body.otprefid),
+      otp_totchars: data.body.otp_totchars ?? "absent",
+      otp_datatype: data.body.otp_datatype ?? "absent",
+    });
+
+    // The reported case: the operator receives the OTP SMS but the app lets them
+    // straight in. That means a code was issued while otpstatus said otherwise.
+    // Flag it explicitly — this is the single line to send the backend team.
+    if (otpContradiction(data.body)) {
+      logger.security("LOGIN_OTP_CONTRADICTION", {
+        username,
+        otpstatus: JSON.stringify(data.body.otpstatus),
+        detail:
+          "otpstatus reports no second factor, but an otprefid was issued — " +
+          "an OTP may have been sent while the app logged the user in. Backend contract issue.",
+      });
+    }
   }
 
   return data;
@@ -80,6 +113,36 @@ export async function resendOTP(username) {
   return data;
 }
 
+/**
+ * Last known wallet figure for a service key, as a display string — however
+ * old it is. For seeding a wallet card so it paints instantly instead of
+ * pulsing through the request.
+ *
+ * getWalBal caches for 5 minutes, so any visit past that TTL was a cold miss
+ * and the operator watched an empty box for the whole myWallet round trip
+ * (4–45s on this backend — the slowest call on the dashboard). Showing the
+ * previous reading first is honest: it is the number they saw moments ago, and
+ * a revalidation is always in flight behind it.
+ *
+ * Deliberately reads past the freshness window (1 year) — the caller is
+ * responsible for refetching, this only supplies something truthful to render
+ * meanwhile. Returns null when there has never been a reading, so a genuine
+ * first-ever load still shows the skeleton rather than a fake zero.
+ *
+ * @param {string} loginuname
+ * @param {string} [servicekey]
+ * @returns {string|null}
+ */
+export function getCachedWalletBalance(loginuname, servicekey = 'internet') {
+  if (!loginuname) return null;
+  const cached = lsGetStale(`walbal_${loginuname}_${servicekey}`, 365 * 24 * 60 * 60 * 1000);
+  const balance = cached?.data?.body?.wallet_balance;
+  if (cached?.data?.status?.err_code !== 0) return null;
+  if (balance === undefined || balance === null) return null;
+  const amount = Number(balance);
+  return Number.isFinite(amount) ? amount.toFixed(2) : null;
+}
+
 export async function getWalBal(payload, skipCache = false) {
   const cacheKey = `walbal_${payload.loginuname}_${payload.servicekey || 'internet'}`;
   if (!skipCache) {
@@ -89,7 +152,7 @@ export async function getWalBal(payload, skipCache = false) {
   return dedupe(cacheKey, async () => {
     const url = `${getBaseUrl()}ServiceApis/myWallet`;
     const headers = getHeadersJson();
-    const resp = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "getWalBal");
+    const resp = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "getWalBal", { idempotent: true });
     if (!resp.ok) throw new Error(`Failed to get wallet balance ${resp.status}`);
     const data = await resp.json();
     lsSet(cacheKey, data);
@@ -104,7 +167,7 @@ export async function getCustList(payload, status) {
   return dedupe(cacheKey, async () => {
     const url = `${getBaseUrl()}ServiceApis/customersList?status=${encodeURIComponent(status || '')}`;
     const headers = getHeadersJson();
-    const resp = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "getCustList");
+    const resp = await apiFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, "getCustList", { idempotent: true });
     if (!resp.ok) throw new Error(`Failed to get customer data ${resp.status}`);
     const data = await resp.json();
     lsSet(cacheKey, data);
@@ -125,7 +188,7 @@ export async function getServiceList() {
 
   const headers = getHeadersForm();
 
-  const resp = await apiFetch(url, { method: "POST", headers }, "getServiceList");
+  const resp = await apiFetch(url, { method: "POST", headers }, "getServiceList", { idempotent: true });
 
   if (!resp.ok) {
     throw new Error(`HTTP ${resp.status}`);
@@ -243,15 +306,18 @@ export async function getTktDepartments() {
 }
 
 export async function getTickets(tabKey, allParams = {}) {
-  const cacheKey = `tkts_${tabKey}_${allParams.user || ''}_${allParams.dept || ''}`;
-  const cached = lsGet(cacheKey, 3 * 60 * 1000); // 3 min TTL
-  if (cached) { perfMonitor.recordCacheHit("General", "getTickets", cacheKey); return cached; }
-
-  // dedupe(): a tab switch can fire two identical getTickets in the same tick
-  // (the [activeTab] effect and the dept-reset it triggers), and StrictMode
-  // double-mounts in dev. Sharing the in-flight promise collapses them to one
-  // network round-trip, exactly like getWalBal/getCustList/getMyPlanDetails.
-  return dedupe(cacheKey, async () => {
+  // ALWAYS LIVE — no lsCache. Native fetches every ticket list fresh on entry
+  // and on every swipe-to-refresh (no cache layer exists in the app), so a
+  // ticket raised or picked from the web console shows up on the next look.
+  // The PWA used to cache a list for 3 minutes, which is exactly how "the
+  // sections are not reflecting properly" presents on a busy desk.
+  //
+  // dedupe() stays: a tab switch can fire two identical getTickets in the
+  // same tick (the [activeTab] effect and the dept-reset it triggers), and
+  // StrictMode double-mounts in dev. Sharing the IN-FLIGHT promise collapses
+  // them to one round-trip without ever serving a stale result.
+  const dedupeKey = `tkts_${tabKey}_${allParams.user || ''}_${allParams.dept || ''}`;
+  return dedupe(dedupeKey, async () => {
     const opid = allParams.op_id || '';
     const newcon = allParams.dept || 'Departments'; // native default (means "all")
     let ep = '', form = {};
@@ -261,9 +327,21 @@ export async function getTickets(tabKey, allParams = {}) {
       case 'PENDING':
         ep = 'pendingTickets'; form = { apiopid: opid, newcon, loginid: allParams.user || '' }; break;
       case 'NEW CONNECTIONS':
-        // Native sends the operator's op_id (the old PWA hardcoded "raghav").
-        ep = 'getNewConnectionTicket'; form = { apiopid: opid }; break;
+        // `apiopid` here is the LOGIN USERNAME, not the operator id — the
+        // field name lies. Native: NewConnectionFragment.getNewConnection(
+        // employeeName) with employeeName = prefs "app_username". The backend
+        // (Apis.php::getNewConnectionTicket) runs Ticket_model::getpriv() on
+        // it, which looks the value up in admin.user/admin.email and requires
+        // department 5. An op_id can never match, so sending one answered
+        // "You do not have privilage for New connection" for EVERY user —
+        // verified live on prod 6 Sep 2026: op_id → err 1, and the username
+        // the old PWA hardcoded ("raghav") → 5 open tickets. The earlier
+        // comment on this line had it backwards.
+        ep = 'getNewConnectionTicket'; form = { apiopid: allParams.user || '' }; break;
       case 'DISCONNECTIONS':
+        // Here `apiopid` IS the operator id (native DisConnectionFragment
+        // passes prefs "op_id"; the backend filters tickets on opid). A
+        // username answers "Host details for <user> Not Available".
         ep = 'disConnection'; form = { apiopid: opid }; break;
       case 'JOB DONE':
         ep = 'jobDoneList'; form = { apiopid: opid, userid: allParams.user || '' }; break;
@@ -274,27 +352,34 @@ export async function getTickets(tabKey, allParams = {}) {
     const body = new URLSearchParams(form).toString();
     const resp = await apiFetch(url, { method: "POST", headers: TICKET_FORM_HEADERS, body }, `getTickets(${tabKey})`);
     if (!resp.ok) throw new Error(`Failed to get tickets ${resp.status}`);
-    const data = await resp.json();
-    lsSet(cacheKey, data);
-    return data;
+    return resp.json();
   });
 }
 
-// pick / close / transfer. Native form field sets (per action):
-//   pick     : { ticketid, apiopid, empname, empcontact }
-//   close    : { ticketid, apiopid, empname, reason, opid }   → crmCloseTicket
+// pick / resolve / close / transfer. Native form field sets (per action):
+//   pick     : { ticketid, apiopid, empname, empcontact }          → pickTicket
+//   resolve  : { ticketid, apiopid, empname, reason, opid }         → autoResolve
+//   close    : { ticketid, apiopid, empname, reason, opid }         → crmCloseTicket
 //   transfer : { ticketid, toEmpname, toEmpLoginId, fromemp, toEmpMob, opid }
-// Callers build the exact field set; this only picks the endpoint + posts form.
+// `apiopid` is the LOGIN USERNAME on all of these (backend: $loginid →
+// assigned_to / resolvedby). Callers build the exact field set; this only
+// picks the endpoint + posts the form.
+//
+// resolve = native's "Resolve" button in the pick dialog of the New
+// Connection and Disconnection tabs (NewConnectionFragment /
+// DisConnectionFragment → getResolveTickect → Apis/autoResolve). It marks the
+// ticket jobdone in one step, with `reason` stored as resloved_detail.
 export async function pickTicket(allParams = {}, action = '') {
   let ep = 'pickTicket';
   if (action === 'close') ep = 'crmCloseTicket';
+  else if (action === 'resolve') ep = 'autoResolve';
   else if (action === 'transfer') ep = 'transferTicket';
   const url = `${getBaseUrl()}Apis/${ep}`;
   const body = new URLSearchParams({ ...allParams }).toString();
   const resp = await apiFetch(url, { method: "POST", headers: TICKET_FORM_HEADERS, body }, `pickTicket(${action || 'pick'})`);
   if (!resp.ok) throw new Error(`Failed to ${action || 'pick'} ticket ${resp.status}`);
-  // Mutation applied on the backend → drop all cached ticket lists so the next
-  // getTickets() hits the server fresh (native has no cache; every re-fetch is live).
+  // Lists are always live now (see getTickets); this only clears any entry a
+  // previous build left in localStorage.
   lsRemoveByPrefix('tkts_');
   return resp.json();
 }
@@ -637,13 +722,50 @@ export async function getPaymentInfo({ channelid = [], lcochid = [], packageid =
   return resp.json();
 }
 
-export async function getPlanExtensionPeriods({ userid, servkey = "cabletv", itemid }, skipCache = false) {
-  // Cached 60 min — extension periods are per-box plan-validity
-  // options that change very rarely (only when the operator
-  // reconfigures the plan tier). Live timing showed this endpoint
-  // taking 2.4 s on average, the slowest in the checkout chain.
-  // Cache turns the second visit into 0 ms.
-  const cacheKey = `extper_${userid}_${servkey}_${itemid || ''}`;
+/**
+ * Local YYYY-MM-DD, for cache keys that must not survive a date rollover.
+ * Local (not UTC) because the backend's day count is in IST and so is the
+ * operator — a UTC key would roll over at 05:30 IST.
+ */
+function todayKey() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+}
+
+/**
+ * @param {object}  params
+ * @param {string}  params.userid
+ * @param {string} [params.servkey]
+ * @param {string}  params.itemid    box id
+ * @param {string} [params.expirydate] the subscription's CURRENT expiry, from
+ *   getMyPlanDetails. Part of the cache key — see below. Omit only if unknown.
+ * @param {boolean}[skipCache]
+ */
+export async function getPlanExtensionPeriods({ userid, servkey = "cabletv", itemid, expirydate = "" }, skipCache = false) {
+  // The response is cached because it is the slowest call in the checkout
+  // chain (2.4s average), but the ORIGINAL key was wrong. Its comment claimed
+  // extension periods "change very rarely (only when the operator
+  // reconfigures the plan tier)". They do not: `days_range.max` is the number
+  // of days LEFT on the subscription, so it changes
+  //
+  //   1. whenever the expiry date moves — including a renewal done in the
+  //      BACKEND admin, which this app never sees and so can never invalidate
+  //      on, and
+  //   2. every single calendar day, as the remaining count ticks down.
+  //
+  // QA hit (1): a customer was renewed for a second month in the backend; the
+  // service page showed the new expiry (plandets_* has a 5-min TTL and had
+  // refreshed) while the payment page kept serving the pre-renewal answer for
+  // an hour — and since that stale max no longer agreed with the new expiry
+  // date, the inclusive-day normalisation could not recognise it either, so
+  // the page dropped from "30 Days" to "29 Days" instead of rising to 60.
+  //
+  // Both inputs are therefore IN THE KEY. A cached answer is only ever reused
+  // while the subscription and the date it was computed for are unchanged;
+  // anything else is a natural miss. This is correctness the TTL cannot give,
+  // because the events that invalidate it happen outside the app.
+  const cacheKey = `extper_${userid}_${servkey}_${itemid || ''}_${expirydate || 'unknown'}_${todayKey()}`;
   if (!skipCache) {
     const cached = lsGet(cacheKey, 60 * 60 * 1000);
     if (cached) { perfMonitor.recordCacheHit("General", "getPlanExtensionPeriods", cacheKey); return cached; }

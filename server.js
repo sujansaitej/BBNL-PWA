@@ -562,6 +562,253 @@ function handleUsageRequest(req, res, strippedUrl) {
   });
 }
 
+// ── Netmon QR / SSO proxy ──
+// Mirrors the qr-api rules the build writes into .htaccess, so a Node-hosted
+// bundle behaves the same as an Apache-hosted one. Without it the request
+// falls through to the SPA handler, comes back as index.html at HTTP 200, and
+// both "Scan To Login" and "Login To Netmon" fail on a body they cannot parse.
+//
+// The credentials are attached HERE, never in the browser: the
+// QrcodeAuthentication service compares header names case-sensitively — only
+// `Authorization`, `username`, `password` — and the Fetch API lowercases every
+// header name with no way to opt out, so the browser cannot satisfy it at all
+// (a mismatch answers `failed` as a bare body, at HTTP 200). Node's setHeader
+// preserves the casing it is handed. Keeping them server-side also keeps them
+// out of the JS bundle.
+const QR_UPSTREAM = process.env.QR_UPSTREAM || process.env.VITE_QR_PROXY_UPSTREAM || "";
+const QR_AUTH_KEY = process.env.VITE_WEBLOGIN_AUTH_KEY || "";
+const QR_USERNAME = process.env.VITE_WEBLOGIN_USERNAME || "";
+const QR_PASSWORD = process.env.VITE_WEBLOGIN_PASSWORD || "";
+// Narrow by design: these two are all the PWA calls. `getqrcode` mints login
+// challenges and is deliberately NOT reachable through here.
+const QR_ALLOWED = new Set(["apploginlink", "verifyqrcode"]);
+const QR_MAX_BODY = 16 * 1024;
+
+function handleQrRequest(req, res, strippedUrl) {
+  const action = (strippedUrl.match(/^\/qr-api\/([A-Za-z0-9_-]+)/) || [])[1];
+  if (req.method !== "POST" || !action || !QR_ALLOWED.has(action)) {
+    safeWriteHead(res, 404, { "Content-Type": "application/json" });
+    safeEnd(res, JSON.stringify({ error: 1, result: "not_found" }));
+    return;
+  }
+  if (!QR_UPSTREAM) {
+    // Same intent as the .htaccess 502: name the missing piece instead of
+    // letting the SPA fallback answer with an HTML shell.
+    console.error("[QR] QR_UPSTREAM / VITE_QR_PROXY_UPSTREAM is not set");
+    safeWriteHead(res, 502, { "Content-Type": "application/json" });
+    safeEnd(res, JSON.stringify({ error: 1, result: "qr_upstream_not_configured" }));
+    return;
+  }
+
+  let up;
+  try { up = new URL(QR_UPSTREAM); } catch (_) {
+    safeWriteHead(res, 502, { "Content-Type": "application/json" });
+    safeEnd(res, JSON.stringify({ error: 1, result: "qr_upstream_invalid" }));
+    return;
+  }
+  const isTls = up.protocol === "https:";
+  const transport = isTls ? https : http;
+
+  const chunks = [];
+  let size = 0;
+  req.on("data", (c) => {
+    size += c.length;
+    if (size > QR_MAX_BODY) { req.destroy(); return; }
+    chunks.push(c);
+  });
+  req.on("end", () => {
+    if (size > QR_MAX_BODY) return;
+    const body = Buffer.concat(chunks);
+    const upstream = transport.request(
+      {
+        host: up.hostname,
+        port: up.port || (isTls ? 443 : 80),
+        method: "POST",
+        path: `/QrcodeAuthentication/${action}`,
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": body.length,
+          // Casing is load-bearing — see the note above.
+          Authorization: QR_AUTH_KEY,
+          username: QR_USERNAME,
+          password: QR_PASSWORD,
+        },
+        rejectUnauthorized: false,
+        timeout: 30_000,
+      },
+      (resp) => {
+        safeWriteHead(res, resp.statusCode || 502, {
+          "Content-Type": resp.headers["content-type"] || "application/json",
+          "Cache-Control": "no-store",
+        });
+        pipeline(resp, res, (err) => {
+          if (err && !isBenign(err)) console.error("[QR] pipe error:", err.message);
+        });
+      }
+    );
+    upstream.on("timeout", () => upstream.destroy(new Error("upstream timeout")));
+    upstream.on("error", (err) => {
+      console.error("[QR] upstream error:", err.message);
+      if (!res.headersSent) {
+        safeWriteHead(res, 502, { "Content-Type": "application/json" });
+        safeEnd(res, JSON.stringify({ error: 1, result: "proxy_error" }));
+      }
+    });
+    upstream.end(body);
+  });
+  req.on("error", () => {
+    if (!res.headersSent) { safeWriteHead(res, 400, { "Content-Type": "text/plain" }); safeEnd(res, "Bad request"); }
+  });
+}
+
+// ── TR-069 ACS proxy (GenieACS northbound interface) ──
+// The ACS is plain http:// on port 7557 and returns no Access-Control-* headers,
+// so a browser on our https:// origin is blocked twice over — mixed content AND
+// CORS. Neither is fixable client-side, so the PWA talks to this same-origin
+// seam and we make the cross-origin hop server-side. Same arrangement as the
+// Easebuzz and usage-report proxies above.
+//
+// SECURITY — this proxy is the ONLY control in front of the fleet.
+// The GenieACS NBI has no authentication of its own: anything that can reach
+// port 7557 can reconfigure or reboot any ONT. So this seam is deliberately
+// narrow:
+//   * only the /devices collection is reachable (no /tasks, /faults, /presets,
+//     /provisions, /files — those can rewrite ACS behaviour for every device)
+//   * only GET (read) and POST (queue a task) — never PUT or DELETE
+//   * a size cap on task bodies
+// It is still an authenticated-operator-only surface. Do NOT route the customer
+// portal through it: a customer-reachable path must never accept a device id
+// from the client, because changing one number reaches a stranger's equipment.
+const ACS_URL = process.env.ACS_URL || "http://acs.bfnl.services:7557/devices/";
+const ACS_MAX_BODY = 256 * 1024;
+
+function handleAcsRequest(req, res, strippedUrl) {
+  const method = req.method;
+  if (method !== "GET" && method !== "POST") {
+    safeWriteHead(res, 405, { "Content-Type": "application/json" });
+    safeEnd(res, JSON.stringify({ error: 1, result: "method_not_allowed" }));
+    return;
+  }
+
+  // Everything after /acs-api is appended to the ACS device collection URL.
+  const rest = strippedUrl.replace(/^\/acs-api/, "") || "/";
+
+  // Reject any attempt to climb out of /devices/ into another collection.
+  if (rest.includes("..") || /%2e%2e/i.test(rest)) {
+    safeWriteHead(res, 400, { "Content-Type": "application/json" });
+    safeEnd(res, JSON.stringify({ error: 1, result: "bad_path" }));
+    return;
+  }
+  // POST is only ever a task queue: /<deviceId>/tasks?...
+  if (method === "POST" && !/\/tasks(\?|$)/.test(rest)) {
+    safeWriteHead(res, 403, { "Content-Type": "application/json" });
+    safeEnd(res, JSON.stringify({ error: 1, result: "forbidden_path" }));
+    return;
+  }
+
+  let target;
+  try {
+    // Strip EVERY leading slash, not just one. A single strip leaves "//presets"
+    // as "/presets", and a root-relative reference escapes the /devices/ base:
+    //   new URL("/presets", "http://acs:7557/devices/")  -> http://acs:7557/presets
+    // which reaches GenieACS's preset collection — provisioning logic for the
+    // entire fleet. "///faults" is worse still: URL() reads it as a protocol-
+    // relative authority and resolves to http://faults/, a different host.
+    target = new URL(rest.replace(/^\/+/, ""), ACS_URL);
+  } catch (_e) {
+    safeWriteHead(res, 400, { "Content-Type": "application/json" });
+    safeEnd(res, JSON.stringify({ error: 1, result: "bad_url" }));
+    return;
+  }
+
+  // Defence in depth: whatever the input did, the resolved URL must still sit
+  // inside the configured device collection. Cheaper to assert than to reason
+  // about every way URL() can be steered.
+  if (!target.href.startsWith(ACS_URL)) {
+    safeWriteHead(res, 403, { "Content-Type": "application/json" });
+    safeEnd(res, JSON.stringify({ error: 1, result: "outside_device_collection" }));
+    return;
+  }
+
+  const isTls = target.protocol === "https:";
+  const agent = isTls ? https : http;
+
+  const chunks = [];
+  let size = 0;
+  let aborted = false;
+  req.on("data", (c) => {
+    size += c.length;
+    if (size > ACS_MAX_BODY) {
+      aborted = true;
+      safeWriteHead(res, 413, { "Content-Type": "application/json" });
+      safeEnd(res, JSON.stringify({ error: 1, result: "body_too_large" }));
+      req.destroy();
+      return;
+    }
+    chunks.push(c);
+  });
+
+  req.on("end", () => {
+    if (aborted) return;
+    const body = Buffer.concat(chunks);
+    const headers = { Accept: "application/json" };
+    if (method === "POST") {
+      headers["Content-Type"] = "application/json";
+      headers["Content-Length"] = body.length;
+    }
+    // The ACS NBI credential, when one is configured, lives HERE and never
+    // reaches the browser.
+    if (process.env.ACS_AUTH) headers.Authorization = process.env.ACS_AUTH;
+
+    const upstream = agent.request(
+      {
+        protocol: target.protocol,
+        host: target.hostname,
+        port: target.port || (isTls ? 443 : 80),
+        method,
+        path: target.pathname + target.search,
+        headers,
+        rejectUnauthorized: false,
+        // A connection_request reaches the CPE over the last mile; 12s is the
+        // client-side budget, so allow headroom before giving up here.
+        timeout: 50_000,
+      },
+      (up) => {
+        // Status code passthrough is load-bearing: GenieACS answers 200 when a
+        // task EXECUTED and 202 when it was only QUEUED because the device was
+        // unreachable. Collapsing those is exactly the bug that made the old
+        // console report "rebooted successfully" for offline devices.
+        safeWriteHead(res, up.statusCode || 502, {
+          "Content-Type": up.headers["content-type"] || "application/json",
+          "Cache-Control": "no-store",
+        });
+        pipeline(up, res, (err) => {
+          if (err && !isBenign(err)) console.error("[ACS] pipe error:", err.message);
+        });
+      }
+    );
+
+    upstream.on("timeout", () => upstream.destroy(new Error("upstream timeout")));
+    upstream.on("error", (err) => {
+      console.error("[ACS] upstream error:", err.message);
+      if (!res.headersSent) {
+        safeWriteHead(res, 502, { "Content-Type": "application/json" });
+        safeEnd(res, JSON.stringify({ error: 1, result: "acs_unreachable" }));
+      }
+    });
+
+    if (method === "POST") upstream.end(body);
+    else upstream.end();
+  });
+
+  req.on("error", () => {
+    if (!res.headersSent) {
+      safeWriteHead(res, 400, { "Content-Type": "text/plain" });
+      safeEnd(res, "Bad request");
+    }
+  });
+}
+
 // ── Static file server ──
 function serveStatic(req, res) {
   let urlPath = decodeURIComponent(req.url.split("?")[0]);
@@ -636,6 +883,8 @@ function requestHandler(req, res) {
     if (u.startsWith(BASE_PATH)) u = u.slice(BASE_PATH.length) || "/";
     if (u.startsWith("/ezpay-")) { handleEzpayRequest(req, res, u); return; }
     if (u.startsWith("/usage-api")) { handleUsageRequest(req, res, u); return; }
+    if (u.startsWith("/acs-api")) { handleAcsRequest(req, res, u); return; }
+    if (u.startsWith("/qr-api")) { handleQrRequest(req, res, u); return; }
   }
 
   // Strip base path prefix from stream requests so the handler sees /stream/...

@@ -3,9 +3,8 @@ import Layout from "../layout/Layout";
 import Terms from "../components/Terms";
 import { useNavigate } from "react-router-dom";
 import SignaturePad from "react-signature-canvas";
-import { PhotoIcon, DocumentIcon, CheckCircleIcon, XCircleIcon, InformationCircleIcon, PencilSquareIcon, XMarkIcon, EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
-import "leaflet/dist/leaflet.css";
-import { MapContainer, TileLayer, useMapEvents, useMap } from "react-leaflet";
+import { PhotoIcon, DocumentIcon, CheckCircleIcon, XCircleIcon, InformationCircleIcon, PencilSquareIcon, XMarkIcon, EyeIcon, EyeSlashIcon, ArrowsPointingOutIcon, ArrowPathIcon } from "@heroicons/react/24/outline";
+import LocationPicker from "../components/LocationPicker";
 import {
   checkUsernameAvailability,
   checkEmailAvailability,
@@ -16,6 +15,7 @@ import {
 import { Modal } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { safeGetArray } from "../services/safeStorage";
+import { validatePassword, PASSWORD_MAX_LENGTH } from "../utils/passwordPolicy";
 import {
   isLowMemoryDevice,
   prepareForCameraCapture,
@@ -24,6 +24,7 @@ import {
   consumeCameraKillFlag,
 } from "../utils/cameraPrep";
 import PhotoCaptureModal from "../components/PhotoCaptureModal";
+import useBodyScrollLock from "../hooks/useBodyScrollLock";
 
 // Compress image client-side to fit under maxSizeMB using canvas.
 // Strategy: step quality down first; if still over target, step dimensions
@@ -84,6 +85,157 @@ async function compressImage(file, { maxWidth = 1280, maxHeight = 1280, maxSizeM
     img.onerror = () => { URL.revokeObjectURL(objectUrl); resolve(file); };
     img.src = objectUrl;
   });
+}
+
+// Keeps a <SignaturePad>'s bitmap in step with the size its CSS box actually
+// renders at, WITHOUT wiping what has already been drawn.
+//
+// react-signature-canvas only sizes the canvas once (on mount) and its built-in
+// `clearOnResize` erases the pad on *any* window resize — on Android that fires
+// when the on-screen keyboard opens or the URL bar collapses, so a finished
+// signature would silently vanish. We therefore turn `clearOnResize` off and
+// re-fit here instead: only when the box genuinely changes size (operator drags
+// the pad taller, or the phone is rotated), and the existing ink is snapshotted
+// and redrawn afterwards.
+function useSignaturePadAutoFit(padRef, enabled = true) {
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const pad = padRef.current;
+    if (!pad || typeof pad.getCanvas !== "function") return undefined;
+
+    let canvas;
+    try {
+      canvas = pad.getCanvas();
+    } catch (_) {
+      return undefined;
+    }
+
+    let lastSize = `${canvas.offsetWidth}x${canvas.offsetHeight}`;
+    let timer = null;
+
+    const refit = () => {
+      const w = canvas.offsetWidth;
+      const h = canvas.offsetHeight;
+      if (!w || !h) return;
+      const size = `${w}x${h}`;
+      if (size === lastSize) return;
+      lastSize = size;
+
+      // Some browsers report devicePixelRatio < 1 when zoomed out.
+      const ratio = Math.max(window.devicePixelRatio || 1, 1);
+      let snapshot = null;
+      try {
+        if (!pad.isEmpty()) snapshot = canvas.toDataURL("image/png");
+      } catch (_) {}
+
+      canvas.width = Math.round(w * ratio);
+      canvas.height = Math.round(h * ratio);
+      canvas.getContext("2d").scale(ratio, ratio);
+      pad.clear();
+      if (snapshot) {
+        try {
+          pad.fromDataURL(snapshot);
+        } catch (_) {}
+      }
+    };
+
+    // Debounced: a drag-resize fires the observer on every pointer move.
+    const schedule = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(refit, 150);
+    };
+
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(schedule) : null;
+    if (ro) ro.observe(canvas);
+    else window.addEventListener("resize", schedule);
+    window.addEventListener("orientationchange", schedule);
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      if (ro) ro.disconnect();
+      else window.removeEventListener("resize", schedule);
+      window.removeEventListener("orientationchange", schedule);
+    };
+  }, [padRef, enabled]);
+}
+
+// ── Android CaptureSignature parity helpers ──────────────────────────────
+//
+// The Android app captures the signature in its own Activity
+// (Activity/CaptureSignature.java): the pad owns the entire display with no
+// app chrome, an action bar of Cancel | Clear | Save sits on top with Save
+// disabled until the customer actually touches the pad, and the saved bitmap
+// is drawn onto a WHITE canvas before it is compressed. The three helpers
+// below give the PWA the same three behaviours.
+
+// Android hands the pad a real full-screen Activity. The web equivalent is the
+// Fullscreen API — a `fixed inset-0` div still sits under the URL bar and the
+// browser's bottom toolbar, which is most of the height the operator is asking
+// for. Resolves once the request settles so the orientation lock (which the
+// spec only permits on a fullscreen document) can chain off it.
+async function enterNativeFullscreen(el) {
+  const req =
+    el?.requestFullscreen ||
+    el?.webkitRequestFullscreen ||
+    el?.webkitRequestFullScreen ||
+    el?.msRequestFullscreen;
+  if (!req) return false;
+  try {
+    await req.call(el, { navigationUI: "hide" });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function exitNativeFullscreen() {
+  const active =
+    document.fullscreenElement ||
+    document.webkitFullscreenElement ||
+    document.msFullscreenElement;
+  if (!active) return;
+  const exit =
+    document.exitFullscreen ||
+    document.webkitExitFullscreen ||
+    document.msExitFullscreen;
+  try {
+    exit?.call(document);
+  } catch (_) {}
+}
+
+// CaptureSignature.onCreate() forces landscape when the display is small
+// (`height < 1024 && width <= 1280`), because a signature is far wider than it
+// is tall. Same intent here: phone-sized screens get rotated, tablets and
+// desktops keep whatever orientation they are already in.
+function shouldSignInLandscape() {
+  if (typeof window === "undefined") return false;
+  const w = window.screen?.width || window.innerWidth || 0;
+  const h = window.screen?.height || window.innerHeight || 0;
+  if (!w || !h) return false;
+  return Math.min(w, h) <= 500 && Math.max(w, h) <= 1100;
+}
+
+const canLockOrientation =
+  typeof window !== "undefined" &&
+  typeof window.screen?.orientation?.lock === "function";
+
+// signature_pad draws on a transparent canvas, so `toDataURL()` yields a PNG
+// with no background — which renders as invisible (or black-on-black) ink in
+// several PDF/document viewers. CaptureSignature.save() does
+// `canvas.drawColor(Color.WHITE)` before compressing; flatten the same way.
+function flattenSignatureToWhite(canvas) {
+  try {
+    const out = document.createElement("canvas");
+    out.width = canvas.width;
+    out.height = canvas.height;
+    const ctx = out.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, out.width, out.height);
+    ctx.drawImage(canvas, 0, 0);
+    return out.toDataURL("image/png");
+  } catch (_) {
+    return canvas.toDataURL("image/png");
+  }
 }
 
 // debounce helper
@@ -157,20 +309,30 @@ const FloatingInput = forwardRef(({ label, type = "text", name, cls, value, len 
         onKeyDown={handleKeyDown}
         maxLength={len}
         placeholder=" "
-        className={`peer w-full rounded-xl border px-3 pb-2.5 pt-4 text-base sm:text-sm dark:text-gray-700 bg-white outline-none transition-colors ${cls ? cls : ""}
-          ${error ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-gray-300 focus:border-blue-500 focus:ring-blue-500"}
+        /* Follows the app theme. This used to be pinned light with
+           `scheme-light text-gray-900 bg-white`, because the card behind it
+           never darkened — see the card wrappers below. Now that they do, the
+           field darkens with them and the user agent may paint its own chrome
+           (caret, date picker, autofill) to match instead of being overridden. */
+        className={`peer w-full rounded-xl border px-3 pb-2.5 pt-4 text-base sm:text-sm text-gray-900 bg-white dark:text-gray-100 dark:bg-gray-800 outline-none transition-colors ${cls ? cls : ""}
+          ${error ? "border-red-500 focus:border-red-500 focus:ring-red-500" : "border-gray-300 dark:border-gray-600 focus:border-blue-500 focus:ring-blue-500"}
         `}
         {...props}
       />
       <label
         htmlFor={name}
-        className={`absolute left-2.5 z-[1] bg-white px-1.5 py-0.5 pointer-events-none transition-all duration-200
+        /* The label's background PUNCHES A HOLE IN THE INPUT'S TOP BORDER once
+           it floats up, so it has to be the same colour as what is behind it.
+           That is why it tracks the field/card fill (white → gray-800) rather
+           than being transparent: on a transparent label the border would run
+           straight through the text. */
+        className={`absolute left-2.5 z-[1] bg-white dark:bg-gray-800 px-1.5 py-0.5 pointer-events-none transition-all duration-200
           top-0 text-xs font-medium
           peer-placeholder-shown:top-[26px] peer-placeholder-shown:text-sm peer-placeholder-shown:font-normal
           peer-focus:top-0 peer-focus:text-xs peer-focus:font-medium
           ${error
             ? "text-red-500 peer-focus:text-red-500"
-            : "text-purple-700 peer-placeholder-shown:text-gray-400 peer-focus:text-blue-600"
+            : "text-purple-700 dark:text-purple-300 peer-placeholder-shown:text-gray-400 peer-focus:text-blue-600 dark:peer-focus:text-blue-400"
           }
         `}
       >
@@ -230,14 +392,14 @@ function smoothScrollTo(element, duration = 800) {
 //   };
 //   return (
 //     <div>
-//       <p className="mb-2 text-sm font-medium text-gray-700">{label}</p>
+//       <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">{label}</p>
 //       <div className="flex gap-3 flex-wrap">
 //         {files.map((f, i) => (
 //           <img key={i} src={URL.createObjectURL(f)} alt="preview" className="h-16 w-16 rounded-lg border object-cover" />
 //         ))}
 //         {files.length < max && (
-//           <label className="flex h-16 w-16 cursor-pointer items-center justify-center rounded-lg border border-dashed border-gray-400 hover:bg-gray-100">
-//             <Icon className="h-6 w-6 text-gray-500" />
+//           <label className="flex h-16 w-16 cursor-pointer items-center justify-center rounded-lg border border-dashed border-gray-400 dark:border-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 dark:bg-gray-800">
+//             <Icon className="h-6 w-6 text-gray-500 dark:text-gray-400" />
 //             <input type="file" accept="image/*" multiple={multiple} className="hidden" onChange={handleFileChange} />
 //           </label>
 //         )}
@@ -462,7 +624,7 @@ const ThumbnailUploader = forwardRef(({ label, max = 1, username, fieldKey, mult
 
   return (
     <div>
-      <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-700" ref={ref}>{label} {required && <span className="text-red-500">*</span>}</p>
+      <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-100" ref={ref}>{label} {required && <span className="text-red-500">*</span>}</p>
       <div className="flex gap-3 flex-wrap">
         {files.map((file, idx) => (
           <div key={idx} className="relative">
@@ -485,7 +647,7 @@ const ThumbnailUploader = forwardRef(({ label, max = 1, username, fieldKey, mult
             type="button"
             disabled={uploading}
             onClick={handlePlusClick}
-            className="flex h-16 w-16 cursor-pointer items-center justify-center rounded-lg border border-dashed border-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+            className="flex h-16 w-16 cursor-pointer items-center justify-center rounded-lg border border-dashed border-gray-400 dark:border-gray-500 hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-700"
           >
             {uploading ? (
               <svg
@@ -498,7 +660,7 @@ const ThumbnailUploader = forwardRef(({ label, max = 1, username, fieldKey, mult
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
               </svg>
             ) : (
-              <span className="text-gray-500">+</span>
+              <span className="text-gray-500 dark:text-gray-400">+</span>
             )}
           </button>
         )}
@@ -510,47 +672,6 @@ const ThumbnailUploader = forwardRef(({ label, max = 1, username, fieldKey, mult
 
 // Recenter map when center prop changes — defined at module level to avoid
 // React remounting the component on every parent render.
-function RecenterMap({ center }) {
-  const map = useMap();
-  useEffect(() => {
-    map.setView(center, map.getZoom());
-  }, [center[0], center[1]]);
-  return null;
-}
-
-function MapCenterTracker({ onCenterPick }) {
-  const map = useMapEvents({
-    click(e) {
-      map.setView(e.latlng, map.getZoom());
-      onCenterPick(e.latlng);
-    },
-    moveend() {
-      onCenterPick(map.getCenter());
-    },
-  });
-  return null;
-}
-
-// Center-locked picker: map moves under a fixed center pointer.
-function LocationPicker({ center, onChange }) {
-  return (
-    <div className="relative">
-      <MapContainer center={center} zoom={14} scrollWheelZoom={true} style={{ height: 400, width: "100%" }}>
-        <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-        <RecenterMap center={center} />
-        <MapCenterTracker onCenterPick={onChange} />
-      </MapContainer>
-      <div className="pointer-events-none absolute inset-0 z-[500] flex items-center justify-center">
-        <img
-          src={import.meta.env.VITE_API_APP_DIR_PATH + "icons/marker.png"}
-          alt="Center pointer"
-          className="h-11 w-11 -translate-y-5 drop-shadow-md"
-        />
-      </div>
-    </div>
-  );
-}
-
 // Storage key for persisting form data across camera captures.
 // On Android, opening the native camera via <input capture> can cause
 // the OS to kill the browser tab AND clear sessionStorage with it, so we
@@ -663,6 +784,58 @@ export default function Register() {
   const [idProof, setIdProof] = useState([]); // File[]
   const [signature, setSignature] = useState(null);
   const sigCanvas = useRef();
+  // Full-screen signing surface (handed to the customer on the doorstep)
+  const [signFullScreen, setSignFullScreen] = useState(false);
+  const fsSigCanvas = useRef();
+  // Resolves when the fullscreen request has settled — the orientation lock
+  // is only permitted once the document is actually fullscreen.
+  const fsEntered = useRef(null);
+  // Android keeps Save disabled until the pad receives its first touch.
+  const [fsHasInk, setFsHasInk] = useState(false);
+  const [fsLandscape, setFsLandscape] = useState(false);
+  // The un-flattened (transparent) pad snapshot, kept so re-opening the pad
+  // carries the strokes over without stamping a white block on top of them.
+  const signatureRaw = useRef(null);
+
+  useSignaturePadAutoFit(sigCanvas, true);
+  useSignaturePadAutoFit(fsSigCanvas, signFullScreen);
+  useBodyScrollLock(signFullScreen);
+
+  // Hand the display back when the pad closes. Entering fullscreen happens in
+  // the click handler itself (openFullScreenSignature) — browsers only grant
+  // the request from inside the user gesture that triggered it.
+  useEffect(() => {
+    if (!signFullScreen) return undefined;
+    return () => {
+      fsEntered.current = null;
+      try {
+        window.screen?.orientation?.unlock?.();
+      } catch (_) {}
+      exitNativeFullscreen();
+    };
+  }, [signFullScreen]);
+
+  // Orientation lock lives in its own effect so flipping it does not tear the
+  // fullscreen session down and back up (re-entering needs a user gesture).
+  useEffect(() => {
+    if (!signFullScreen || !canLockOrientation) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        await fsEntered.current;
+      } catch (_) {}
+      if (cancelled) return;
+      try {
+        await window.screen.orientation.lock(fsLandscape ? "landscape" : "portrait");
+      } catch (_) {
+        // Desktop Chrome and every iOS browser reject this; the pad simply
+        // stays in whatever orientation the device is already held.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [signFullScreen, fsLandscape]);
 
   // ── Form persistence across camera captures ──
   // Save form data to sessionStorage on every change so it survives
@@ -885,20 +1058,82 @@ export default function Register() {
 
   // signature helpers
   const clearSignature = () => {
-    sigCanvas.current.clear();
+    sigCanvas.current?.clear();
+    signatureRaw.current = null;
     setSignature(null);
   };
   const saveSignature = () => {
-    if (!sigCanvas.current.isEmpty()) {
-      const dataUrl = sigCanvas.current.getCanvas().toDataURL("image/png");
+    if (sigCanvas.current && !sigCanvas.current.isEmpty()) {
+      const canvas = sigCanvas.current.getCanvas();
+      signatureRaw.current = canvas.toDataURL("image/png");
+      const dataUrl = flattenSignatureToWhite(canvas);
       setSignature(dataUrl); // not used
+      setErrors((p) => ({ ...p, signature: null }));
       // signature -> 'signature' (we will convert dataURL -> blob)
       saveSign(dataUrl);
     } else {
       toast.add("Please write signature", { type: "error" });
     }
   };
-  
+
+  // Android's CaptureSignature launcher: hand the whole display to the pad.
+  // requestFullscreen() must be issued from inside this gesture, so it fires
+  // here rather than in an effect after the overlay has mounted.
+  const openFullScreenSignature = () => {
+    fsEntered.current = enterNativeFullscreen(document.documentElement);
+    setFsHasInk(false);
+    setFsLandscape(shouldSignInLandscape());
+    setSignFullScreen(true);
+  };
+
+  const clearFullScreenSignature = () => {
+    try { fsSigCanvas.current?.clear(); } catch (_) {}
+    setFsHasInk(false);
+  };
+
+  // Full-screen pad: same save path, just a bigger surface to sign on.
+  const saveFullScreenSignature = () => {
+    const pad = fsSigCanvas.current;
+    if (!pad || pad.isEmpty()) {
+      toast.add("Please write signature", { type: "error" });
+      return;
+    }
+    const canvas = pad.getCanvas();
+    signatureRaw.current = canvas.toDataURL("image/png");
+    const dataUrl = flattenSignatureToWhite(canvas);
+    setSignature(dataUrl);
+    setErrors((p) => ({ ...p, signature: null }));
+    saveSign(dataUrl);
+    // The inline pad would otherwise still show a stale/half drawing next to
+    // the freshly saved preview — keep exactly one visible source of truth.
+    try { sigCanvas.current?.clear(); } catch (_) {}
+    setSignFullScreen(false);
+  };
+
+  // Carry whatever is already drawn (inline strokes, or an earlier saved
+  // signature) into the full-screen pad so opening it never loses work.
+  useEffect(() => {
+    if (!signFullScreen) return undefined;
+    let src = null;
+    try {
+      if (sigCanvas.current && !sigCanvas.current.isEmpty()) {
+        src = sigCanvas.current.getCanvas().toDataURL("image/png");
+      }
+    } catch (_) {}
+    if (!src) src = signatureRaw.current;
+    if (!src) return undefined;
+    const id = requestAnimationFrame(() => {
+      try {
+        fsSigCanvas.current?.fromDataURL(src);
+        // Carried-over ink counts as ink: Save must not be greyed out just
+        // because this pad has not been touched yet in this session.
+        setFsHasInk(true);
+      } catch (_) {}
+    });
+    return () => cancelAnimationFrame(id);
+  }, [signFullScreen]);
+
+
   async function saveSign(dataUrl){
   // if (signature) {
       // convert dataURL to blob
@@ -1058,14 +1293,11 @@ export default function Register() {
       if (age < 18) newErrors.dob = "Age must be 18+";
     }
 
-    if (!form.password) {
-      newErrors.password = "Password is required";
-    } else if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(form.password)) {
-      newErrors.password =
-        "Password must be minimum 8 characters and it should be the combination of at least one lowercase, uppercase, number, special character (@$!%*?&).";//"Password must contain at least one lowercase, uppercase, number, special character (@$!%*?&), and be at least 8 characters long.";
-    }
-
-    else if (["12345678", "password"].includes(form.password.toLowerCase())) newErrors.password = "Weak password";
+    // Length bound + the two banned literals only — no uppercase/special-char
+    // requirement, so a phone number or any random string is accepted.
+    // See src/utils/passwordPolicy.js
+    const passwordError = validatePassword(form.password);
+    if (passwordError) newErrors.password = passwordError;
     if (!hasInstallationAddressFields(form)) newErrors.address = "Select installation location";
     if (addressFieldsVisible || hasInstallationAddressFields(form)) {
       if (!form.houseno) newErrors.houseno = "House No. is required";
@@ -1189,8 +1421,8 @@ export default function Register() {
     <Layout>
     <form onSubmit={handleSubmit} className="max-w-2xl mx-auto space-y-6 p-4" noValidate autoComplete="off">
       {/* ACCOUNT */}
-      <div className="rounded-xl bg-white p-4 shadow space-y-3">
-        <h2 className="text-lg font-semibold dark:text-gray-700">Account</h2>
+      <div className="rounded-xl bg-white dark:bg-gray-800 p-4 shadow space-y-3">
+        <h2 className="text-lg font-semibold dark:text-gray-100">Account</h2>
         <div className="flex gap-2 items-start">
           <div className="relative w-full">
             <FloatingInput label="Username" name="username" cls="lowercase" ref={refs.username} value={form.username} onChange={handleChange} error={errors.username} disabled={isDisabled} forceLowercase={true} required />
@@ -1199,7 +1431,7 @@ export default function Register() {
                 <button
                     type="button"
                     onClick={() => setEditable(true)}
-                    className="text-gray-500 hover:text-gray-700"
+                    className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                 >
                     <PencilSquareIcon className="h-5 w-5" />
                 </button>
@@ -1228,8 +1460,8 @@ export default function Register() {
       </div>
 
       {/* KYC DETAILS */}
-      <div className="rounded-xl bg-white p-4 shadow space-y-3">
-        <h2 className="text-lg font-semibold dark:text-gray-700">KYC Details</h2>
+      <div className="rounded-xl bg-white dark:bg-gray-800 p-4 shadow space-y-3">
+        <h2 className="text-lg font-semibold dark:text-gray-100">KYC Details</h2>
 
         <FloatingInput label="First Name" name="firstname" ref={refs.firstname} value={form.firstname} onChange={handleChange} error={errors.firstname} required />
         <FloatingInput label="Last Name" name="lastname" ref={refs.lastname} value={form.lastname} onChange={handleChange} error={errors.lastname} onlyLetters required />
@@ -1244,16 +1476,16 @@ export default function Register() {
         {emailStatus && !emailStatus.available && <p className="text-xs text-red-600">{emailStatus.message}</p>}
 
         <FloatingInput label="Date of Birth" name="dob" type="date" ref={refs.dob} value={form.dob} onChange={handleChange} error={errors.dob} min={minDate} max={maxDate} required />
-        <FloatingInput label="Password" name="password" type="password" ref={refs.password} value={form.password} onChange={handleChange} error={errors.password} required />
-        <p className="flex gap-1.5 text-xs text-gray-500"><InformationCircleIcon className="h-4 w-4" />Password must be at least 8 chars and strong. "password" & "12345678" not allowed.</p>
+        <FloatingInput label="Password" name="password" type="password" ref={refs.password} value={form.password} len={PASSWORD_MAX_LENGTH} onChange={handleChange} error={errors.password} required />
+        <p className="flex gap-1.5 text-xs text-gray-500 dark:text-gray-400"><InformationCircleIcon className="h-4 w-4 shrink-0" />Minimum 8 characters. A mobile number is fine — only "password" and "12345678" are not allowed.</p>
 
         <FloatingInput label="GST Number (optional)" name="cust_gstn" ref={refs.cust_gstn} value={form.cust_gstn} len={15} onChange={handleChange} error={errors.cust_gstn} />
 
         {/* Installation address via map */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Installation Address <span className="text-red-500">*</span></label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Installation Address <span className="text-red-500">*</span></label>
           <div className="flex gap-2 mt-2">
-            <button type="button" ref={refs.address} onClick={openMapgetLoc} className="rounded border px-3 py-1 text-sm dark:text-gray-700">Pick on map</button>
+            <button type="button" ref={refs.address} onClick={openMapgetLoc} className="rounded border px-3 py-1 text-sm dark:text-gray-100">Pick on map</button>
             <button type="button" onClick={() => {
               // try geolocation fill if available
               if (navigator.geolocation) {
@@ -1269,7 +1501,7 @@ export default function Register() {
                   toast.add(msg, { type: "error" });
                 }, { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 });
               } else toast.add("Geolocation not available", { type: "error" });
-            }} className="rounded border px-3 py-1 text-sm dark:text-gray-700">Use current location</button>
+            }} className="rounded border px-3 py-1 text-sm dark:text-gray-100">Use current location</button>
           </div>
           {errors.address && <p className="text-xs text-red-500">{errors.address}</p>}
           {addressFieldsVisible &&
@@ -1287,14 +1519,14 @@ export default function Register() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Billing Address <span className="text-red-500">*</span></label>
-          <textarea name="billaddress" value={form.billaddress} onChange={handleChange} className="w-full text-sm dark:text-gray-700 bg-white rounded-xl border p-3" maxLength={300} ref={refs.billaddress} />
-          <label className="flex items-center gap-2 text-sm mt-2 dark:text-gray-700">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Billing Address <span className="text-red-500">*</span></label>
+          <textarea name="billaddress" value={form.billaddress} onChange={handleChange} className="w-full text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800 rounded-xl border border-gray-300 dark:border-gray-600 p-3" maxLength={300} ref={refs.billaddress} />
+          <label className="flex items-center gap-2 text-sm mt-2 dark:text-gray-100">
             <input type="checkbox" onChange={(e) => setForm((p) => {
               if (!e.target.checked) return { ...p, billaddress: "" };
               const fullAddress = buildStructuredInstallationAddress(p);
               return { ...p, billaddress: fullAddress || p.address };
-            })} className="[color-scheme:light]"/>
+            })}/>
             Same as installation address
           </label>
           {errors.billaddress && <p className="text-xs text-red-500">{errors.billaddress}</p>}
@@ -1302,28 +1534,158 @@ export default function Register() {
       </div>
 
       {/* KYC DOCUMENTS */}
-      <div className="rounded-xl bg-white p-4 shadow space-y-3">
-        <h2 className="text-lg font-semibold dark:text-gray-700">KYC Documents</h2>
+      <div className="rounded-xl bg-white dark:bg-gray-800 p-4 shadow space-y-3">
+        <h2 className="text-lg font-semibold dark:text-gray-100">KYC Documents</h2>
         <ThumbnailUploader label="Customer Photo" files={photo} setFiles={setPhoto} icon={PhotoIcon} max={1} username={form.username} fieldKey="photo" error={errors.photo} ref={refs.photo} required onBeforeCapture={saveFormDraft} onRequestUpload={(handlers) => setUploadSheet({ open: true, ...handlers })} onRequestPhotoCapture={(cb) => openPhotoCapture('photo', cb)} />
         <ThumbnailUploader label="Address Proof (max 3)" files={addressProof} setFiles={setAddressProof} icon={DocumentIcon} multiple max={3} username={form.username} fieldKey="addrproof" error={errors.addrproof} ref={refs.addrproof} required onBeforeCapture={saveFormDraft} onRequestUpload={(handlers) => setUploadSheet({ open: true, ...handlers })} onRequestPhotoCapture={(cb) => openPhotoCapture('addrproof', cb)} />
         <ThumbnailUploader label="ID Proof (max 2)" files={idProof} setFiles={setIdProof} icon={DocumentIcon} multiple max={2} username={form.username} fieldKey="idcard" error={errors.idcard} ref={refs.idcard} required onBeforeCapture={saveFormDraft} onRequestUpload={(handlers) => setUploadSheet({ open: true, ...handlers })} onRequestPhotoCapture={(cb) => openPhotoCapture('idcard', cb)} />
       </div>
 
       {/* Signature */}
-      <div className="rounded-xl bg-white p-4 shadow space-y-3">
-        <h2 className="text-lg font-semibold dark:text-gray-700">Signature <span className="text-red-500">*</span></h2>
-        <SignaturePad ref={sigCanvas} penColor="blue" canvasProps={{ className: "w-full h-40 border rounded-lg bg-gray-50" }} />
+      <div className="rounded-xl bg-white dark:bg-gray-800 p-4 shadow space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold dark:text-gray-100">Signature <span className="text-red-500">*</span></h2>
+          <button
+            type="button"
+            onClick={openFullScreenSignature}
+            className="flex shrink-0 items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-600"
+          >
+            <ArrowsPointingOutIcon className="h-4 w-4" />
+            Full screen
+          </button>
+        </div>
+        {/* Taller by default, and drag-resizable from the bottom edge — the
+            canvas fills the box and useSignaturePadAutoFit re-fits its bitmap
+            without erasing what has already been drawn. */}
+        {/* pb-3 leaves the browser's resize grabber uncovered — the canvas sets
+            touch-action:none, so without that strip a touch drag on the corner
+            would be swallowed as a pen stroke instead of resizing the box. */}
+        <div
+          className="w-full resize-y overflow-hidden rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 pb-3"
+          style={{ height: 320, minHeight: 200, maxHeight: 640 }}
+        >
+          <SignaturePad
+            ref={sigCanvas}
+            penColor="blue"
+            clearOnResize={false}
+            canvasProps={{ className: "block h-full w-full touch-none" }}
+          />
+        </div>
+        <p className="text-[11px] text-gray-400">Drag the bottom edge to enlarge the box, or tap “Full screen” to sign on the whole display.</p>
         <div className="flex gap-2">
-          <button type="button" onClick={clearSignature} className="rounded border px-3 py-1 text-sm text-gray-500">Clear</button>
+          <button type="button" onClick={clearSignature} className="rounded border px-3 py-1 text-sm text-gray-500 dark:text-gray-400 dark:border-gray-600">Clear</button>
           <button type="button" onClick={saveSignature} className="rounded border px-3 py-1 text-sm text-blue-500">Save</button>
         </div>
         {signature && <img src={signature} alt="signature" className="h-16 mt-2 border rounded" />}
         {errors.signature && <p className="text-xs text-red-500">{errors.signature}</p>}
       </div>
 
+      {/* FULL-SCREEN SIGNATURE PAD — mirrors the Android app's
+          CaptureSignature Activity (activity_capture_signature.xml): a
+          Cancel | Clear | Save action bar on top, the "Please Sign below ..."
+          prompt underneath, and the pad taking every remaining pixel. */}
+      {/* THE ONE SURFACE HERE THAT STAYS WHITE IN DARK MODE, deliberately.
+          A signature is drawn in blue ink and saved through
+          flattenSignatureToWhite() — the exported PNG is composited onto a
+          WHITE background because several document viewers render a
+          transparent one as black-on-black. Darkening the pad would mean
+          signing on a dark field and then flattening that onto white, so the
+          customer would sign something they cannot see afterwards. It is light
+          because the ARTEFACT is light, not because the page is. scheme-light
+          keeps the user agent from painting dark chrome inside it while the
+          document theme is dark. */}
+      {signFullScreen && (
+        <div
+          className="scheme-light fixed inset-0 z-[70] flex flex-col bg-white"
+          style={{
+            paddingTop: "env(safe-area-inset-top)",
+            paddingBottom: "env(safe-area-inset-bottom)",
+            paddingLeft: "env(safe-area-inset-left)",
+            paddingRight: "env(safe-area-inset-right)",
+          }}
+        >
+          {/* Android's action bar: weights .30 / .35 / .35 */}
+          <div className="flex shrink-0 items-center gap-1.5 px-2 py-2">
+            <button
+              type="button"
+              onClick={() => setSignFullScreen(false)}
+              style={{ flex: "0.30 1 0%" }}
+              className="rounded-lg bg-gray-500 px-3 py-2.5 text-sm font-medium text-white"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={clearFullScreenSignature}
+              style={{ flex: "0.35 1 0%" }}
+              className="rounded-lg bg-gray-500 px-3 py-2.5 text-sm font-medium text-white"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={saveFullScreenSignature}
+              disabled={!fsHasInk}
+              style={{ flex: "0.35 1 0%" }}
+              className={`rounded-lg px-3 py-2.5 text-sm font-medium text-white ${fsHasInk ? "bg-blue-600" : "bg-blue-300"}`}
+            >
+              Save
+            </button>
+          </div>
+
+          <div className="flex shrink-0 items-center justify-between gap-2 px-3 pb-1">
+            <p className="text-sm font-semibold text-blue-800">Please Sign below ...</p>
+            {canLockOrientation && (
+              <button
+                type="button"
+                onClick={() => setFsLandscape((v) => !v)}
+                aria-label={fsLandscape ? "Rotate to portrait" : "Rotate to landscape"}
+                className="flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-600"
+              >
+                <ArrowPathIcon className="h-3.5 w-3.5" />
+                {fsLandscape ? "Portrait" : "Landscape"}
+              </button>
+            )}
+          </div>
+
+          {/* THE PAD MUST BE SIZED BY ITS BOX, NOT BY ITSELF.
+              This used to put `absolute inset-2` straight on the <canvas>. A
+              canvas is a REPLACED element, and Tailwind's preflight gives it
+              only `display:block` — no width, and (unlike img/video) not even
+              `max-width:100%`. So `width`/`height` stayed `auto`, CSS resolved
+              them from the canvas's INTRINSIC size, and the over-constrained
+              `right`/`bottom` were simply dropped: full screen opened a
+              300x150 box pinned to the top-left corner instead of a pad.
+
+              Worse on a phone. react-signature-canvas sizes the bitmap to
+              `offsetWidth * devicePixelRatio`, and with no CSS width the
+              bitmap IS the intrinsic width — so each re-fit multiplied the
+              canvas by the pixel ratio (300 -> 900 -> 2700 ... on a dpr-3
+              display), each growth retriggering useSignaturePadAutoFit's
+              ResizeObserver. The pad ran off the screen and the ink landed
+              nowhere near the finger.
+
+              An ordinary div takes `inset-2` correctly, and `h-full w-full`
+              on the canvas then resolves against a real box — the same shape
+              the inline pad above already uses, which is why that one was
+              fine. min-h-0 stops the flex item refusing to shrink. */}
+          <div className="relative flex-1 min-h-0">
+            <div className="absolute inset-2">
+              <SignaturePad
+                ref={fsSigCanvas}
+                penColor="blue"
+                clearOnResize={false}
+                onBegin={() => setFsHasInk(true)}
+                canvasProps={{ className: "block h-full w-full rounded-lg border-2 border-dashed border-gray-300 bg-white touch-none" }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Terms */}
       <div className="flex items-center gap-2">
-        <input className="[color-scheme:light]" type="checkbox" name="termsAccepted" checked={form.termsAccepted} onChange={handleChange} />
+        <input type="checkbox" name="termsAccepted" checked={form.termsAccepted} onChange={handleChange} />
         <span className="text-sm">I accept the <span className="text-violet-500" onClick={() => setModalOpen(true)}>terms & conditions</span></span>
       </div>
       {errors.termsAccepted && <p className="text-xs text-red-500">{errors.termsAccepted}</p>}
@@ -1340,12 +1702,12 @@ export default function Register() {
       {showMap && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="fixed inset-0 bg-black/40" onClick={() => setShowMap(false)} />
-          <div className="bg-white rounded-lg p-4 max-w-2xl w-full z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-4 max-w-2xl w-full z-50">
             <h3 className="text-md font-semibold">Pick Installation Location</h3>
             <p className="text-xs flex mb-1"><InformationCircleIcon className="h-4 w-4 mr-1" />Drag the map. The center pointer marks the selected location.</p>
             <LocationPicker center={[mapPos.lat, mapPos.lng]} onChange={(ll) => onMapChange(ll)} />
 
-            <p className="mt-2 text-xs text-black-600">Selected Address: <span className="text-blue-600">{reverseAddress}</span></p>
+            <p className="mt-2 text-xs text-black dark:text-gray-100-600">Selected Address: <span className="text-blue-600">{reverseAddress}</span></p>
             <div className="mt-2 flex gap-2">
               {/* <button type="button" onClick={() => { setForm((p) => ({ ...p, address: reverseAddress })); setShowMap(false); }} className="px-3 py-1 rounded border">Use this address</button> */}
               <button type="button" onClick={applySelectedMapAddress} disabled={reverseAddress ? false : true} className="bg-transparent hover:bg-indigo-500 text-blue-700 hover:text-white px-4 border border-blue-500 hover:border-transparent rounded py-1">
@@ -1373,7 +1735,7 @@ export default function Register() {
           onClick={() => setUploadSheet({ open: false, onCamera: null, onFiles: null })}
         />
         {/* Bottom Sheet */}
-        <div className="relative w-full bg-gray-50 rounded-t-2xl shadow-2xl" style={{ animation: 'slideUpSheet 0.3s ease-out', position: 'relative', zIndex: 1 }}>
+        <div className="relative w-full bg-gray-50 dark:bg-gray-900 rounded-t-2xl shadow-2xl" style={{ animation: 'slideUpSheet 0.3s ease-out', position: 'relative', zIndex: 1 }}>
           {/* Cancel */}
           <div className="px-5 pt-4 pb-2">
             <button
@@ -1392,13 +1754,13 @@ export default function Register() {
               onClick={() => { setUploadSheet({ open: false, onCamera: null, onFiles: null }); uploadSheet.onCamera?.(); }}
               className="flex flex-col items-center gap-2"
             >
-              <div className="w-16 h-16 rounded-2xl bg-white shadow-md flex items-center justify-center">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8 text-gray-700">
+              <div className="w-16 h-16 rounded-2xl bg-white dark:bg-gray-800 shadow-md flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8 text-gray-700 dark:text-gray-300">
                   <path d="M12 9a3.75 3.75 0 1 0 0 7.5A3.75 3.75 0 0 0 12 9Z" />
                   <path fillRule="evenodd" d="M9.344 3.071a49.52 49.52 0 0 1 5.312 0c.967.052 1.83.585 2.332 1.39l.821 1.317c.24.383.645.643 1.11.71.386.054.77.113 1.152.177 1.432.239 2.429 1.493 2.429 2.909V18a2.25 2.25 0 0 1-2.25 2.25H3.75A2.25 2.25 0 0 1 1.5 18V9.574c0-1.416.997-2.67 2.429-2.909.382-.064.766-.123 1.151-.178a1.56 1.56 0 0 0 1.11-.71l.822-1.315a2.942 2.942 0 0 1 2.332-1.39ZM6.75 12.75a5.25 5.25 0 1 1 10.5 0 5.25 5.25 0 0 1-10.5 0Zm12-1.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z" clipRule="evenodd" />
                 </svg>
               </div>
-              <span className="text-xs text-gray-700 font-medium">Camera</span>
+              <span className="text-xs text-gray-700 dark:text-gray-300 font-medium">Camera</span>
             </button>
 
             {/* Media picker — was "Files" before. Renamed to match
@@ -1414,14 +1776,14 @@ export default function Register() {
               onClick={() => { setUploadSheet({ open: false, onCamera: null, onFiles: null }); uploadSheet.onFiles?.(); }}
               className="flex flex-col items-center gap-2"
             >
-              <div className="w-16 h-16 rounded-2xl bg-white shadow-md flex items-center justify-center">
+              <div className="w-16 h-16 rounded-2xl bg-white dark:bg-gray-800 shadow-md flex items-center justify-center">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8 text-blue-600">
                   {/* Photo-stack / media-library icon */}
                   <path fillRule="evenodd" d="M1.5 6a2.25 2.25 0 0 1 2.25-2.25h16.5A2.25 2.25 0 0 1 22.5 6v9.75a2.25 2.25 0 0 1-2.25 2.25H3.75A2.25 2.25 0 0 1 1.5 15.75V6Zm1.5 0a.75.75 0 0 1 .75-.75h16.5a.75.75 0 0 1 .75.75v6.69l-3.22-3.22a.75.75 0 0 0-1.06 0L13.06 12.5l-2.97-2.97a.75.75 0 0 0-1.06 0L3 15.56V6Z" clipRule="evenodd" />
                   <path d="M16.5 8.25a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z" />
                 </svg>
               </div>
-              <span className="text-xs text-gray-700 font-medium">Media picker</span>
+              <span className="text-xs text-gray-700 dark:text-gray-300 font-medium">Media picker</span>
             </button>
           </div>
         </div>

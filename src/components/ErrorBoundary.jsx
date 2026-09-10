@@ -107,7 +107,7 @@ export default class ErrorBoundary extends React.Component {
   render() {
     if (this.state.recovering) {
       return (
-        <div className="flex flex-col items-center justify-center min-h-dvh bg-gray-50 px-6 text-center">
+        <div className="flex flex-col items-center justify-center min-h-dvh bg-gray-50 dark:bg-gray-900 px-6 text-center pt-safe pb-safe">
           <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4" />
           <p className="text-sm text-gray-500">Updating app, please wait...</p>
         </div>
@@ -122,13 +122,13 @@ export default class ErrorBoundary extends React.Component {
       const shortStack = stackLines.slice(0, 3).join("\n");
 
       return (
-        <div className="flex flex-col items-center justify-center min-h-dvh bg-gray-50 px-6 text-center">
+        <div className="flex flex-col items-center justify-center min-h-dvh bg-gray-50 dark:bg-gray-900 px-6 text-center pt-safe pb-safe">
           <div className="w-16 h-16 mb-4 rounded-full bg-red-100 flex items-center justify-center">
             <svg className="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
             </svg>
           </div>
-          <h1 className="text-xl font-semibold text-gray-800 mb-2">Something went wrong</h1>
+          <h1 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-2">Something went wrong</h1>
           <p className="text-sm text-gray-500 mb-4">
             The app encountered an unexpected error. Please try reloading.
           </p>
@@ -154,7 +154,7 @@ export default class ErrorBoundary extends React.Component {
             </button>
             <button
               onClick={this.handleGoHome}
-              className="px-5 py-2.5 bg-white text-gray-700 text-sm font-medium rounded-lg shadow border hover:bg-gray-50 transition"
+              className="px-5 py-2.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg shadow border hover:bg-gray-50 dark:hover:bg-gray-800 transition"
             >
               Go to Login
             </button>

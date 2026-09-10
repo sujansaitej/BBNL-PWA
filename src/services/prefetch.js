@@ -185,6 +185,22 @@ function startSelectedServicePrefetch(userid, logUname, serviceKey) {
       return tasks;
     }
 
+    if (normalizedService === "voice" || normalizedService === "voicecall") {
+      // The Voice overview gates its plan section on getUserAssignedItems —
+      // the VOIP number it returns is what getMyPlanDetails is keyed on, so
+      // there is nothing useful to warm ahead of it. Warm the assigned items
+      // and the two calls the UPGRADE PLAN button waits on, exactly as the
+      // FoFi branch below does for ADD FO-FI BOX.
+      tasks.push(getUserAssignedItems("voicecall", userid).catch(() => null));
+      if (logUname && !lsGet(`fofupl_${logUname || userid}_upgradation`, PLANS_TTL)) {
+        tasks.push(getFofiUpgradePlans({ logUname, moduletype: "upgradation", userid }).catch(() => null));
+      }
+      if (logUname && !lsGet(`valbfr_${userid}`, 5 * 60 * 1000)) {
+        tasks.push(validateBeforeFofiBoxReg({ username: userid, loginuname: logUname }).catch(() => null));
+      }
+      return tasks;
+    }
+
     if (normalizedService === "iptv" || normalizedService === "cabletv" || normalizedService === "fofi-smart-box" || normalizedService === "fofi") {
       const isFofi = normalizedService === "fofi-smart-box" || normalizedService === "fofi";
 

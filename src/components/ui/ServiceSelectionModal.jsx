@@ -1,6 +1,5 @@
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Modal from './Modal';
 import { loadKycWithRetry } from '../../utils/kycRetry';
 import { useToast } from './Toast';
 import { getUser } from '../../services/safeStorage';
@@ -10,7 +9,6 @@ export default function ServiceSelectionModal({ isOpen, onClose, onSelectService
     const navigate = useNavigate();
     const toast = useToast();
     const [selectedService, setSelectedService] = useState('');
-    const [comingSoonOpen, setComingSoonOpen] = useState(false);
     const [uploadLoading, setUploadLoading] = useState(false);
     const uploadRequestInFlightRef = useRef(false);
 
@@ -86,9 +84,6 @@ export default function ServiceSelectionModal({ isOpen, onClose, onSelectService
     // Services to hide from the UI
     const hiddenServices = ['games', 'multi service', 'ip camera'];
 
-    // Services not yet available (show "Coming Soon" on click)
-    const comingSoonServices = ['voice call service', 'voice call'];
-
     // Build the service list in the SAME static order every time,
     // using API display names when available
     const services = (() => {
@@ -109,10 +104,6 @@ export default function ServiceSelectionModal({ isOpen, onClose, onSelectService
     })().filter(service => !hiddenServices.includes(service.name.toLowerCase()));
 
     const handleServiceClick = (service) => {
-        if (service.id === 'voice' || comingSoonServices.includes(service.name.toLowerCase())) {
-            setComingSoonOpen(true);
-            return;
-        }
         const userid = customer?.customer_id || customer?.username;
         const logUname = getUser()?.username || '';
         prioritizeCustomerService(userid, logUname, service.id);
@@ -123,7 +114,7 @@ export default function ServiceSelectionModal({ isOpen, onClose, onSelectService
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[70] flex flex-col bg-white">
+        <div className="fixed inset-0 z-[70] flex flex-col bg-white dark:bg-gray-800">
             {/* Blue Gradient Header */}
             <header className="flex items-center px-4 pb-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
                 <button onClick={() => navigate('/customers')} className="p-1 mr-3">
@@ -145,7 +136,7 @@ export default function ServiceSelectionModal({ isOpen, onClose, onSelectService
             </header>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto px-4 py-5 bg-gray-50">
+            <div className="flex-1 overflow-y-auto px-4 py-5 bg-gray-50 dark:bg-gray-900">
                 {/* User Details Section */}
                 {customer && (
                     <div className="mb-6">
@@ -202,8 +193,8 @@ export default function ServiceSelectionModal({ isOpen, onClose, onSelectService
                 )}
 
                 {/* Choose Service Section */}
-                <div className="bg-white rounded-xl shadow-md overflow-hidden">
-                    <div className="px-5 py-4 border-b border-gray-200">
+                <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden">
+                    <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
                         <h2 className="text-lg font-semibold text-indigo-600">Choose Service</h2>
                     </div>
 
@@ -222,7 +213,7 @@ export default function ServiceSelectionModal({ isOpen, onClose, onSelectService
                                 </div>
 
                                 {/* Service Name */}
-                                <span className="text-base text-gray-800 font-normal">
+                                <span className="text-base text-gray-800 dark:text-gray-100 font-normal">
                                     {service.name}
                                 </span>
                             </div>
@@ -230,13 +221,6 @@ export default function ServiceSelectionModal({ isOpen, onClose, onSelectService
                     </div>
                 </div>
             </div>
-
-            {/* Coming Soon Modal */}
-            <Modal isOpen={comingSoonOpen} onClose={() => setComingSoonOpen(false)}>
-                <h2 className="text-xl font-semibold text-center text-red-500 mb-2">Coming Soon!</h2>
-                <img src={import.meta.env.VITE_API_APP_DIR_PATH + 'img/under_dev.jpg'} alt="Coming Soon" className="w-70 h-70 mx-auto" />
-                <p className="text-center text-violet-900 mt-1">We're working on this feature — check back soon!</p>
-            </Modal>
         </div>
     );
 }

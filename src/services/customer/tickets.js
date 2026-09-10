@@ -118,7 +118,7 @@ export async function checkMaintenance({ apiopid, cid, servicekey }) {
     url,
     { method: "POST", headers: apisHeaders("application/x-www-form-urlencoded"), body },
     "checkMaintenance",
-    { group: GROUP }
+    { group: GROUP, idempotent: true }
   );
   if (!resp.ok) throw new Error(`Maintenance check failed (HTTP ${resp.status})`);
 
@@ -246,7 +246,7 @@ export async function checkPendingTickets({ userid, servicekey }) {
     url,
     { method: "POST", headers: apisHeaders("application/x-www-form-urlencoded"), body },
     "checkPendingTickets",
-    { group: GROUP }
+    { group: GROUP, idempotent: true }
   );
   if (!resp.ok) throw new Error(`Pending-ticket check failed (HTTP ${resp.status})`);
 
@@ -313,6 +313,37 @@ export async function raiseTicket({
 
 // ── 5. List a customer's tickets (GET · Apis/gettickets/ · no auth) ──
 // userstatus + totalno are hardcoded in Android (registereduser / 300).
+/**
+ * The customer's currently OPEN complaint, or null — the duplicate guard.
+ *
+ * WHY NOT apis/cust/pendingticket/, which is the endpoint named for this job:
+ * it runs a blocking `exec("ping -c 3 $nas")` FIRST and only looks up the
+ * ticket if the ping succeeds (OldApis.php::customerPendingTicket). On this
+ * deployment the NAS never answers ICMP, so measured 2026-09-01 against a
+ * customer who demonstrably HAS an open ticket:
+ *
+ *   apis/cust/pendingticket/  12.8s  -> ticketstatus:{}  (found nothing)
+ *   Apis/gettickets/           0.5s  -> the ticket, in full
+ *
+ * So the dedicated guard is both 25x slower AND blind, which is why the
+ * duplicate was only discovered when raiseTicket rejected it — surfacing as a
+ * toast instead of the existing-complaint dialog. gettickets performs no ping,
+ * needs no auth header, and returns exactly the fields that dialog renders
+ * (tid, status, subject, assigned, risedtime, solvedtime, empname, empimg).
+ *
+ * "Open" = anything not resolved/closed. Statuses seen: available, pending,
+ * jobdone, transfered, resolved (services/customer/ticketFlow.js). jobdone is
+ * open on purpose — that is the branch where the dialog offers "Close Ticket"
+ * or "Raise Back".
+ */
+const CLOSED_STATUSES = new Set(["resolved", "closed"]);
+
+export async function findOpenTicket({ userid, mobile, servicekey }) {
+  const rows = await getTickets({ userid, mobile, servicekey });
+  const open = rows.find((r) => !CLOSED_STATUSES.has(String(r?.status || "").toLowerCase()));
+  return open || null;
+}
+
 export async function getTickets({ userid, mobile, servicekey }) {
   const query = new URLSearchParams({
     userid: userid || "",
@@ -355,7 +386,7 @@ export async function getParticularTicketStatus({ ticketid, servicekey }) {
     url,
     { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body },
     "getParticularTicketStatus",
-    { group: GROUP }
+    { group: GROUP, idempotent: true }
   );
   if (!resp.ok) throw new Error(`Failed to read ticket status (HTTP ${resp.status})`);
 

@@ -202,11 +202,11 @@ export default function SmartNavigationMap() {
       {/* Info UI */}
       <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex flex-col items-center space-y-3">
         {nextTurn && (
-          <div className="bg-yellow-200 text-gray-800 p-2 px-4 rounded-lg shadow-md font-medium">
+          <div className="bg-yellow-200 text-gray-800 dark:text-gray-100 p-2 px-4 rounded-lg shadow-md font-medium">
             👉 Next: {nextTurn}
           </div>
         )}
-        <div className="bg-white shadow-lg px-4 py-2 rounded-lg flex items-center gap-3">
+        <div className="bg-white dark:bg-gray-800 shadow-lg px-4 py-2 rounded-lg flex items-center gap-3">
           <button
             onClick={toggleMode}
             className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm"
@@ -219,7 +219,7 @@ export default function SmartNavigationMap() {
           >
             🗺️ Google Maps
           </button>
-          <span className="text-gray-700 text-sm">
+          <span className="text-gray-700 dark:text-gray-300 text-sm">
             Speed: {currentSpeed} km/h
           </span>
         </div>

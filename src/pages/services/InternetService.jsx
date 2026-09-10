@@ -290,6 +290,24 @@ export default function InternetService() {
     });
   };
 
+  // Open the customer's ONT / router page (TR-069 via the ACS).
+  //
+  // The ACS finds a device by serial number or PPPoE username; the CRM knows the
+  // internet ID. Both are passed so ontApis can try each in turn — the customer
+  // record does not currently carry an ONT serial, so the PPPoE username is the
+  // working join key. The page itself owns the "no device mapped" state rather
+  // than us pre-checking here, which keeps the tap instant.
+  const handleDeviceView = () => {
+    navigate(`/customer/${customerId}/service/internet/device`, {
+      state: {
+        customer: customerData,
+        pppoeUser: internetId,
+        internetId,
+        serial: customerData?.ont_serial || customerData?.serialno || null,
+      },
+    });
+  };
+
   // Handle Order History button click — only Internet bills.
   const handleOrderHistory = () => {
     navigate('/payment-history', {
@@ -335,7 +353,7 @@ export default function InternetService() {
 
   if (!customerData) {
     return (
-      <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900 pb-safe">
         <header className="sticky top-0 z-40 flex items-center px-4 pb-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
           <button onClick={() => navigate(-1)} className="p-1 mr-3">
             <ArrowLeftIcon className="h-6 w-6 text-white" />
@@ -353,7 +371,7 @@ export default function InternetService() {
   }
 
   return (
-    <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900 pb-safe">
       {/* Teal Header */}
       <header className="sticky top-0 z-40 flex items-center px-4 pb-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
         <button onClick={() => navigate(-1)} className="p-1 mr-3">
@@ -437,7 +455,7 @@ export default function InternetService() {
                 <div className="w-1 h-6 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
                 Internet ID
               </h3>
-              <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-gray-800 px-4 py-3 rounded-xl border border-indigo-200 dark:border-gray-700">
+              <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:bg-none dark:bg-gray-800 px-4 py-3 rounded-xl border border-indigo-200 dark:border-gray-700">
                 <p className="text-indigo-600 font-semibold text-base">{internetId}</p>
               </div>
             </div>
@@ -453,11 +471,11 @@ export default function InternetService() {
                   {/* Globe Icon */}
                   <div className="flex-shrink-0">
                     <svg className="w-12 h-12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="12" r="10" className="text-gray-700" />
-                      <ellipse cx="12" cy="12" rx="4" ry="10" className="text-gray-700" />
-                      <path d="M2 12h20" className="text-gray-700" />
-                      <path d="M4 7h16" className="text-gray-700" />
-                      <path d="M4 17h16" className="text-gray-700" />
+                      <circle cx="12" cy="12" r="10" className="text-gray-700 dark:text-gray-300" />
+                      <ellipse cx="12" cy="12" rx="4" ry="10" className="text-gray-700 dark:text-gray-300" />
+                      <path d="M2 12h20" className="text-gray-700 dark:text-gray-300" />
+                      <path d="M4 7h16" className="text-gray-700 dark:text-gray-300" />
+                      <path d="M4 17h16" className="text-gray-700 dark:text-gray-300" />
                     </svg>
                   </div>
 
@@ -492,6 +510,16 @@ export default function InternetService() {
                     className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold py-3 px-4 rounded-lg transition-shadow duration-200 text-sm shadow-md hover:shadow-lg"
                   >
                     Link FOFI BOX
+                  </button>
+                  {/* Router / ONT — live device status, Wi-Fi, reboot and
+                      diagnostics over TR-069. Always rendered: the device page
+                      owns the "no ONT mapped" case and offers a next step there,
+                      so this never becomes a button that leads nowhere. */}
+                  <button
+                    onClick={handleDeviceView}
+                    className="w-full bg-white dark:bg-gray-700 border border-indigo-200 dark:border-gray-600 text-indigo-700 dark:text-indigo-300 font-semibold py-3 px-4 rounded-lg transition-shadow duration-200 text-sm shadow-sm hover:shadow-md"
+                  >
+                    Router / ONT
                   </button>
                 </div>
               </div>

@@ -14,7 +14,7 @@ export default function ConfirmDialog({ open, message, onConfirm, onCancel, titl
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.9, y: 20 }}
           transition={{ duration: 0.3, ease: "easeOut" }}
-          className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+          className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Gradient Header */}
@@ -41,7 +41,7 @@ export default function ConfirmDialog({ open, message, onConfirm, onCancel, titl
               </div>
             </motion.div>
 
-            <p className="text-gray-700 text-center text-base leading-relaxed mb-6">
+            <p className="text-gray-700 dark:text-gray-300 text-center text-base leading-relaxed mb-6">
               {message}
             </p>
 
@@ -49,7 +49,7 @@ export default function ConfirmDialog({ open, message, onConfirm, onCancel, titl
             <div className="flex gap-3">
               <button
                 onClick={onCancel}
-                className="flex-1 px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-lg transition-[background-color,box-shadow] duration-200 shadow-sm hover:shadow-md"
+                className="flex-1 px-6 py-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-lg transition-[background-color,box-shadow] duration-200 shadow-sm hover:shadow-md"
               >
                 Cancel
               </button>

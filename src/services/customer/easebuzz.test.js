@@ -29,3 +29,132 @@ describe("easebuzz hashing", () => {
     expect(seq.split("|").length).toBe(17);
   });
 });
+
+// ── Test-environment wiring ─────────────────────────────────────────
+//
+// Server team supplied the sandbox pair on 2026-08-31 (key 2PBP7IABZ2 / salt
+// DAH88E3UWQ). Both were already in EZ_FALLBACK, and the pair was verified
+// live against the sandbox the same day: POST testpay.easebuzz.in
+// payment/initiateLink with a hash built by buildPaymentHash returned
+// {"status": 1, "data": "<access_key>"} — so the credentials authenticate AND
+// the hash sequence above is the one Easebuzz expects.
+//
+// These pin the wiring around that: the right pair for the right env, and a
+// test build never able to reach the live host.
+describe("sandbox credentials and env routing", () => {
+  it("carries the server team's sandbox pair", async () => {
+    const { EZ_FALLBACK } = await import("./easebuzz.js");
+    expect(EZ_FALLBACK.test).toEqual({ key: "2PBP7IABZ2", salt: "DAH88E3UWQ" });
+  });
+
+  // Confirmed by the server team 2026-08-31, and the KEY was independently
+  // verified against the LIVE gateway the same day: posting it to
+  // pay.easebuzz.in/payment/initiateLink fails on missing parameters but NOT
+  // with "Invalid merchant key", whereas the sandbox key and a made-up key both
+  // are rejected that way. Pinned so a rotation has to be deliberate.
+  it("carries the server team's LIVE pair", async () => {
+    const { EZ_FALLBACK } = await import("./easebuzz.js");
+    expect(EZ_FALLBACK.prod).toEqual({ key: "P0O87KRJ4R", salt: "PM1XH32XM4" });
+  });
+
+  it("never confuses the sandbox pair with the live one", async () => {
+    const { EZ_FALLBACK } = await import("./easebuzz.js");
+    expect(EZ_FALLBACK.test.key).not.toBe(EZ_FALLBACK.prod.key);
+    expect(EZ_FALLBACK.test.salt).not.toBe(EZ_FALLBACK.prod.salt);
+  });
+
+  it("a paymentinfo creds block wins over the fallback, per env", async () => {
+    const { resolveCreds, EZ_ENV, EZ_FALLBACK } = await import("./easebuzz.js");
+    // Vitest runs as MODE=test, so EZ_ENV resolves to the sandbox.
+    expect(EZ_ENV).toBe("test");
+    expect(resolveCreds({ easebuzztest: { key: "K", salt: "S" } })).toEqual({ key: "K", salt: "S" });
+    // Absent block → the sandbox fallback, never the live pair.
+    expect(resolveCreds(undefined)).toEqual(EZ_FALLBACK.test);
+    expect(resolveCreds({})).toEqual(EZ_FALLBACK.test);
+  });
+
+  it("routes the sandbox to the ezpay-test seam, not the live one", async () => {
+    const { getInitiateUrl } = await import("./easebuzz.js");
+    expect(getInitiateUrl("test")).toMatch(/ezpay-test\/payment\/initiateLink$/);
+    expect(getInitiateUrl("test")).not.toMatch(/ezpay-prod/);
+    // Anything that is not exactly "test" is treated as live — fail closed on
+    // the ROUTE, never silently send live traffic down the sandbox seam.
+    expect(getInitiateUrl("prod")).toMatch(/ezpay-prod\/payment\/initiateLink$/);
+  });
+});
+
+// ── The deployment trap ─────────────────────────────────────────────
+//
+// The browser cannot call Easebuzz directly (initiateLink sends no CORS
+// headers), so it goes through a same-origin seam. That seam existed in the
+// vite dev proxy and in server.js but NOT in the generated .htaccess, so an
+// Apache-hosted build answered the POST with the SPA shell at HTTP 200 —
+// measured 2026-08-31 on netmontest: 10462 bytes of text/html.
+// resp.ok does not catch that, and JSON.parse turned it into
+// "Unexpected token '<'", which blames Easebuzz for our own missing rule.
+describe("initiateLink diagnoses a missing proxy instead of blaming Easebuzz", () => {
+  const shell = '<!doctype html>\n<html lang="en"><head><meta charset="utf-8" />';
+  const withFetch = async (resp, fn) => {
+    const original = globalThis.fetch;
+    globalThis.fetch = async () => resp;
+    try { return await fn(); } finally { globalThis.fetch = original; }
+  };
+
+  it("names the missing rule when the SPA shell comes back at HTTP 200", async () => {
+    const { initiateLink } = await import("./easebuzz.js");
+    await withFetch(
+      { ok: true, status: 200, text: async () => shell },
+      async () => {
+        await expect(initiateLink({ env: "test", params: {} }))
+          .rejects.toThrow(/missing the ezpay proxy rule/i);
+      }
+    );
+  });
+
+  it("names mod_proxy when the .htaccess 502 fires", async () => {
+    const { initiateLink } = await import("./easebuzz.js");
+    await withFetch(
+      { ok: false, status: 502, text: async () => "" },
+      async () => {
+        await expect(initiateLink({ env: "test", params: {} }))
+          .rejects.toThrow(/proxy is not enabled/i);
+      }
+    );
+  });
+
+  // netmontest has no working https proxy today — usage-api, which also targets
+  // an https backend, returns the SPA shell there too (measured 2026-08-31).
+  // So this is the likely first response after deploying the .htaccess rule if
+  // SSLProxyEngine is not turned on, and it must name that rather than read as
+  // an Easebuzz outage.
+  it("names SSLProxyEngine when Apache matched the route but could not proxy", async () => {
+    const { initiateLink } = await import("./easebuzz.js");
+    await withFetch(
+      { ok: false, status: 500, text: async () => "" },
+      async () => {
+        await expect(initiateLink({ env: "test", params: {} }))
+          .rejects.toThrow(/SSLProxyEngine/i);
+      }
+    );
+  });
+
+  it("still surfaces a genuine Easebuzz refusal verbatim", async () => {
+    const { initiateLink } = await import("./easebuzz.js");
+    await withFetch(
+      { ok: true, status: 200, text: async () => JSON.stringify({ status: 0, data: "Invalid hash" }) },
+      async () => {
+        await expect(initiateLink({ env: "test", params: {} })).rejects.toThrow("Invalid hash");
+      }
+    );
+  });
+
+  it("returns the access_key on success", async () => {
+    const { initiateLink } = await import("./easebuzz.js");
+    await withFetch(
+      { ok: true, status: 200, text: async () => JSON.stringify({ status: 1, data: "ACCESS123" }) },
+      async () => {
+        expect(await initiateLink({ env: "test", params: {} })).toBe("ACCESS123");
+      }
+    );
+  });
+});

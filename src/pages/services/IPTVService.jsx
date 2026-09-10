@@ -20,15 +20,32 @@ import {
     getCableTvPaymentDetails,
     generateCableTvOrder,
 } from "../../services/generalApis";
-import { payNow } from "../../services/registrationApis";
+// NOTE: do NOT import payNow (apis/savePaymentApi) here. That endpoint is the
+// INTERNET renewal call — see handleProceedToPay() for why cable TV must never
+// touch it.
 import { refreshServiceController } from "../../services/navigationController";
 import { proxyImageUrl } from "../../services/iptvImage";
 import { formatCustomerId } from "../../services/helpers";
 import { lsGet, lsSet, lsRemove, lsGetStale } from "../../services/lsCache";
+import { getBaseUrl } from "../../services/apiCore";
 import { canonicalServiceKey } from "../../constants/services";
 import { getUser } from "../../services/safeStorage";
 import { extractBoxIdFromAssigned } from "../../utils/boxId";
+import {
+    oneDayAllowed,
+    oneDayBlockedReason,
+    oneDayActive,
+    periodFor as oneDayPeriodFor,
+    dayExpiryFields,
+} from "../../utils/oneDaySubscription";
 import { raceForFirstMatch } from "../../utils/raceForFirst";
+import {
+    calendarDaysUntil,
+    getAuthoritativeDays,
+    normaliseToInclusiveDays,
+    parsePositiveInteger,
+    resolveSubscriptionDays,
+} from "../../utils/subscriptionDays";
 
 const getPackageId = (pkg, fallback = "") => String(pkg?.pkgid ?? pkg?.packageid ?? pkg?.id ?? fallback);
 const getPackageCode = (pkg) => String(pkg?.pkgcode ?? pkg?.pkgid ?? pkg?.packageid ?? "");
@@ -54,37 +71,10 @@ const toStringArray = (value) => {
     return [String(value)];
 };
 
-// Live API response shape (verified 2026-05-02):
-//   body.periods    = [{label:"30 Days", period:30}, …]
-//   body.days_range = {min:1, max:86}
-// Older code looked for body.result / body-as-array → always
-// returned [] → period selector never rendered → operator clicked
-// Pay with cblextenperiod="" → backend "Please choose some days".
-function getPeriodsArray(response) {
-    const body = response?.body;
-    const periods = body?.periods || body?.result || (Array.isArray(body) ? body : []);
-    return Array.isArray(periods) ? periods : [];
-}
-
-function getPeriodValue(period) {
-    return String(period?.period ?? period?.id ?? period?.periodid ?? period?.value ?? period ?? "");
-}
-
-function getDaysRange(response) {
-    const r = response?.body?.days_range;
-    return {
-        min: Number(r?.min) > 0 ? Number(r.min) : 1,
-        max: Number(r?.max) > 0 ? Number(r.max) : 365,
-    };
-}
-
-function parsePositiveInteger(value) {
-    if (value === undefined || value === null || value === "") return null;
-    const n = Number(String(value).replace(/[^\d.-]/g, ""));
-    if (!Number.isFinite(n) || n <= 0) return null;
-    return Math.floor(n);
-}
-
+// "No of Subscription Days" lives in utils/subscriptionDays.js — the backend
+// (planExtensionPeriods → days_range.max) is the sole authority for it, exactly
+// as in native (CablePaymentInfoFragment.java:545-551). See that module for the
+// full native reference and for why the number is never computed here.
 function getRemainingDaysFromSubscription(...sources) {
     const remainingKeys = [
         "remainingdays",
@@ -108,10 +98,13 @@ function getRemainingDaysFromSubscription(...sources) {
     for (const source of sources) {
         if (!source || typeof source !== "object") continue;
         const expiry = source.expirydate || source.expiry_date || source.expdate;
-        const expiryTime = parseBackendDate(expiry);
-        if (expiryTime == null) continue;
-        const remaining = Math.floor((expiryTime - Date.now()) / (24 * 60 * 60 * 1000));
-        return remaining > 0 ? remaining : 1;
+        const remaining = calendarDaysUntil(expiry);
+        if (remaining === null) continue;
+        // +1 = the INCLUSIVE convention, matching what the operator sees on
+        // Android (see subscriptionDays.js header). Kept consistent with the
+        // backend-derived value so this fallback can never differ by a day
+        // from the number the rest of the checkout uses.
+        return remaining > 0 ? remaining + 1 : 1;
     }
     return null;
 }
@@ -132,11 +125,15 @@ function pickCableSubscribedService(planDetails) {
     });
 }
 
-function makeCheckoutKey({ userid, fofiBoxId, period, pkgIds, pkgCodes, chIds }) {
+function makeCheckoutKey({ userid, fofiBoxId, period, pkgIds, pkgCodes, chIds, oneDay = false }) {
     return JSON.stringify({
         userid: userid || "",
         fofiBoxId: fofiBoxId || "",
         period: String(period || ""),
+        // A one-day price is not the same priced basket as a 1-day period
+        // without the flag (same amount, different expiry), so it must miss
+        // the in-flight dedupe and the preview cache.
+        oneDay: Boolean(oneDay),
         pkgIds: [...pkgIds].map(String).sort(),
         pkgCodes: [...pkgCodes].map(String).sort(),
         chIds: [...chIds].map(String).sort(),
@@ -480,15 +477,34 @@ export default function IPTVService() {
     const [walletError, setWalletError] = useState("");
     const [walletUsingCachedFallback, setWalletUsingCachedFallback] = useState(!!_cachedWallet?.data && !_cachedWallet?.fresh);
     const [paymentInfo, setPaymentInfo] = useState(null);
-    const [extensionPeriods, setExtensionPeriods] = useState([]);
-    // Default to "30" so handleProceedToPay never sends an empty
-    // cblextenperiod. The backend rejects empty with "Please choose
-    // some days" — a confusing error since the user CAN'T choose
-    // anything until extensionPeriods loads. 30 days is the standard
-    // monthly billing cycle and matches what every cable plan offers.
+    // Last-resort default so handleProceedToPay never sends an empty
+    // cblextenperiod — the backend rejects that with "Please choose some
+    // days", a confusing error since there is nothing for the operator to
+    // choose. Only reached if planExtensionPeriods never answers AND the
+    // customer has no readable expiry date.
     const [selectedPeriod, setSelectedPeriod] = useState(String(restoredCheckout?.selectedPeriod || "30"));
-    const [daysRange, setDaysRange] = useState({ min: 1, max: 365 });
-    const [customDaysInput, setCustomDaysInput] = useState("");
+    // "One day" subscription (see utils/oneDaySubscription.js). Operator's
+    // CHOICE only — whether it is in effect also depends on the basket
+    // (channels only), resolved in buildCheckoutParts. Restored with the
+    // checkout so a reload does not silently revert a one-day order to a
+    // full period between the price the operator read and the Pay tap.
+    const [oneDay, setOneDay] = useState(Boolean(restoredCheckout?.oneDay));
+    // planExtensionPeriods → days_range.max. THE number of subscription days,
+    // per getAuthoritativeDays() above.
+    //
+    // Stored WITH the box it was resolved for. /customer/:customerId/service/iptv
+    // keeps the same element mounted across customers (React Router swaps the
+    // param, it does not remount), so a bare number would survive into the next
+    // customer's checkout and price their order on the previous customer's day
+    // count. Deriving through a box check makes it self-invalidating.
+    const [backendDays, setBackendDays] = useState(() => {
+        const days = parsePositiveInteger(restoredCheckout?.backendMaxDays);
+        const boxId = restoredCheckout?.backendDaysBoxId;
+        const expiry = restoredCheckout?.backendDaysExpiry;
+        return days !== null && boxId ? { boxId: String(boxId), expiry: String(expiry ?? ""), days } : null;
+    });
+    const setBackendMaxDays = (boxId, expiry, days) =>
+        setBackendDays({ boxId: String(boxId), expiry: String(expiry ?? ""), days });
     const [finalPaymentInfo, setFinalPaymentInfo] = useState(restoredCheckout?.finalPaymentInfo || null);
     const [payLoading, setPayLoading] = useState(false);
     const payInFlightRef = useRef(false);
@@ -496,8 +512,6 @@ export default function IPTVService() {
     const checkoutPreviewSeqRef = useRef(0);
     const checkoutAliveRef = useRef(true);
     const paymentDetailsInFlightRef = useRef(new Map());
-    const manualCalcInFlightKeyRef = useRef("");
-    const lastManualCalcToastRef = useRef({ key: "", ts: 0 });
     const [successOrder, setSuccessOrder] = useState(null);
 
     useEffect(() => {
@@ -506,8 +520,6 @@ export default function IPTVService() {
             checkoutAliveRef.current = false;
             checkoutPreviewSeqRef.current += 1;
             paymentDetailsInFlightRef.current.clear();
-            manualCalcInFlightKeyRef.current = "";
-            lastManualCalcToastRef.current = { key: "", ts: 0 };
         };
     }, []);
 
@@ -852,12 +864,31 @@ export default function IPTVService() {
     const packageSelectionDisabled =
         String(planDetails?.body?.chnls_pkgs_selection?.btn_status || '').toLowerCase() === 'disable';
     const canSelectPackages = !isCableTvExpired && !packageSelectionDisabled;
+    // Local estimate — now ONLY a fallback for the window before
+    // planExtensionPeriods answers (and for the rare error case where it
+    // never does). backendMaxDays supersedes it the moment it arrives.
     const remainingSubscriptionDays = !isCableTvExpired
         ? getRemainingDaysFromSubscription(subscribedService, lastSubscribedInfo?.body)
         : null;
     const isExistingSubscriberCheckout = !isCableTvExpired && remainingSubscriptionDays !== null;
-    const effectiveCheckoutPeriod = isExistingSubscriberCheckout
-        ? String(remainingSubscriptionDays)
+    // Precedence mirrors native: the backend's days_range.max wins whenever we
+    // have it for THIS box — normalised to the INCLUSIVE convention so the
+    // number matches what the Android CRM app shows for the same subscription.
+    // See resolveSubscriptionDays() / the subscriptionDays.js header.
+    //
+    // Deliberately derived at RENDER time, not stored at fetch time: the
+    // convention probe needs `expiryDate`, and the prefetch can resolve the day
+    // count before getMyPlanDetails has delivered the plan. Deriving here means
+    // the value corrects itself the moment the expiry date lands.
+    const subscriptionDays = resolveSubscriptionDays(
+        backendDays,
+        fofiBoxId,
+        isExistingSubscriberCheckout ? remainingSubscriptionDays : null,
+        expiryDate
+    );
+    const backendMaxDays = subscriptionDays;
+    const effectiveCheckoutPeriod = subscriptionDays !== null
+        ? String(subscriptionDays)
         : String(selectedPeriod || "30");
 
     const buildCheckoutParts = (periodOverride = "") => {
@@ -875,7 +906,12 @@ export default function IPTVService() {
         const pkgIds = selectedPkgs.map(pkg => getPackageId(pkg)).filter(Boolean);
         const pkgCodes = selectedPkgs.map(getPackageCode).filter(Boolean);
         const chIds = selectedChannels.map(String).filter(Boolean);
-        const period = String(periodOverride || effectiveCheckoutPeriod || "30");
+        const normalPeriod = String(periodOverride || effectiveCheckoutPeriod || "30");
+        // One day wins over every other period source — but only for a
+        // channels-only basket; with a package the backend would price one
+        // day and expire in a month. periodFor() enforces that.
+        const dayActive = oneDayActive(oneDay, { chIds, pkgIds });
+        const period = oneDayPeriodFor(oneDay, { chIds, pkgIds }, normalPeriod);
 
         return {
             selectedPkgs,
@@ -883,7 +919,8 @@ export default function IPTVService() {
             pkgCodes,
             chIds,
             period,
-            key: makeCheckoutKey({ userid, fofiBoxId, period, pkgIds, pkgCodes, chIds }),
+            oneDay: dayActive,
+            key: makeCheckoutKey({ userid, fofiBoxId, period, pkgIds, pkgCodes, chIds, oneDay: dayActive }),
         };
     };
 
@@ -982,7 +1019,16 @@ export default function IPTVService() {
                 view: 'checkout',
                 selectedPackages: selectedPackages.map(String),
                 selectedChannels: selectedChannels.map(String),
-                selectedPeriod: isExistingSubscriberCheckout ? "" : parts.period,
+                selectedPeriod: parts.period,
+                oneDay,
+                // Persisted so a restored checkout (back/forward, reload)
+                // re-hydrates on the backend's day count instead of briefly
+                // falling back to the local estimate and re-pricing. Carries
+                // the box it belongs to so a restore for a different box is
+                // ignored rather than mispriced.
+                backendMaxDays,
+                backendDaysBoxId: backendMaxDays !== null ? String(fofiBoxId) : "",
+                backendDaysExpiry: backendMaxDays !== null ? String(expiryDate) : "",
                 selectedPackageItems,
                 checkoutPreview,
                 finalPaymentInfo,
@@ -995,6 +1041,8 @@ export default function IPTVService() {
         selectedPackages,
         selectedChannels,
         selectedPeriod,
+        oneDay,
+        backendMaxDays,
         packagesByCategory,
         checkoutPreview,
         finalPaymentInfo,
@@ -1019,6 +1067,7 @@ export default function IPTVService() {
             pkgIds: parts?.pkgIds || [],
             pkgCodes: parts?.pkgCodes || [],
             chIds: parts?.chIds || [],
+            oneDay: Boolean(parts?.oneDay),
         });
         const inFlight = paymentDetailsInFlightRef.current.get(requestKey);
         if (inFlight) return inFlight;
@@ -1029,7 +1078,20 @@ export default function IPTVService() {
             fofi_box_id: fofiBoxId,
             lcochid: parts.chIds,
             packageid: parts.pkgIds,
-            pkgcode: parts.pkgCodes,
+            // pkgcode carries the package IDs, NOT the pkgcode strings. That is
+            // not a typo — it is what native sends on the IPTV/wallet leg:
+            //   CablePaymentInfoFragment.IPTVPaymentInfo() :761-762
+            //       request.setPackageid(selectedPackageIds);
+            //       request.setPkgcode(selectedPackageIds);   // ← same list
+            // and the direct-pay launcher seeds both prefs from one array —
+            //   CustomerCompleteOverviewFragment :1074-1075
+            //       saveArrayListOfString(selectedPackages, PREFS_PACKAGE_LIST)
+            //       saveArrayListOfString(selectedPackages, PREFS_PKGCODE_LIST)
+            // Only the NON-IPTV cable leg (getPaymentInfo() :361) sends real
+            // pkgcode strings. Keep this and the generateorder payload below in
+            // lockstep — the price is computed from what is sent here, and the
+            // order must be registered against the same values it was priced on.
+            pkgcode: parts.pkgIds,
             planid: "",
             priceid: "",
             servapptype: "crmapp",
@@ -1037,6 +1099,9 @@ export default function IPTVService() {
             userid,
             username: logUname,
             voipnumber: "",
+            // `use_day_expiry: 1` ONLY when the one-day option is in effect;
+            // otherwise nothing is added and this payload is unchanged.
+            ...dayExpiryFields(parts.oneDay, parts),
         };
 
         const promise = (async () => {
@@ -1557,6 +1622,13 @@ export default function IPTVService() {
             lsRemove(`iptvLastSub_${userid}_${fofiBoxId}`);
             lsRemove(`uai_fofi_${userid}`);
             lsRemove(`uai_cabletv_${userid}`);
+            // The order just extended the plan, so the day count the backend
+            // would now return is different from the one we cached (60 min TTL,
+            // key built in generalApis.getPlanExtensionPeriods). It is the sole
+            // authority for the days shown AND charged, so a second checkout
+            // inside the hour would otherwise be priced on the pre-payment
+            // entitlement. Drop it and re-resolve below.
+            lsRemove(`extper_${userid}_cabletv_${fofiBoxId || ''}`);
             // NOTE: intentionally do NOT clear walbal_*_cabletv here. The
             // refresh below fetches fresh (skipCache=true → getWalBal lsSets
             // the post-debit balance), so the cache is left warm+correct for
@@ -1575,6 +1647,32 @@ export default function IPTVService() {
         } else if (fofiBoxId) {
             getIptvLastSubscribedInfo({ userid, itemid: fofiBoxId }, true)
                 .then(d => { if (d) setLastSubscribedInfo(d); })
+                .catch(() => {});
+        }
+
+        // Re-resolve the post-payment day count. Cleared first (rather than
+        // left stale) so that if this refetch fails the next checkout falls
+        // back to the local estimate instead of confidently charging on a day
+        // count that the payment just invalidated.
+        setBackendDays(null);
+        if (fofiBoxId) {
+            const boxAtRequest = fofiBoxId;
+            // NOTE: `expiryDate` here is still the PRE-payment date — the plan
+            // details that carry the new one have only just been invalidated.
+            // Storing the answer against it is deliberate and safe: the moment
+            // the refreshed expiry arrives, the (box, expiry) match fails, the
+            // page falls back to its local estimate, and the prefetch effect —
+            // which re-runs on expiryDate — resolves the real post-renewal
+            // count. Nothing is ever charged on a count from a different
+            // subscription state.
+            const expiryAtRequest = expiryDate;
+            getPlanExtensionPeriods({ userid, servkey: "cabletv", itemid: boxAtRequest, expirydate: expiryAtRequest }, true)
+                .then((periodsResp) => {
+                    const authoritative = getAuthoritativeDays(periodsResp);
+                    if (authoritative === null) return;
+                    setBackendMaxDays(boxAtRequest, expiryAtRequest, authoritative);
+                    setSelectedPeriod(String(normaliseToInclusiveDays(authoritative, expiryAtRequest)));
+                })
                 .catch(() => {});
         }
 
@@ -1631,20 +1729,32 @@ export default function IPTVService() {
 
         const walletPromise = refreshCableWalletBalance().catch(() => {});
 
-        const extensionPeriodsPromise = isExistingSubscriberCheckout
-            ? Promise.resolve()
-            : getPlanExtensionPeriods({ userid, servkey: "cabletv", itemid: fofiBoxId }).then(async (periodsResp) => {
+        // ALWAYS ask the backend for the day count. This used to be skipped
+        // for non-expired customers (`isExistingSubscriberCheckout ?
+        // Promise.resolve() : …`), which is precisely why an active
+        // subscriber's checkout was priced off a locally-computed day count
+        // and could disagree with the native app by a day. Native calls
+        // getperiods() unconditionally on entry
+        // (CablePaymentInfoFragment.java:316). The response is lsCached for
+        // 60 min, so re-enabling it for active subscribers costs one request
+        // per box per hour.
+        const extensionPeriodsPromise = getPlanExtensionPeriods({ userid, servkey: "cabletv", itemid: fofiBoxId, expirydate: expiryDate })
+            .then(async (periodsResp) => {
                 if (periodsResp?.status?.err_code !== 0) return;
-                setDaysRange(getDaysRange(periodsResp));
-                const periodsArr = getPeriodsArray(periodsResp);
-                if (!periodsArr.length) return;
-                setExtensionPeriods(periodsArr);
-                const periodValues = periodsArr.map(getPeriodValue);
-                const keepCurrent = periodValues.includes(selectedPeriod);
-                const targetPeriod = keepCurrent ? selectedPeriod : periodValues[0];
-                if (!targetPeriod) return;
+                // days_range.max is THE answer (native line 549). Only when
+                // the backend omits it do we consult the period list. Stored
+                // RAW — the inclusive-convention normalisation is applied where
+                // it is read, so it always uses the loaded expiry date.
+                const authoritative = getAuthoritativeDays(periodsResp);
+                if (authoritative === null) return;
+                setBackendMaxDays(fofiBoxId, expiryDate, authoritative);
+
+                const targetPeriod = String(normaliseToInclusiveDays(authoritative, expiryDate));
                 setSelectedPeriod(targetPeriod);
                 if (targetPeriod === initialParts.period) return;
+                // The opening price used the fallback estimate — re-price at
+                // the backend's number so the total the operator pays matches
+                // the days shown.
                 const pricedParts = buildCheckoutParts(targetPeriod);
                 const cachedHit = checkoutPreview?.key === pricedParts.key && checkoutPreview?.paymentInfo;
                 const payResult = cachedHit
@@ -1677,36 +1787,11 @@ export default function IPTVService() {
         void extensionPeriodsPromise;
     }
 
-    // Fetch final payment details after selecting extension period
-    async function handleFetchFinalPayment(period) {
-        const parts = buildCheckoutParts(period);
-        if (manualCalcInFlightKeyRef.current === parts.key) return;
-
-        setSelectedPeriod(period);
-        manualCalcInFlightKeyRef.current = parts.key;
-        try {
-            const cachedPreview = checkoutPreview?.key === parts.key ? checkoutPreview : null;
-            const result = cachedPreview?.paymentInfo || await requestCablePaymentDetails(parts);
-
-            if (!checkoutAliveRef.current || manualCalcInFlightKeyRef.current !== parts.key) return;
-            setFinalPaymentInfo(result);
-            setCheckoutPreview({ key: parts.key, paymentInfo: result, period: parts.period });
-            lastManualCalcToastRef.current = { key: "", ts: 0 };
-        } catch (err) {
-            console.error("Error fetching final payment:", err);
-            if (!checkoutAliveRef.current || manualCalcInFlightKeyRef.current !== parts.key) return;
-            const now = Date.now();
-            const lastToast = lastManualCalcToastRef.current;
-            if (lastToast.key !== parts.key || now - lastToast.ts > 5000) {
-                toast.add("Failed to calculate payment. Please try again.", { type: "error" });
-                lastManualCalcToastRef.current = { key: parts.key, ts: now };
-            }
-        } finally {
-            if (manualCalcInFlightKeyRef.current === parts.key) {
-                manualCalcInFlightKeyRef.current = "";
-            }
-        }
-    }
+    // REMOVED: handleFetchFinalPayment(period) — the operator-triggered
+    // re-price. Its only caller was the period-selector grid, and there is no
+    // period to select any more: the day count is the backend's
+    // days_range.max, so the re-price now happens automatically when
+    // planExtensionPeriods answers (see handleCheckout).
 
     // Proceed to Pay — generate order via cabletv/generateorder
     async function handleProceedToPay() {
@@ -1714,8 +1799,26 @@ export default function IPTVService() {
         // cblextenperiod with "Please choose some days". Default
         // state is "30" but defend against the user manually
         // clearing the custom input then tapping Pay.
-        const periodForPay = String(effectiveCheckoutPeriod || selectedPeriod || "").trim() || "30";
-        const { pkgIds, pkgCodes, chIds } = buildCheckoutParts(periodForPay);
+        const normalPeriodForPay = String(effectiveCheckoutPeriod || selectedPeriod || "").trim() || "30";
+        // One day, if chosen AND the basket allows it (channels only).
+        const payParts = buildCheckoutParts(normalPeriodForPay);
+        const periodForPay = payParts.period;
+        // Provenance of the day count, so a "why does it say N days?" report can
+        // be answered from the operator's own DevTools instead of a re-run:
+        // shows the backend's raw number, the date it was probed against, and
+        // which rule produced the value actually being charged.
+        console.log('🗓️ [IPTV] subscription days →', periodForPay, {
+            oneDay: payParts.oneDay,
+            backendRawMax: backendDays?.days ?? null,
+            expiryDate,
+            calendarDaysUntilExpiry: calendarDaysUntil(expiryDate),
+            apiHost: getBaseUrl(),
+        });
+        // pkgCodes no longer goes on the wire (see the pkgcode note in
+        // requestCablePaymentDetails) but is still part of the checkout cache
+        // key, so it must be threaded through or the STEP 0 re-price below
+        // computes a different key and misses the in-flight dedupe.
+        const { pkgIds, pkgCodes, chIds } = payParts;
 
         // Get paid amount and transaction ID from service/paymentinfo/cabletv response
         const initialPaymentBody = finalPaymentInfo?.body || {};
@@ -1751,12 +1854,7 @@ export default function IPTVService() {
             // invalidated by backend. This is cheap insurance against
             // "Invalid transaction id" errors (same pattern as FofiPayment.jsx).
             try {
-                const freshPaymentInfo = await requestCablePaymentDetails({
-                    period: periodForPay,
-                    chIds,
-                    pkgIds,
-                    pkgCodes,
-                });
+                const freshPaymentInfo = await requestCablePaymentDetails(payParts);
                 if (freshPaymentInfo?.body?.transactionid) {
                     effectivePaymentInfo = freshPaymentInfo;
                     effectivePaymentBody = freshPaymentInfo.body || {};
@@ -1791,7 +1889,10 @@ export default function IPTVService() {
                 paidamount: String(effectivePaidAmount),
                 paymentmode: "offline",
                 payresponse: "",
-                pkgcode: pkgCodes,
+                // Package IDs, matching the paymentinfo call above and native's
+                // generateOrderRequest() :1270-1271 (setPackageid/setPkgcode are
+                // both handed selectedPackageIds).
+                pkgcode: pkgIds,
                 planid: "",
                 priceid: "",
                 servid: "1",
@@ -1800,69 +1901,62 @@ export default function IPTVService() {
                 userid,
                 username: logUname,
                 voipnumber: "",
+                // Same rule as the paymentinfo call above. generateorder IS
+                // generateBill (routes.php:520) — the expiry and the wallet
+                // formula are decided here, so the flag must travel with the
+                // order and not only with the price.
+                ...dayExpiryFields(payParts.oneDay, payParts),
             });
 
             if (result?.status?.err_code === 0) {
-                // STEP 2 — Debit the operator wallet via savePaymentApi.
+                // cabletv/generateorder is the WHOLE payment. Do not chase it
+                // with a second call — least of all apis/savePaymentApi.
                 //
-                // cabletv/generateorder REGISTERS the order on the
-                // backend but does NOT move money out of the operator
-                // wallet (verified live: same bug FoFi had). Without
-                // this second call the operator sees "Order placed
-                // successfully" but their wallet balance never
-                // decreases — the user-reported "wallet amount not
-                // reflected" issue.
+                // This block used to run a "STEP 2 — debit the operator wallet
+                // via savePaymentApi" on the belief that generateorder never
+                // moves money. savePaymentApi is the INTERNET renewal endpoint:
+                // it books a one-month internet renewal (noofmonth is forced to
+                // 1 inside payNow) and closes an internet receipt. QA hit
+                // exactly that — buying only a Cable TV add-on silently renewed
+                // the customer's internet for a month, and the cable bill then
+                // showed up in the Internet Receipt Report.
                 //
-                // The amount to debit is the operator share
-                // (`oprtrshare` in the paymentinfo/cabletv response,
-                // or equivalently `final_split_data.OPERATOR.amount`),
-                // NOT the total bill. Verified live for cgreen2 with
-                // Custom Package: total ₹24.78, oprtrshare ₹4.96 —
-                // only ₹4.96 should leave the operator's wallet.
+                // Native (crmapp-new-master) branches once, and the two legs
+                // are mutually exclusive —
+                //   EmployeeCommonPaymentInfoFragment.onViewClicked() :405-410
+                //     if (serviceKey.equals("internet")) generateInternetOrder();  // savePaymentApi
+                //     else                               generateOrderRequest();   // cabletv/generateorder
+                // and the cable checkout goes straight from generateorder's
+                // err_code 0 to the success dialog with no wallet call at all —
+                //   CablePaymentInfoFragment.generateOrderRequest()    :1258-1290
+                //   CablePaymentInfoFragment.requestFinished()          :633-651
+                // savePaymentApi has exactly two native call sites, both
+                // internet-only (EmployeeCommonPaymentInfoFragment :430 and
+                // RegistrationPaymentOverviewActivity :257). Cable TV wallet
+                // settlement is server-side, inside generateorder.
                 //
-                // Wrapped in try/catch so a wallet-debit failure
-                // doesn't roll back the order (it's already registered
-                // server-side; re-running just the debit is safer than
-                // attempting to undo a successful generateorder).
-                let walletDebitConfirmed = false;
+                // The wallet figure in the success modal is therefore OBSERVED
+                // rather than asserted: re-read the balance and report a debit
+                // only if it actually moved. reconcileCablePaymentOutcome
+                // already performs that read (it is what the failure branch
+                // below uses), so the success path reuses it instead of
+                // guessing — and it doubles as the QA check that generateorder
+                // really does settle the wallet on its own.
+                const settled = await reconcileCablePaymentOutcome({
+                    pkgIds,
+                    chIds,
+                    operatorShare,
+                    walletBeforePay,
+                }).catch((reconcileErr) => {
+                    console.warn("Could not confirm post-order wallet/subscription state:", reconcileErr?.message);
+                    return null;
+                });
 
-                if (operatorShare > 0) {
-                    try {
-                        const opUser = getUser();
-                        const apiopid = customerData?.op_id || opUser?.op_id || "";
-                        const loginuname = opUser?.username || "superadmin";
-                        const payNowPayload = {
-                            apiopid,
-                            apiuserid: userid,
-                            applicationname: import.meta.env.VITE_API_APP_KEY_TYPE || "crmapp",
-                            paymode: "cash",
-                            noofmonth: Math.max(1, Math.round(parseInt(periodForPay, 10) / 30)),
-                            cashpaid: operatorShare,
-                            transstatus: "success",
-                            renewstatus: "success",
-                            usagecompleted: 0,
-                            services_app: 1, // 1 = cable TV (FoFi uses 3, internet uses 1)
-                            paydoneby: loginuname,
-                            payreceivedby: loginuname,
-                            receivedremark: "cash",
-                        };
-                        console.log("🔴 [STEP 2] cable TV savePaymentApi — debiting wallet by", operatorShare, payNowPayload);
-                        const payNowResp = await payNow(payNowPayload);
-                        const debitOk =
-                            payNowResp?.error === 0 ||
-                            payNowResp?.status?.err_code === 0 ||
-                            !!(payNowResp?.receipt_link || payNowResp?.invoice_link || payNowResp?.body?.receipt_link || payNowResp?.body?.invoice_link);
-                        if (!debitOk) {
-                            console.warn("⚠️ [STEP 2] Wallet debit reported failure:", payNowResp?.result || payNowResp?.status?.err_msg);
-                        } else {
-                            walletDebitConfirmed = true;
-                            console.log("✅ [STEP 2] Wallet debited:", operatorShare);
-                        }
-                    } catch (debitErr) {
-                        console.error("❌ [STEP 2] savePaymentApi error (wallet may not have debited):", debitErr);
-                    }
-                } else {
-                    console.log("ℹ️ [STEP 2] Wallet debit skipped — operator share ≤ 0 (likely FTA-only / free package)");
+                if (settled && !settled.walletDeducted) {
+                    console.warn(
+                        "⚠️ [IPTV] generateorder succeeded but the operator wallet has not moved yet",
+                        { walletBeforePay, operatorShare }
+                    );
                 }
 
                 // Snapshot the order details NOW — popToOverview()
@@ -1875,10 +1969,14 @@ export default function IPTVService() {
                     effectivePaidAmount,
                     numericPaid,
                     operatorShare,
-                    walletDebitConfirmed,
+                    walletDebitConfirmed: !!settled?.walletDeducted,
+                    // reconcile already applied the freshly-read balance to
+                    // state; an optimistic drop on top of it double-counts.
+                    skipOptimisticDebit: true,
                     periodForPay,
                     pkgIds,
                     chIds,
+                    freshSubscription: settled?.freshSubscription,
                 });
 
                 // Invalidate every localStorage cache that holds
@@ -2053,6 +2151,41 @@ export default function IPTVService() {
         setChannelsLoading(false);
     }
 
+    // Warm the day count as soon as the box is known — native resolves it on
+    // screen entry (CablePaymentInfoFragment.java:316), before payment info.
+    //
+    // Doing it here rather than only inside handleCheckout means the FIRST
+    // paymentinfo/cabletv call of the checkout is already priced at the
+    // backend's day count: no opening price computed from the local estimate,
+    // no second call to correct it, no visible total jumping under the
+    // operator between paint and re-price. getPlanExtensionPeriods caches on
+    // (box, expirydate, today), so the checkout's own call is then a hit.
+    //
+    // `expiryDate` is in the deps deliberately. It is 'N/A' until
+    // getMyPlanDetails lands, and it is part of the cache key, so without it
+    // this would warm the wrong key and the real one would still be a cold
+    // miss at checkout. Re-running once the date arrives costs one request and
+    // makes the warm-up actually warm the entry the checkout reads.
+    useEffect(() => {
+        if (!userid || !fofiBoxId) return;
+        let cancelled = false;
+        const boxAtRequest = fofiBoxId;
+        const expiryAtRequest = expiryDate;
+        getPlanExtensionPeriods({ userid, servkey: "cabletv", itemid: boxAtRequest, expirydate: expiryAtRequest })
+            .then((periodsResp) => {
+                if (cancelled) return;
+                const authoritative = getAuthoritativeDays(periodsResp);
+                if (authoritative === null) return;
+                // Raw value; normalised where it is read (`subscriptionDays`),
+                // which is why this prefetch is safe to land before the plan
+                // details that carry the expiry date.
+                setBackendMaxDays(boxAtRequest, expiryAtRequest, authoritative);
+                setSelectedPeriod(String(normaliseToInclusiveDays(authoritative, expiryAtRequest)));
+            })
+            .catch(() => { /* checkout re-tries and falls back to the estimate */ });
+        return () => { cancelled = true; };
+    }, [userid, fofiBoxId, expiryDate]);
+
     // CRITICAL TOP-LEVEL GUARD — must run BEFORE any view-specific
     useEffect(() => {
         if (!["channels", "checkout"].includes(view) || !userid || !fofiBoxId) return;
@@ -2092,7 +2225,7 @@ export default function IPTVService() {
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [view, selectedPackages, selectedChannels, packagesByCategory, selectedPeriod, userid, fofiBoxId, effectiveCheckoutPeriod]);
+    }, [view, selectedPackages, selectedChannels, packagesByCategory, selectedPeriod, oneDay, userid, fofiBoxId, effectiveCheckoutPeriod]);
 
     // ── Success Modal Component ──
     const SuccessOrderModal = () => {
@@ -2100,7 +2233,7 @@ export default function IPTVService() {
         return (
             <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[70] px-4" onClick={() => setSuccessOrder(null)}>
                 <div
-                    className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
+                    className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
                     onClick={(e) => e.stopPropagation()}
                 >
                     <div className="bg-gradient-to-br from-emerald-500 to-green-600 px-6 pt-7 pb-6 flex flex-col items-center">
@@ -2117,7 +2250,7 @@ export default function IPTVService() {
                         {successOrder.customerName && (
                             <div className="flex justify-between text-sm">
                                 <span className="text-gray-500">Customer</span>
-                                <span className="font-medium text-gray-800 truncate ml-2">{successOrder.customerName}</span>
+                                <span className="font-medium text-gray-800 dark:text-gray-100 truncate ml-2">{successOrder.customerName}</span>
                             </div>
                         )}
                         <div className="flex justify-between text-sm">
@@ -2133,7 +2266,7 @@ export default function IPTVService() {
                         {(successOrder.packagesCount > 0 || successOrder.channelsCount > 0) && (
                             <div className="flex justify-between text-sm">
                                 <span className="text-gray-500">Selection</span>
-                                <span className="font-medium text-gray-800">
+                                <span className="font-medium text-gray-800 dark:text-gray-100">
                                     {successOrder.packagesCount > 0 && `${successOrder.packagesCount} pkg${successOrder.packagesCount > 1 ? 's' : ''}`}
                                     {successOrder.packagesCount > 0 && successOrder.channelsCount > 0 && ' · '}
                                     {successOrder.channelsCount > 0 && `${successOrder.channelsCount} ch`}
@@ -2142,12 +2275,12 @@ export default function IPTVService() {
                         )}
                         <div className="flex justify-between text-sm">
                             <span className="text-gray-500">Period</span>
-                            <span className="font-medium text-gray-800">{successOrder.period} days</span>
+                            <span className="font-medium text-gray-800 dark:text-gray-100">{successOrder.period} days</span>
                         </div>
                         {successOrder.orderId && (
                             <div className="flex justify-between text-sm">
                                 <span className="text-gray-500">Order ID</span>
-                                <span className="font-mono text-xs text-gray-700 truncate ml-2">{successOrder.orderId}</span>
+                                <span className="font-mono text-xs text-gray-700 dark:text-gray-300 truncate ml-2">{successOrder.orderId}</span>
                             </div>
                         )}
                     </div>
@@ -2180,7 +2313,7 @@ export default function IPTVService() {
     // empty-state here is the recovery path.
     if (!customerData) {
         return (
-            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
+            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900 pb-safe">
                 <header className="sticky top-0 z-40 flex items-center px-4 pb-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
                     <button onClick={() => navigate(-1)} className="p-1 mr-3">
                         <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2337,46 +2470,75 @@ export default function IPTVService() {
                                 </div>
                             )}
 
-                            {/* No of subscription days — shows the period
-                                from API payment info so operator can verify
-                                before paying. */}
-                            <div>
-                                <div className="flex items-center gap-2 mb-2">
-                                    <div className="w-1 h-5 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
-                                    <h3 className="text-indigo-600 font-semibold text-sm">No of subscription days</h3>
-                                </div>
-                                {isExistingSubscriberCheckout ? (
-                                    <div className="grid grid-cols-3 gap-2">
-                                        <div className="px-3 py-2.5 rounded-lg text-xs font-semibold border bg-indigo-600 text-white border-indigo-600 shadow-sm text-center">
-                                            {remainingSubscriptionDays} Days
+                            {/* No of subscription days — ONE fixed value, never
+                                a choice, for every customer state.
+                                Native renders exactly this: days_range.max in a
+                                bordered box, with the period spinner next to it
+                                set to visibility="gone"
+                                (fragement_payment_screen.xml:130-141), so the
+                                operator can read the number but not change it.
+                                Native also only makes the whole row visible
+                                inside the err_code==0 branch
+                                (CablePaymentInfoFragment.java:561), so when
+                                there is no number to show we show no row rather
+                                than inventing one. */}
+                            {/* ONE addition to that rule (3 Sep 2026): a "One day"
+                                option next to the backend's number. It is a real
+                                choice, unlike the fixed day count, and it is only
+                                offered for a channels-only basket — see
+                                utils/oneDaySubscription.js for the backend
+                                reason. */}
+                            {(subscriptionDays !== null || oneDay) && (() => {
+                                const basket = buildCheckoutParts();
+                                const allowed = oneDayAllowed(basket);
+                                const active = basket.oneDay;
+                                const blocked = allowed ? "" : oneDayBlockedReason(basket);
+                                const normalLabel = subscriptionDays !== null ? `${subscriptionDays} Days` : `${selectedPeriod || "30"} Days`;
+                                const chip = (on) => `px-3 py-2.5 rounded-lg text-xs font-semibold border text-center transition-colors ${
+                                    on
+                                        ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                                        : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600"
+                                } disabled:opacity-40 disabled:cursor-not-allowed`;
+                                return (
+                                    <div>
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <div className="w-1 h-5 bg-gradient-to-b from-indigo-600 to-blue-600 rounded-full"></div>
+                                            <h3 className="text-indigo-600 font-semibold text-sm">No of subscription days</h3>
                                         </div>
+                                        <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Subscription period">
+                                            <button
+                                                type="button"
+                                                role="radio"
+                                                aria-checked={!active}
+                                                onClick={() => setOneDay(false)}
+                                                disabled={payLoading}
+                                                className={chip(!active)}
+                                            >
+                                                {normalLabel}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                role="radio"
+                                                aria-checked={active}
+                                                onClick={() => setOneDay(true)}
+                                                disabled={payLoading || !allowed}
+                                                title={blocked || undefined}
+                                                className={chip(active)}
+                                            >
+                                                One day
+                                            </button>
+                                        </div>
+                                        {blocked && (
+                                            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{blocked}</p>
+                                        )}
+                                        {active && (
+                                            <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                                                One-day subscription: the selected channels expire tomorrow at 11:59 pm.
+                                            </p>
+                                        )}
                                     </div>
-                                ) : (
-                                    <div className="grid grid-cols-3 gap-2">
-                                        {(extensionPeriods.length > 0
-                                            ? extensionPeriods
-                                            : [{period:30,label:"30 Days"},{period:90,label:"90 Days"},{period:180,label:"180 Days"},{period:365,label:"365 Days"}]
-                                        ).map((period, i) => {
-                                            const periodVal = getPeriodValue(period);
-                                            const periodLabel = period?.label || period?.name || period?.title || `${periodVal} days`;
-                                            const isSelected = String(selectedPeriod) === String(periodVal);
-                                            return (
-                                                <button
-                                                    key={`${periodVal}-${i}`}
-                                                    onClick={() => { setCustomDaysInput(""); handleFetchFinalPayment(periodVal); }}
-                                                    className={`px-3 py-2.5 rounded-lg text-xs font-semibold border transition-colors ${
-                                                        isSelected
-                                                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                                                            : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:border-indigo-300'
-                                                    }`}
-                                                >
-                                                    {periodLabel}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                )}
-                            </div>
+                                );
+                            })()}
                         </>
                     )}
                 </div>
@@ -2430,7 +2592,7 @@ export default function IPTVService() {
             .map(x => x.ch);
 
         return (
-            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
+            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900 pb-safe">
                 <SuccessOrderModal />
                 {/* Teal/Indigo header — matches native screenshot */}
 
@@ -2446,7 +2608,7 @@ export default function IPTVService() {
 
                     {/* User info card */}
                     <div className="bg-indigo-500/40 rounded-lg p-3 flex items-center gap-3 mb-3">
-                        <div className="w-12 h-12 bg-white rounded flex items-center justify-center flex-shrink-0">
+                        <div className="w-12 h-12 bg-white dark:bg-gray-800 rounded flex items-center justify-center flex-shrink-0">
                             <svg className="w-7 h-7 text-indigo-600" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h5v2h8v-2h5c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 14H3V5h18v12z" />
                             </svg>
@@ -2474,7 +2636,7 @@ export default function IPTVService() {
                             placeholder="Search.."
                             value={packagesSearchTerm}
                             onChange={(e) => setPackagesSearchTerm(e.target.value)}
-                            className="w-full bg-white text-gray-800 border border-gray-300 rounded-md pl-10 pr-4 py-2.5 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                            className="w-full bg-white dark:bg-gray-900 text-gray-800 dark:text-white border border-gray-300 dark:border-gray-700 rounded-md pl-10 pr-4 py-2.5 text-sm placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         />
                     </div>
                 </div>
@@ -2651,7 +2813,7 @@ export default function IPTVService() {
             : validPackages;
 
         return (
-            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
+            <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900 pb-safe">
                 <SuccessOrderModal />
                 {/* Blue Gradient Header */}
 
@@ -2671,7 +2833,7 @@ export default function IPTVService() {
 
                     {/* User Info Card */}
                     <div className="bg-indigo-500 rounded-lg p-3 flex items-center gap-3">
-                        <div className="w-14 h-14 bg-white rounded flex items-center justify-center flex-shrink-0">
+                        <div className="w-14 h-14 bg-white dark:bg-gray-800 rounded flex items-center justify-center flex-shrink-0">
                             <svg className="w-8 h-8 text-indigo-600" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h5v2h8v-2h5c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 14H3V5h18v12z" />
                                 <rect x="5" y="7" width="14" height="2" />
@@ -2719,7 +2881,7 @@ export default function IPTVService() {
                             placeholder="Search.."
                             value={activeSearch}
                             onChange={(e) => setPackagesSearchByCategory(prev => ({ ...prev, [activeTab]: e.target.value }))}
-                            className="w-full bg-white dark:bg-gray-800 text-gray-800 dark:text-white border border-gray-300 dark:border-gray-600 rounded-md pl-10 pr-4 py-2.5 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                            className="w-full bg-white dark:bg-gray-800 text-gray-800 dark:text-white border border-gray-300 dark:border-gray-600 rounded-md pl-10 pr-4 py-2.5 text-sm placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         />
                     </div>
 
@@ -2752,7 +2914,7 @@ export default function IPTVService() {
                                     <div key={pkgId} className="bg-white dark:bg-gray-800 rounded-lg p-3 flex items-center gap-3 border border-gray-200 dark:border-gray-700">
                                         <input
                                             type="checkbox"
-                                            className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 flex-shrink-0"
+                                            className="w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500 flex-shrink-0"
                                             checked={isSubscribed || selectedPackages.includes(pkgId)}
                                             disabled={isSubscribed}
                                             onChange={(e) => {
@@ -2822,11 +2984,11 @@ export default function IPTVService() {
                             <div className="space-y-2 text-sm">
                                 <div className="flex justify-between">
                                     <span className="text-gray-500">Package ID</span>
-                                    <span className="font-medium text-gray-800">{detailPkg.pkgid || detailPkg.packageid}</span>
+                                    <span className="font-medium text-gray-800 dark:text-gray-100">{detailPkg.pkgid || detailPkg.packageid}</span>
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-gray-500">Package Code</span>
-                                    <span className="font-medium text-gray-800">{detailPkg.pkgcode || 'N/A'}</span>
+                                    <span className="font-medium text-gray-800 dark:text-gray-100">{detailPkg.pkgcode || 'N/A'}</span>
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-gray-500">Price</span>
@@ -2834,11 +2996,11 @@ export default function IPTVService() {
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-gray-500">Total Channels</span>
-                                    <span className="font-medium text-gray-800">{detailPkg.totchnls || '0'}</span>
+                                    <span className="font-medium text-gray-800 dark:text-gray-100">{detailPkg.totchnls || '0'}</span>
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-gray-500">Channel Price</span>
-                                    <span className="font-medium text-gray-800">₹ {Number(detailPkg.totchnlprice || 0).toFixed(2)}</span>
+                                    <span className="font-medium text-gray-800 dark:text-gray-100">₹ {Number(detailPkg.totchnlprice || 0).toFixed(2)}</span>
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-gray-500">Status</span>
@@ -2849,13 +3011,13 @@ export default function IPTVService() {
                                 {detailPkg.expirydate && (
                                     <div className="flex justify-between">
                                         <span className="text-gray-500">Expiry Date</span>
-                                        <span className="font-medium text-gray-800">{detailPkg.expirydate}</span>
+                                        <span className="font-medium text-gray-800 dark:text-gray-100">{detailPkg.expirydate}</span>
                                     </div>
                                 )}
                                 {detailPkg.plandate && (
                                     <div className="flex justify-between">
                                         <span className="text-gray-500">Plan Date</span>
-                                        <span className="font-medium text-gray-800">{detailPkg.plandate}</span>
+                                        <span className="font-medium text-gray-800 dark:text-gray-100">{detailPkg.plandate}</span>
                                     </div>
                                 )}
                             </div>
@@ -2881,12 +3043,12 @@ export default function IPTVService() {
                                             const hasLogo = ch.chlogo && !ch.chlogo.includes("chnlnoimage");
                                             const logoSrc = hasLogo ? proxyImageUrl(ch.chlogo) : null;
                                             return (
-                                                <div key={ch.chid || ch.lcochid || ch.channelid || i} className="flex items-center gap-2 py-1.5 px-2 bg-gray-50 rounded-lg text-xs">
+                                                <div key={ch.chid || ch.lcochid || ch.channelid || i} className="flex items-center gap-2 py-1.5 px-2 bg-gray-50 dark:bg-gray-900 rounded-lg text-xs">
                                                     {logoSrc ? (
                                                         <img
                                                             src={logoSrc}
                                                             alt={chName}
-                                                            className="w-7 h-7 rounded object-contain bg-white border border-gray-100 flex-shrink-0"
+                                                            className="w-7 h-7 rounded object-contain bg-white dark:bg-gray-800 border border-gray-100 flex-shrink-0"
                                                             loading="lazy"
                                                             onError={(e) => { e.target.onerror = null; e.target.src = ''; e.target.className = 'hidden'; }}
                                                         />
@@ -2896,7 +3058,7 @@ export default function IPTVService() {
                                                         </span>
                                                     )}
                                                     <div className="flex-1 min-w-0">
-                                                        <span className="text-gray-700 block truncate">{chName}</span>
+                                                        <span className="text-gray-700 dark:text-gray-300 block truncate">{chName}</span>
                                                         {(chLang || chType) && (
                                                             <span className="text-[9px] text-gray-400">{chLang}{chType ? ` · ${chType.toUpperCase()}` : ''}</span>
                                                         )}
@@ -2907,7 +3069,7 @@ export default function IPTVService() {
                                         })}
                                     </div>
                                 ) : (
-                                    <div className="bg-gray-50 rounded-lg p-4 text-center">
+                                    <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 text-center">
                                         <p className="text-xs text-gray-400">
                                             {detailPkg.totchnls ? `This package includes ${detailPkg.totchnls} channels` : 'Channel details not available'}
                                         </p>
@@ -2948,7 +3110,7 @@ export default function IPTVService() {
 
     // ── Overview View ──
     return (
-        <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900">
+        <div className="min-h-dvh flex flex-col bg-gray-50 dark:bg-gray-900 pb-safe">
             <ServiceSelectionModal
                 isOpen={showServiceModal}
                 onClose={() => setShowServiceModal(false)}
@@ -3241,7 +3403,7 @@ export default function IPTVService() {
             {successOrder && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[70] px-4" onClick={() => setSuccessOrder(null)}>
                     <div
-                        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
+                        className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
                         onClick={(e) => e.stopPropagation()}
                     >
                         <div className="bg-gradient-to-br from-emerald-500 to-green-600 px-6 pt-7 pb-6 flex flex-col items-center">
@@ -3258,7 +3420,7 @@ export default function IPTVService() {
                             {successOrder.customerName && (
                                 <div className="flex justify-between text-sm">
                                     <span className="text-gray-500">Customer</span>
-                                    <span className="font-medium text-gray-800 truncate ml-2">{successOrder.customerName}</span>
+                                    <span className="font-medium text-gray-800 dark:text-gray-100 truncate ml-2">{successOrder.customerName}</span>
                                 </div>
                             )}
                             <div className="flex justify-between text-sm">
@@ -3274,7 +3436,7 @@ export default function IPTVService() {
                             {(successOrder.packagesCount > 0 || successOrder.channelsCount > 0) && (
                                 <div className="flex justify-between text-sm">
                                     <span className="text-gray-500">Selection</span>
-                                    <span className="font-medium text-gray-800">
+                                    <span className="font-medium text-gray-800 dark:text-gray-100">
                                         {successOrder.packagesCount > 0 && `${successOrder.packagesCount} pkg${successOrder.packagesCount > 1 ? 's' : ''}`}
                                         {successOrder.packagesCount > 0 && successOrder.channelsCount > 0 && ' · '}
                                         {successOrder.channelsCount > 0 && `${successOrder.channelsCount} ch`}
@@ -3283,12 +3445,12 @@ export default function IPTVService() {
                             )}
                             <div className="flex justify-between text-sm">
                                 <span className="text-gray-500">Period</span>
-                                <span className="font-medium text-gray-800">{successOrder.period} days</span>
+                                <span className="font-medium text-gray-800 dark:text-gray-100">{successOrder.period} days</span>
                             </div>
                             {successOrder.orderId && (
                                 <div className="flex justify-between text-sm">
                                     <span className="text-gray-500">Order ID</span>
-                                    <span className="font-mono text-xs text-gray-700 truncate ml-2">{successOrder.orderId}</span>
+                                    <span className="font-mono text-xs text-gray-700 dark:text-gray-300 truncate ml-2">{successOrder.orderId}</span>
                                 </div>
                             )}
                         </div>

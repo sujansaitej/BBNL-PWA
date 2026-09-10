@@ -18,9 +18,9 @@ export default function Loader({
 
   const LoadingSpinner = () => (
     <div className="relative">
-      {/* Simple rotating ring â€” no inner circle to avoid resembling a logo */}
+      {/* Simple rotating ring — no inner circle to avoid resembling a logo */}
       <motion.div
-        className={`${sizeClasses[size]} rounded-full border-4 border-gray-200`}
+        className={`${sizeClasses[size]} rounded-full border-4 border-gray-200 dark:border-gray-700`}
         style={{ borderTopColor: '#6366f1' }}
         animate={{ rotate: 360 }}
         transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
@@ -30,7 +30,7 @@ export default function Loader({
 
   if (fullScreen) {
     return (
-      <div className="fixed inset-0 z-50 flex flex-col bg-white">
+      <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-gray-800">
         {/* Blue Gradient Header */}
         {showHeader && (
           <header className="flex items-center px-4 pb-3 bg-gradient-to-r from-indigo-600 to-blue-600 shadow-lg" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0.75rem))' }}>
@@ -39,7 +39,7 @@ export default function Loader({
         )}
 
         {/* Loading Content */}
-        <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 px-4">
+        <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
           <LoadingSpinner />
 
           {text && (

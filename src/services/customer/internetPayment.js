@@ -64,6 +64,14 @@ export async function saveInternetPayment({
     // and could fail validation on PHP 8. Native's untouched default is "0" =
     // carry forward (extend from current expiry). Coerce so only "0"/"1" leak.
     usagecompleted: (usagecompleted === "1" || usagecompleted === 1 || usagecompleted === true) ? "1" : "0",
+    // .toFixed(2) diverges from Android, which passes the value verbatim.
+    // Checked against the backend 2026-08-31 and it is COSMETIC: savePaymentApi
+    // is form-urlencoded so both are strings anyway, and $cashPaid is only used
+    // arithmetically (round($oldTotAmt-$cashPaid), if($cashPaid<$txnAmt)) —
+    // PHP coerces "500" and "500.00" identically. The one visible difference is
+    // Apis.php:870, str_replace('%amt%', $cashPaid, $msg): this amount is
+    // interpolated into the customer's SMS, which therefore reads "500.00"
+    // where Android's reads "500". Presentation choice, not a payment risk.
     cashpaid: Number(cashpaid || 0).toFixed(2),
     applicationname: "serviceapp",
     paymode: "online",
@@ -75,6 +83,13 @@ export async function saveInternetPayment({
     apiuserid: apiuserid || "",
     addprefix: "no",
     formtype: "payment",
+    // DELIBERATELY EMPTY — do NOT copy Android's "cash" here.
+    // Android hardcodes receivedremark:"cash" (EmployeeCommonPaymentInfoFragment
+    // :442, RegistrationPaymentOverviewActivity:269) because those are its
+    // CASH-COLLECTION screens. This path is an online gateway payment — see
+    // paymode/payreceivedby just above — and the backend writes this straight
+    // into the stored payment record (Apis.php:1104). Sending "cash" would
+    // label every Easebuzz payment as cash in the audit trail.
     receivedremark: "",
     gtwy_postvals: gtwy_postvals || "",
     services_app: "1",

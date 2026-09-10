@@ -99,10 +99,10 @@ export default function Profile() {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-picking the same file
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      toast.add("Please choose an image under 5 MB.", { type: "error" });
-      return;
-    }
+    // No size gate here any more. uploadProfilePhoto downscales to Android's
+    // 612x816 / q80 before sending, so the backend's 5 MB `max_size` is
+    // unreachable — and rejecting an ordinary camera photo up front was the
+    // wrong answer to a problem we can just solve.
     setUploading(true);
     try {
       const url = await uploadProfilePhoto({ username, file });

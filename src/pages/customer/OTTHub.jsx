@@ -233,8 +233,8 @@ export default function OTTHub() {
         {/* ── Header Row (matches LiveTvPage) ── */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2.5">
-            <button onClick={() => navigate("/cust/dashboard")} className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center hover:bg-gray-200 active:bg-gray-300 transition-colors flex-shrink-0">
-              <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <button onClick={() => navigate("/cust/dashboard")} className="w-10 h-10 rounded-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-gray-700 active:bg-gray-300 transition-colors flex-shrink-0">
+              <svg className="w-5 h-5 text-gray-600 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
@@ -261,7 +261,7 @@ export default function OTTHub() {
               placeholder="Search movies, shows, series..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full outline-none text-sm text-gray-700 dark:text-white bg-transparent placeholder-gray-400"
+              className="w-full outline-none text-sm text-gray-700 dark:text-white bg-transparent placeholder-gray-400 dark:placeholder-gray-500"
             />
             {search && (
               <button onClick={() => setSearch("")} className="ml-2 flex-shrink-0">
@@ -276,7 +276,7 @@ export default function OTTHub() {
           <div>
             <div className="flex items-center gap-2 mb-3 px-0.5">
               <MagnifyingGlassIcon className="w-3.5 h-3.5 text-gray-400" />
-              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+              <h3 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 {searching ? "Searching..." : `Results (${searchResults.length})`}
               </h3>
             </div>
@@ -291,7 +291,7 @@ export default function OTTHub() {
                 <div className="w-14 h-14 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
                   <FilmIcon className="w-7 h-7 text-gray-300 dark:text-gray-600" />
                 </div>
-                <p className="text-sm text-gray-500 font-medium">No results found</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">No results found</p>
                 <p className="text-xs text-gray-400 mt-1">Try a different search</p>
                 <button onClick={() => setSearch("")} className="mt-3 text-sm text-indigo-600 font-semibold hover:underline">Clear search</button>
               </div>
@@ -400,7 +400,7 @@ export default function OTTHub() {
                 {/* Placeholder cards */}
                 <div className="flex items-center gap-2 mb-2.5 px-0.5">
                   <FilmIcon className="w-3.5 h-3.5 text-gray-400" />
-                  <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Coming Soon</h3>
+                  <h3 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Coming Soon</h3>
                 </div>
                 <div className="flex gap-3 overflow-hidden mb-5 -mx-4 px-4">
                   {["Movies", "Series", "Live TV", "Originals"].map((label, i) => (

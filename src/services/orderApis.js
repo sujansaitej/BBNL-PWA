@@ -3,6 +3,7 @@ import logger from "../utils/logger";
 import perfMonitor from "../utils/apiPerfMonitor";
 import { lsGet, lsSet } from "./lsCache";
 import { apiFetch, getBaseUrl } from "./apiCore";
+import { canonicalServiceKey, servidForService } from "../constants/services";
 
 /**
  * Get Order/Payment History
@@ -99,9 +100,30 @@ export async function getServiceOrderHistory({ userid, username, boxid, servid }
   // empty (report 6.15). `username` is the employee; `userid` is the customer.
   const payload = {
     userid: userid || '',
-    // Native sends the operator's app_username here (scopes the customer's
-    // orders to this operator). Fall back to the env user only if unknown.
-    username: username || import.meta.env.VITE_API_USERNAME || 'superadmin',
+    // `username` IS THE TENANCY SCOPE. Never escalate it.
+    //
+    // This used to read `username || VITE_API_USERNAME || 'superadmin'`, and
+    // both fallbacks were wrong. Measured against the live backend 2026-08-31,
+    // same customer and servid:
+    //   username='namich'      (the customer)  -> 3 rows, Success
+    //   username='superadmin'                  -> 3 rows, Success
+    //   username='bbnl'        (VITE_API_USERNAME) -> "Invalid user"
+    //   username=''                            -> "Please enter username."
+    //
+    // So the env credential is not an app user at all — that link in the chain
+    // could only ever fail — and the real fallback was superadmin, which is an
+    // UNSCOPED master: `userid=iptvsub4` with `username=superadmin` returns
+    // that unrelated customer's orders. A customer session with no stored
+    // username therefore issued an admin-scoped query. Nothing exploits it
+    // today because the app only ever passes the signed-in customer's own
+    // userid, but it disables the backend's tenancy check, so anything that
+    // later lets a userid be influenced becomes a full read of someone else's
+    // order history.
+    //
+    // A customer's OWN username is accepted, so falling back to `userid`
+    // scopes the request to exactly the person asking — never wider than the
+    // caller already is, on either portal.
+    username: username || userid || '',
     servid: String(servid || '3'),
     ordernumber: '',
     txndatefrom: '',
@@ -168,11 +190,23 @@ function getHistoryRows(response) {
  * per-tax split are absent from ordersList (native's Order List doesn't show
  * them either) → the card shows N/A there.
  */
-const SERVID_BY_TYPE = { fofi: '3', cabletv: '1' };
+// WHICH SERVICES READ THEIR ORDERS FROM ordersList.
+//
+// This used to be a private `{ fofi: '3', cabletv: '1' }` map — a second copy
+// of ids that already live in constants/services.js, and the two had drifted
+// (the registry said cabletv had no servid at all). Voice was simply absent
+// from it, so getOrderHistoryFor found no servid, fell through to the generic
+// custpayhistory endpoint — which does not carry voice rows — and the Voice
+// Service order history was permanently empty.
+//
+// The ids now come from the registry; this set only records the ENDPOINT
+// choice. Internet is deliberately not here: its bills come from
+// custpayhistory, not ordersList, even though it does have a servid (7).
+const ORDERS_LIST_SERVICES = new Set(['fofi', 'cabletv', 'voice']);
 
 export async function getOrderHistoryFor(serviceType, { apiopid, cid, userid, username } = {}) {
-  const normType = String(serviceType || '').toLowerCase();
-  const servid = SERVID_BY_TYPE[normType];
+  const normType = canonicalServiceKey(serviceType) || String(serviceType || '').toLowerCase();
+  const servid = ORDERS_LIST_SERVICES.has(normType) ? servidForService(normType) : undefined;
 
   if (servid) {
     const resp = await getServiceOrderHistory({ userid: userid || cid, username, servid });

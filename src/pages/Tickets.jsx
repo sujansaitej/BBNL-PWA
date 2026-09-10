@@ -32,6 +32,10 @@ const Tickets = () => {
   const [departments, setDepartments] = useState([]);
   const [selectedDept, setSelectedDept] = useState('');
   const [tickets, setTickets] = useState([]);
+  // The backend's own err_msg for an empty list. Native toasts it; the PWA
+  // used to swallow it and show "No jobs available." for everything — which
+  // made a privilege refusal on NEW CONNECTIONS look like an empty queue.
+  const [listMessage, setListMessage] = useState("");
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -119,6 +123,7 @@ const Tickets = () => {
     try {
       setLoading(true);
       setTickets([]);
+      setListMessage("");
       const data = await getTickets(tabKey, params);
       const statusKey = tabKey === 'OPEN' ? 'ticketstatus' : 'status';
       const statusObj = data?.[statusKey];
@@ -149,18 +154,27 @@ const Tickets = () => {
         // setTickets(data?.body);
         // console.log(data?.body);
       } else {
-        // console.error("Failed to get tickets:", data?.status?.err_msg || "Unknown error");
+        // Surface the backend's reason. "No tickets for new connection" is a
+        // real empty queue; "You do not have privilage for New connection"
+        // means this login is not in the New Connection department (admin
+        // dept 5) and needs the web console, not a retry.
+        setListMessage(String(statusObj?.err_msg || ""));
         setLoading(false);
       }
     } catch (err) {
       console.error("Error in getting tickets:", err);
+      setListMessage("Could not load jobs. Pull to refresh or try again.");
+      setLoading(false);
     }
   }
 
   async function pickTkt(tkt) {
     var params = {};
-    if (tkt.action === 'close')
-      // Native crmCloseTicket: { ticketid, apiopid, empname, reason, opid }.
+    if (tkt.action === 'close' || tkt.action === 'resolve')
+      // Native crmCloseTicket AND autoResolve share one field set:
+      // { ticketid, apiopid, empname, reason, opid }. Native's resolve puts the
+      // customer's mobile in `reason` (a leftover); the PWA asks for a real
+      // reason, which lands in resloved_detail where the console reads it.
       params = { ticketid: tkt.tid, apiopid: userdet?.username, empname: userdet?.username, reason: tkt.reason, opid: userdet?.op_id };
     else if (tkt.action === 'transfer')
       // Native transferTicket: { ticketid, toEmpname, toEmpLoginId, fromemp,
@@ -326,7 +340,7 @@ const Tickets = () => {
   }
 
   return (
-    <div className="min-h-dvh bg-gray-50 flex flex-col relative">
+    <div className="min-h-dvh bg-gray-50 dark:bg-gray-900 flex flex-col relative pb-safe">
       {/* Animated HEADER */}
       <header
         className={`fixed top-0 left-0 right-0 z-40 bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-4 flex items-center justify-between shadow-lg
@@ -348,11 +362,11 @@ const Tickets = () => {
 
       {/* Tabs + Filters fixed below header */}
       <div
-        className={`fixed left-0 right-0 z-30 bg-white shadow-sm transition-[top] duration-500 ease-in-out ${showHeader ? "top-12" : "top-0"
+        className={`fixed left-0 right-0 z-30 bg-white dark:bg-gray-800 shadow-sm transition-[top] duration-500 ease-in-out ${showHeader ? "top-12" : "top-0"
           }`}
       >
         {/* Tabs */}
-        <div className="border-b border-gray-200 overflow-x-auto hide-scrollbar" ref={tabContainerRef}>
+        <div className="border-b border-gray-200 dark:border-gray-700 overflow-x-auto hide-scrollbar" ref={tabContainerRef}>
           <div className="flex min-w-max">
             {tktTabs().map((tab) => {
               const key = tab;//.replace(/\s+/g, "_");
@@ -375,7 +389,7 @@ const Tickets = () => {
         </div>
 
         {/* Filters */}
-        <div className="px-4 py-1 bg-white border-b border-gray-100 space-y-2">
+        <div className="px-4 py-1 bg-white dark:bg-gray-800 border-b border-gray-100 space-y-2">
           <div className="relative">
             <input
               type="text"
@@ -387,7 +401,7 @@ const Tickets = () => {
             <Search className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
           </div>
           {deptsAllowedTabs.includes(activeTab) &&
-            <select className="w-full border rounded-lg py-2 px-3 text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition-shadow duration-200" onChange={(e) => setSelectedDept(e.target.value)} value={selectedDept}>
+            <select className="w-full border border-gray-300 dark:border-gray-700 rounded-lg py-2 px-3 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition-shadow duration-200" onChange={(e) => setSelectedDept(e.target.value)} value={selectedDept}>
               <option value="">Select Department</option>
               {departments.map((dept) => (
                 <option key={dept} value={dept}>{dept}</option>
@@ -414,8 +428,12 @@ const Tickets = () => {
         ) : (
           <div>
             {filteredTickets.length === 0 && (
-              <div className="text-center text-gray-500 mt-10">
-                {searchTerm.trim() ? "No matching jobs found." : "No jobs available."}
+              <div className="text-center text-gray-500 dark:text-gray-400 mt-10 px-6">
+                {searchTerm.trim()
+                  ? "No matching jobs found."
+                  : /privilage|privilege/i.test(listMessage)
+                    ? "Your login is not in the New Connection department, so these jobs are hidden. Ask an admin to add you."
+                    : listMessage || "No jobs available."}
               </div>
             )}
             {filteredTickets.map((t, i) => (
@@ -445,6 +463,21 @@ const Tickets = () => {
                     <span className={`w-[34%] text-gray-700 dark:text-gray-400 font-semibold`}>{activeTab !== 'JOB DONE' ? 'Raised Time' : 'Resolved At'}</span>
                     <span className={`text-gray-700 dark:text-gray-400 break-words`}>{activeTab !== 'JOB DONE' ? t.risedtime : t.resolved_time}</span>
                   </div>
+                  {/* Native's NewConnection/DisConnection rows also carry
+                      who raised the ticket and the site address; both matter
+                      for a field visit. Shown only when the backend sent them. */}
+                  {(activeTab === 'NEW CONNECTIONS' || activeTab === 'DISCONNECTIONS') && t.risedBy &&
+                    <div className={`flex`}>
+                      <span className={`w-[34%] text-gray-700 dark:text-gray-400 font-semibold`}>Raised By</span>
+                      <span className={`text-gray-700 dark:text-gray-400 break-words`}>{t.risedBy}</span>
+                    </div>
+                  }
+                  {(activeTab === 'NEW CONNECTIONS' || activeTab === 'DISCONNECTIONS') && t.address &&
+                    <div className={`flex`}>
+                      <span className={`w-[34%] text-gray-700 dark:text-gray-400 font-semibold`}>Address</span>
+                      <span className={`w-[75%] text-gray-700 dark:text-gray-400 break-words pl-2`}>{t.address}</span>
+                    </div>
+                  }
                   {(activeTab !== 'JOB DONE') &&
                     <>
                       <div className={`flex`}>
@@ -467,6 +500,12 @@ const Tickets = () => {
                     {(activeTab === 'OPEN' || activeTab === 'NEW CONNECTIONS' || activeTab === 'DISCONNECTIONS') &&
                       <>
                         <button className="flex-1 bg-transparent text-sm font-medium text-blue-700 hover:text-white hover:bg-indigo-500 border border-blue-500 hover:border-transparent rounded p-1.5" onClick={() => confirmPickTkt(t)}>Pick Job</button>
+                        {/* Native's pick dialog on these two tabs has a third
+                            button, "Resolve" (Apis/autoResolve): close the job
+                            as done in one step, without picking it first. */}
+                        {(activeTab === 'NEW CONNECTIONS' || activeTab === 'DISCONNECTIONS') &&
+                          <button className="flex-1 bg-transparent text-sm font-medium text-emerald-700 dark:text-emerald-400 hover:text-white hover:bg-emerald-600 border border-emerald-600 hover:border-transparent rounded p-1.5" onClick={() => tktDialog('resolve', t)}>Resolve</button>
+                        }
                         <button className="flex-1 flex items-center justify-center gap-2 text-sm font-medium text-blue-700 hover:text-white hover:bg-indigo-500 border border-blue-500 hover:border-transparent rounded p-1.5" onClick={() => openMap2(t)}>
                           <MapPin className="w-4 h-4" /> View Map
                         </button>

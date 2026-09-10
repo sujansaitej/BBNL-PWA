@@ -11,11 +11,11 @@ import Layout from "../../layout/Layout";
 import { Loader, ConfirmDialog, Alert } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { getUser } from "../../services/safeStorage";
-import { lsGet, lsSet } from "../../services/lsCache";
-import { ads } from "../../services/customer/apis";
+import { useAds } from "../../hooks/useAds";
 import { fixImageUrl } from "../../services/iptvImage";
 import { getUserAssignedItems, getMyPlanDetails } from "../../services/generalApis";
 import { getActiveAccount } from "../../services/customer/linkAccount";
+import { isPrimaryBox, cloudUploadEligibility } from "../../services/customer/cloudUpload";
 import {
   resetMac,
   connectionsFor,
@@ -34,6 +34,7 @@ import {
   ChartPieIcon,
   GlobeAltIcon,
   ChevronLeftIcon,
+  CloudArrowUpIcon,
 } from "@heroicons/react/24/outline";
 
 /**
@@ -62,9 +63,9 @@ export default function ServiceHome() {
   const servicekey = account?.servicekey || "internet";
   const userId = account?.userid || "";
 
-  // Ads
-  const [adList, setAdList] = useState([]);
-  const [adLoading, setAdLoading] = useState(true);
+  // Ads — same operator-managed feed the dashboard shows; the hook
+  // revalidates it, so added/removed banners appear without a reload.
+  const { adList, adCount, adLoading } = useAds("custapp");
 
   // Connections
   const [connections, setConnections] = useState([]);
@@ -80,28 +81,6 @@ export default function ServiceHome() {
   const [confirmMac, setConfirmMac] = useState(false);
   const [macBusy, setMacBusy] = useState(false);
   const [macResult, setMacResult] = useState(null); // { type, title, message }
-
-  // ── Ads (same source + cache the dashboard uses) ───────────────────
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const cached = lsGet("webads_custapp", 30 * 60 * 1000);
-      if (cached) { setAdList(cached); setAdLoading(false); return; }
-      try {
-        const data = await ads("custapp");
-        if (cancelled) return;
-        // webads has NO envelope — imglist is top-level.
-        const list = (data?.imglist || []).filter((a) => a.content);
-        setAdList(list);
-        if (list.length > 0) lsSet("webads_custapp", list);
-      } catch {
-        /* ads are decorative — never block the page */
-      } finally {
-        if (!cancelled) setAdLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
 
   // ── Connections ────────────────────────────────────────────────────
   useEffect(() => {
@@ -159,6 +138,21 @@ export default function ServiceHome() {
   }, [userId, servicekey, selectedConn, connLoading]);
 
   const planRow = useMemo(() => planRowFor(plan, servicekey), [plan, servicekey]);
+
+  // The cloud album is addressed by the box's SERIAL NUMBER (fserialno), not
+  // by the box id the selector displays — see services/customer/cloudUpload.js
+  // for why that column is misnamed. So the upload screen needs the whole row,
+  // not just `selectedConn`.
+  const selectedRow = useMemo(
+    () => connections.find((c) => c.product_name === selectedConn) || connections[0] || null,
+    [connections, selectedConn]
+  );
+
+  // Android gates the cloud icon on exactly these two service keys
+  // (CommonHomeScreenFragment: `serviceKey.equals("fofi") ||
+  // serviceKey.equals("cabletv")`); every other service hides it.
+  const showsCloudUpload = servicekey === "fofi" || servicekey === "cabletv";
+
   const title = serviceTitle(servicekey);
   const showActions = showsInternetActions(servicekey);
   // Direct "Proceed"/Renew shows ONLY when other_service_renewal is enabled
@@ -228,12 +222,21 @@ export default function ServiceHome() {
         {/* Header — Name / User Id / Service */}
         <div className="rounded-xl shadow overflow-hidden">
           <div className="bg-gradient-to-r from-indigo-600 to-blue-600 p-4 flex items-center gap-3">
+            {/* SOLID white plate, not bg-white/20.
+                This tile sits on the indigo→blue gradient, and what goes in it
+                is operator-uploaded plan artwork — in practice a dark navy
+                logo. A 20% white tint over indigo is still a dark surface, so
+                a dark logo landed on it almost invisibly, which is what the
+                header looked "not clearly visible" from.
+                A solid plate makes ANY artwork legible regardless of its
+                colours — the same reasoning BrandLogo uses for the app logo,
+                and the reason it cannot just be a lighter tint. */}
             {planRow?.imgurl ? (
               <img
                 src={planRow.imgurl}
                 alt=""
                 onError={(e) => { e.currentTarget.style.display = "none"; }}
-                className="w-12 h-12 rounded-lg bg-white/20 object-contain p-1 flex-shrink-0"
+                className="w-12 h-12 rounded-lg bg-white dark:bg-gray-800 object-contain p-1 flex-shrink-0 ring-1 ring-black/5"
               />
             ) : (
               <div className="w-12 h-12 rounded-lg bg-white/20 flex items-center justify-center flex-shrink-0">
@@ -261,17 +264,23 @@ export default function ServiceHome() {
         {/* Ad carousel */}
         {adLoading ? (
           <div className="aspect-[16/9] rounded-2xl skeleton dark:skeleton-dark" />
-        ) : adList.length > 0 ? (
+        ) : adCount > 0 ? (
           <Swiper
+            /* Re-key on the slide count so a changed banner list
+               re-initialises loop + pagination instead of leaving
+               stale dots behind. */
+            key={adCount}
             spaceBetween={10}
             slidesPerView={1}
             centeredSlides
-            loop={adList.length >= 3}
+            loop={adCount >= 3}
             speed={500}
             grabCursor
+            observer
+            observeParents
             modules={[Autoplay, Pagination]}
             autoplay={{ delay: 3000, disableOnInteraction: false, pauseOnMouseEnter: true }}
-            pagination={adList.length > 1 ? { clickable: true, dynamicBullets: true } : false}
+            pagination={adCount > 1 ? { clickable: true } : false}
             className="ad-swiper"
           >
             {adList.map((ad, i) => (
@@ -313,28 +322,60 @@ export default function ServiceHome() {
         {/* Service label + connection selector */}
         <div>
           <p className="px-1 pb-1.5 text-sm font-semibold text-orange-500">{title}</p>
-          <div className="bg-gradient-to-r from-indigo-600 to-blue-600 rounded-lg px-3 py-2.5">
-            {connLoading ? (
-              <p className="text-sm text-white/80">Fetching connection details…</p>
-            ) : connections.length === 0 ? (
-              // Android dereferences a null list here and crashes.
-              <p className="text-sm text-white/90">{account.userid}</p>
-            ) : connections.length === 1 ? (
-              <p className="text-sm font-medium text-white break-words">
-                {connections[0].product_name || account.userid}
-              </p>
-            ) : (
-              <select
-                value={selectedConn}
-                onChange={(e) => setSelectedConn(e.target.value)}
-                className="w-full bg-transparent text-sm font-medium text-white focus:outline-none [&>option]:text-gray-800"
+          <div className="bg-gradient-to-r from-indigo-600 to-blue-600 rounded-lg px-3 py-2.5 flex items-center gap-2">
+            <div className="flex-1 min-w-0">
+              {connLoading ? (
+                <p className="text-sm text-white/80">Fetching connection details…</p>
+              ) : connections.length === 0 ? (
+                // Android dereferences a null list here and crashes.
+                <p className="text-sm text-white/90">{account.userid}</p>
+              ) : connections.length === 1 ? (
+                <p className="text-sm font-medium text-white break-words">
+                  {connections[0].product_name || account.userid}
+                </p>
+              ) : (
+                <select
+                  value={selectedConn}
+                  onChange={(e) => setSelectedConn(e.target.value)}
+                  className="w-full bg-transparent text-sm font-medium text-white focus:outline-none [&>option]:bg-white dark:bg-gray-800 [&>option]:text-gray-800 dark:text-gray-100 dark:[&>option]:bg-gray-900 dark:[&>option]:text-white"
+                >
+                  {connections.map((c, i) => (
+                    <option key={c.fserialno || i} value={c.product_name}>
+                      {c.product_name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {/* Cloud album upload — Android's img_upload_screen_saver, in the
+                same place: the right edge of the box selector bar.
+                Disabled rather than hidden until the connection list resolves,
+                so the bar does not reflow when it does. Without fserialno the
+                upload endpoint cannot address a box at all, so there is nothing
+                to navigate to. */}
+            {showsCloudUpload && (
+              <button
+                onClick={() =>
+                  navigate(`${routeBase}/cloud`, {
+                    state: {
+                      boxid: selectedRow?.product_name || "",
+                      serialno: selectedRow?.fserialno || "",
+                      primary: isPrimaryBox(selectedRow),
+                      // Decided HERE, from the row, so the upload screen can
+                      // explain a TV-app device instead of uploading into
+                      // "Invalid User ID".
+                      eligibility: cloudUploadEligibility(selectedRow),
+                    },
+                  })
+                }
+                disabled={connLoading || !selectedRow?.fserialno}
+                aria-label="Upload photos to cloud album"
+                title="Upload photos to cloud album"
+                className="flex-shrink-0 p-1.5 rounded-lg text-white hover:bg-white/20 disabled:opacity-40 disabled:hover:bg-transparent"
               >
-                {connections.map((c, i) => (
-                  <option key={c.fserialno || i} value={c.product_name}>
-                    {c.product_name}
-                  </option>
-                ))}
-              </select>
+                <CloudArrowUpIcon className="w-6 h-6" />
+              </button>
             )}
           </div>
         </div>

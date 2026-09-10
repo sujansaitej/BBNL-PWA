@@ -5,6 +5,7 @@ import { Loader } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { getUser } from "../../services/safeStorage";
 import { getMyPlanDetails } from "../../services/generalApis";
+import { normaliseToInclusiveDays } from "../../utils/subscriptionDays";
 import { getActiveAccount } from "../../services/customer/linkAccount";
 import { serviceRouteBase, serviceTitle } from "../../services/customer/serviceHome";
 import {
@@ -34,7 +35,9 @@ const money = (v) => `₹${Number(v || 0).toFixed(2)}`;
  *
  * Reached from ServiceHome's Proceed/Renew. Flow (cabletv adds two pre-steps):
  *   [cabletv] iptvLastSubscribedinfo → channel/package ids for the renewal
- *   [cabletv] planExtensionPeriods   → cblextenperiod = days_range.max
+ *   [cabletv] planExtensionPeriods   → cblextenperiod = days_range.max,
+ *                                      normalised to the inclusive day count
+ *                                      (utils/subscriptionDays.js)
  *   paymentinfo/{service}            → bill + transactionid + easebuzz creds
  *   Pay Now → hash → initiateLink → checkout modal → generateorder → status
  */
@@ -122,10 +125,31 @@ export default function PaymentSummary() {
         }
 
         // Both cabletv paths need the server-chosen extension period.
+        //
+        // Normalised to the INCLUSIVE day count, exactly as the operator-side
+        // Cable TV checkout does — see utils/subscriptionDays.js for the
+        // measured reason (bbnlnetmon, which the Android app talks to, counts
+        // the expiry day; bbnlpwa does not). This one value is BOTH the
+        // cblextenperiod the order is priced on and the "No. of days" shown
+        // below, so normalising here keeps the customer's displayed days and
+        // charged days in agreement, and in agreement with the operator app.
         if (isCabletv) {
           try {
             const ext = await getPlanExtensionPeriods({ userid: account.userid, itemid: c.fofiBoxId });
-            c.cblextenperiod = ext?.body?.days_range?.max || "";
+            const rawMax = ext?.body?.days_range?.max;
+            // The convention probe needs this backend's own expirydate.
+            // getMyPlanDetails is lsCached (5 min), so this is normally free.
+            let cableExpiry = "";
+            try {
+              const cablePlan = await getMyPlanDetails({
+                servicekey: "cabletv", userid: account.userid,
+                fofiboxid: c.fofiBoxId, voipnumber: "",
+              });
+              cableExpiry = (cablePlan?.body?.subscribed_services || [])
+                .find((s) => /cable/i.test(String(s?.servicekey || "")))?.expirydate || "";
+            } catch { /* probe unavailable — deployment default applies */ }
+            const days = normaliseToInclusiveDays(rawMax, cableExpiry);
+            c.cblextenperiod = days === null ? "" : String(days);
           } catch { /* best-effort */ }
         }
 

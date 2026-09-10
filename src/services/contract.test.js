@@ -516,13 +516,152 @@ describe("internet payment native parity", () => {
     expect(keys).toEqual(["apiopid", "apiuserid", "apptype"]);
   });
 
-  test("cable/IPTV caller keeps paidamount — no native counterpart to copy", async () => {
-    const { payNow } = await import("./registrationApis.js");
-    fetchMock.mockResolvedValue(mockResponse({ error: 0, result: "ok" }));
-    // IPTVService.jsx passes no omitPaidAmount; behaviour must be unchanged.
-    await payNow({ ...BASE, cashpaid: 4.96 });
-    const body = new URLSearchParams(lastRequest().opts.body);
-    expect(body.get("paidamount")).toBe("4.96");
+  // savePaymentApi renews INTERNET — it forces noofmonth=1 and closes an
+  // internet receipt. A cable-TV/FoFi checkout that calls it renews the
+  // customer's internet as a side effect and files the add-on bill under the
+  // Internet Receipt Report (QA, Aug 2026).
+  //
+  // Native keeps the two legs mutually exclusive:
+  //   EmployeeCommonPaymentInfoFragment.onViewClicked() :405-410
+  //     serviceKey == "internet" → generateInternetOrder()  (savePaymentApi)
+  //     otherwise                → generateOrderRequest()   (cabletv/generateorder)
+  // and savePaymentApi has exactly two native call sites, both internet-only.
+  //
+  // This is a source-level guard rather than a wire test because the defect is
+  // "the wrong module called the right function" — nothing about payNow's own
+  // payload was wrong.
+  // Native's IPTV/wallet leg puts the package IDs in BOTH packageid and
+  // pkgcode — CablePaymentInfoFragment.IPTVPaymentInfo() :761-762 and
+  // generateOrderRequest() :1270-1271 are each handed selectedPackageIds, and
+  // the direct-pay launcher seeds PREFS_PACKAGE_LIST and PREFS_PKGCODE_LIST
+  // from the same array (CustomerCompleteOverviewFragment :1074-1075). Only the
+  // non-IPTV cable leg (getPaymentInfo() :361) sends real pkgcode strings.
+  //
+  // The two calls must also agree with each other: the price comes from
+  // paymentinfo and the order is registered by generateorder, so a mismatch
+  // registers an order against a selection that was never priced.
+  test("cable checkout sends package IDs in pkgcode, and both calls agree", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const path = await import("node:path");
+    const srcDir = path.dirname(fileURLToPath(import.meta.url));
+    const source = readFileSync(path.join(srcDir, "../pages/services/IPTVService.jsx"), "utf8");
+
+    const code = source
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("\n")
+      .filter((line) => !/^\s*(\/\/|\*)/.test(line))
+      .join("\n");
+
+    // paymentinfo/cabletv payload
+    expect(code).toMatch(/packageid:\s*parts\.pkgIds/);
+    expect(code).toMatch(/pkgcode:\s*parts\.pkgIds/);
+    // cabletv/generateorder payload
+    expect(code).toMatch(/packageid:\s*pkgIds/);
+    expect(code).toMatch(/pkgcode:\s*pkgIds/);
+    // The pkgcode-string variant must not reach either wire payload.
+    expect(code).not.toMatch(/pkgcode:\s*(parts\.)?pkgCodes/);
+  });
+
+  // The number of subscription days shown to the operator/customer and the
+  // cblextenperiod the order is priced on must be the SAME value, and it must
+  // be the inclusive count Android shows. Android does zero date arithmetic —
+  // verified: no 86400000 / TimeUnit.DAYS / date-add anywhere in
+  // crmapp-new-master — it just renders days_range.max, and its backend
+  // (bbnlnetmon) already includes the expiry day. The PWA's backends do not,
+  // so every reader of days_range.max must go through
+  // utils/subscriptionDays.js rather than using the raw value.
+  test("no screen uses a raw days_range.max as the subscription period", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const path = await import("node:path");
+    const srcDir = path.dirname(fileURLToPath(import.meta.url));
+
+    const cableCheckouts = [
+      "../pages/services/IPTVService.jsx",   // operator Cable TV checkout
+      "../pages/customer/PaymentSummary.jsx", // customer portal renewal
+    ];
+
+    for (const rel of cableCheckouts) {
+      const source = readFileSync(path.join(srcDir, rel), "utf8");
+      const code = source
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .split("\n")
+        .filter((line) => !/^\s*(\/\/|\*)/.test(line))
+        .join("\n");
+
+      // The regression is days_range reaching the PERIOD directly. Reading it
+      // into a local that is then normalised is fine and is how both screens
+      // do it, so this pins the assignment target rather than the read.
+      expect(code, `${rel} must not put a raw days_range.max in cblextenperiod`).not.toMatch(
+        /cblextenperiod\s*[:=]\s*[^;,\n]*days_range/
+      );
+      // …and it must actually normalise.
+      expect(code, `${rel} must normalise through subscriptionDays.js`).toMatch(
+        /normaliseToInclusiveDays\s*\(/
+      );
+    }
+  });
+
+  test("no non-internet screen calls savePaymentApi", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const path = await import("node:path");
+    const srcDir = path.dirname(fileURLToPath(import.meta.url));
+
+    const nonInternetScreens = [
+      "../pages/services/IPTVService.jsx",   // Cable TV add-on checkout
+      "../pages/services/FoFiSmartBox.jsx",  // FoFi box / plan upgrade
+      "../pages/FofiPayment.jsx",            // FoFi renewal payment
+    ];
+
+    for (const rel of nonInternetScreens) {
+      const source = readFileSync(path.join(srcDir, rel), "utf8");
+      // Only real code counts — the comments in these files explain *why*
+      // savePaymentApi is off-limits and must stay readable.
+      const code = source
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .split("\n")
+        .filter((line) => !/^\s*(\/\/|\*)/.test(line))
+        .join("\n");
+      expect(code, `${rel} must not import payNow`).not.toMatch(
+        /import\s*\{[^}]*\bpayNow\b[^}]*\}\s*from/
+      );
+      expect(code, `${rel} must not hit apis/savePaymentApi`).not.toMatch(/savePaymentApi/);
+    }
+  });
+
+  // RegistrationPaymentOverviewActivity:398-400 —
+  //     if (generateOrderModel.getStatus().getErr_msg().contains("invalid"))
+  //         closePreviousTransaction(transactionId_fromDB);
+  // A rejection naming the transaction leaves the reservation OPEN server-side,
+  // and nothing else reclaims it: native's onBackPressed (:145-151) does not,
+  // and both PWA screens re-quote rather than reusing the id. Both shipped
+  // without this and stranded a row on every "Invalid transaction id".
+  //
+  // Source-level because neither screen is reachable from a unit test without
+  // standing up its whole payment context; the VoicePayment render test covers
+  // the behaviour end-to-end, this pins that FofiPayment keeps it too.
+  test("every generateorder screen closes a transaction the backend calls invalid", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const path = await import("node:path");
+    const srcDir = path.dirname(fileURLToPath(import.meta.url));
+
+    for (const rel of ["../pages/FofiPayment.jsx", "../pages/VoicePayment.jsx"]) {
+      const code = readFileSync(path.join(srcDir, rel), "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .split("\n")
+        .filter((line) => !/^\s*(\/\/|\*)/.test(line))
+        .join("\n");
+
+      expect(code, `${rel} must test the order rejection for "invalid"`).toMatch(
+        /toLowerCase\(\)\s*\.includes\(\s*['"]invalid['"]\s*\)/
+      );
+      expect(code, `${rel} must release the stranded reservation`).toMatch(
+        /includes\(\s*['"]invalid['"]\s*\)\s*\)\s*\{[\s\S]{0,400}?killFofiTxn\s*\(/
+      );
+    }
   });
 });
 
@@ -575,15 +714,61 @@ describe("ticketing native parity", () => {
     expect(b.get("loginid")).toBe("op1");
   });
 
-  test("getTickets(NEW CONNECTIONS): apiopid is the operator op_id, NOT 'raghav'", async () => {
+  // The field is called `apiopid` on BOTH endpoints and means two different
+  // things. Native (employee flavour):
+  //   NewConnectionFragment.getNewConnection(employeeName)   employeeName = prefs "app_username"
+  //   DisConnectionFragment  getDisConnectionLoad(operatorID) operatorID   = prefs "op_id"
+  // Backend: getNewConnectionTicket runs Ticket_model::getpriv(apiopid) —
+  // admin.user/email, department 5 — so an op_id can never pass and every
+  // user saw "You do not have privilage for New connection". Verified live
+  // on prod 6 Sep 2026: op_id → err 1; a dept-5 username → 5 open tickets.
+  // The earlier version of this test pinned the op_id and was wrong.
+  test("getTickets(NEW CONNECTIONS): apiopid is the LOGIN USERNAME, not the op_id", async () => {
     const { getTickets } = await import("./generalApis.js");
     fetchMock.mockResolvedValue(mockResponse(OK));
     await getTickets("NEW CONNECTIONS", { op_id: "OP1", user: "op1" });
     const { url, opts } = lastRequest();
     expect(url).toBe("https://test.example/prod/Apis/getNewConnectionTicket");
     const b = new URLSearchParams(opts.body);
+    expect(b.get("apiopid")).toBe("op1");
+    expect(b.get("apiopid")).not.toBe("OP1");
+  });
+
+  test("getTickets(DISCONNECTIONS): apiopid is the operator op_id", async () => {
+    const { getTickets } = await import("./generalApis.js");
+    fetchMock.mockResolvedValue(mockResponse(OK));
+    await getTickets("DISCONNECTIONS", { op_id: "OP1", user: "op1" });
+    const { url, opts } = lastRequest();
+    expect(url).toBe("https://test.example/prod/Apis/disConnection");
+    const b = new URLSearchParams(opts.body);
+    // A username here answers "Host details for <user> Not Available".
     expect(b.get("apiopid")).toBe("OP1");
-    expect(b.get("apiopid")).not.toBe("raghav");
+  });
+
+  // Native fetches every ticket list live (no cache layer exists in the app);
+  // a 3-minute PWA cache is how "sections not reflecting" presented on a busy
+  // desk. Two sequential calls must both hit the server.
+  test("getTickets is always live — the second call is not served from cache", async () => {
+    const { getTickets } = await import("./generalApis.js");
+    fetchMock.mockResolvedValueOnce(mockResponse(OK)).mockResolvedValueOnce(mockResponse(OK));
+    await getTickets("NEW CONNECTIONS", { op_id: "OP1", user: "livetest" });
+    await getTickets("NEW CONNECTIONS", { op_id: "OP1", user: "livetest" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  // Native's "Resolve" button (NewConnectionFragment / DisConnectionFragment
+  // → getResolveTickect) posts Apis/autoResolve with the crmCloseTicket field
+  // set and the LOGIN USERNAME as apiopid.
+  test("pickTicket('resolve'): POST Apis/autoResolve form {ticketid,apiopid,empname,reason,opid}", async () => {
+    const { pickTicket } = await import("./generalApis.js");
+    fetchMock.mockResolvedValue(mockResponse(OK));
+    await pickTicket({ ticketid: "T1", apiopid: "op1", empname: "op1", reason: "done on site", opid: "OP1" }, "resolve");
+    const { url, opts } = lastRequest();
+    expect(url).toBe("https://test.example/prod/Apis/autoResolve");
+    const b = new URLSearchParams(opts.body);
+    expect(b.get("apiopid")).toBe("op1");
+    expect(b.get("reason")).toBe("done on site");
+    expect(b.get("opid")).toBe("OP1");
   });
 
   test("getTickets(JOB DONE): POST Apis/jobDoneList form {apiopid,userid}", async () => {
@@ -645,5 +830,44 @@ describe("ticketing native parity", () => {
     const b = new URLSearchParams(opts.body);
     expect(b.get("opid")).toBe("OP1");
     expect(b.get("group")).toBe("accounts");
+  });
+});
+
+// ── One-day IPTV subscription (3 Sep 2026) ──────────────────────────────
+// `use_day_expiry` must reach BOTH the price call and the order call, and
+// only through dayExpiryFields() — which is empty unless the option is on and
+// the basket is channels-only. A hand-written `use_day_expiry: 1` anywhere
+// would either always send it (changing the default flow) or send it with a
+// package (priced for one day, expiring in a month). The customer flow must
+// not send it at all until its Easebuzz-webhook path is proven to honour it.
+describe("one-day IPTV subscription wiring", () => {
+  const load = async (rel) => {
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const path = await import("node:path");
+    const srcDir = path.dirname(fileURLToPath(import.meta.url));
+    return readFileSync(path.join(srcDir, rel), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("\n")
+      .filter((line) => !/^\s*(\/\/|\*)/.test(line))
+      .join("\n");
+  };
+
+  test("operator checkout spreads dayExpiryFields into paymentinfo AND generateorder", async () => {
+    const code = await load("../pages/services/IPTVService.jsx");
+    const spreads = code.match(/\.\.\.dayExpiryFields\(/g) || [];
+    expect(spreads.length, "one spread per wire call").toBe(2);
+    // Never hand-written — the helper is the only path.
+    expect(code).not.toMatch(/use_day_expiry\s*:/);
+    // The period sent to Pay is the parts' period (one-day aware), not the
+    // raw effective period.
+    expect(code).toMatch(/const periodForPay = payParts\.period/);
+  });
+
+  test("the customer (serviceapp) checkout does not send the flag", async () => {
+    for (const rel of ["../services/customer/servicePayment.js", "../pages/customer/PaymentSummary.jsx"]) {
+      const code = await load(rel);
+      expect(code, `${rel} must not send use_day_expiry`).not.toMatch(/use_day_expiry/);
+    }
   });
 });

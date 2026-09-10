@@ -33,7 +33,7 @@ const LangCard = memo(function LangCard({ lang, onClick }) {
 
   return (
     <motion.div ref={logoRef} variants={item} onClick={onClick} className="flex flex-col items-center cursor-pointer group active:scale-95 transition-transform duration-150" style={{ touchAction: 'manipulation' }}>
-      <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-md mb-2 bg-gray-100 flex items-center justify-center group-active:shadow-sm transition-shadow">
+      <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-md mb-2 bg-gray-100 dark:bg-gray-800 flex items-center justify-center group-active:shadow-sm transition-shadow">
         {cachedSrc && !imgError ? (
           <img src={cachedSrc} alt={lang.langtitle} className="w-full h-full object-cover" onError={() => setImgError(true)} />
         ) : (
@@ -42,7 +42,7 @@ const LangCard = memo(function LangCard({ lang, onClick }) {
           </div>
         )}
       </div>
-      <span className="text-[11px] font-semibold text-gray-700 text-center leading-tight">{lang.langtitle}</span>
+      <span className="text-[11px] font-semibold text-gray-700 dark:text-gray-300 text-center leading-tight">{lang.langtitle}</span>
     </motion.div>
   );
 });
@@ -135,30 +135,30 @@ export default function LanguagesPage() {
     <Layout>
       <div className="px-4 py-5 max-w-lg mx-auto">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-3 mb-4">
-          <button onClick={() => navigate("/cust/livetv")} className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center hover:bg-gray-200 active:bg-gray-300 transition-colors flex-shrink-0">
+          <button onClick={() => navigate("/cust/livetv")} className="w-10 h-10 rounded-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-gray-700 active:bg-gray-300 transition-colors flex-shrink-0">
             <ArrowLeft className="w-5 h-5 text-gray-600" />
           </button>
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center shadow-sm">
             <Languages className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-gray-800">Languages</h2>
+            <h2 className="text-lg font-bold text-gray-800 dark:text-gray-100">Languages</h2>
             <p className="text-xs text-gray-400">{loading ? "Loading..." : `${filteredLanguages.length} language${filteredLanguages.length !== 1 ? "s" : ""} available`}</p>
           </div>
         </motion.div>
 
         {/* Search bar with voice */}
         <div className="relative mb-4">
-          <div className={`flex items-center bg-white border rounded-xl px-3 py-3 shadow-sm transition-[border-color,box-shadow] min-h-[48px] ${listening ? 'border-emerald-400 ring-2 ring-emerald-200' : 'border-gray-200 focus-within:border-emerald-300 focus-within:ring-1 focus-within:ring-emerald-200'}`}>
+          <div className={`flex items-center bg-white dark:bg-gray-800 border rounded-xl px-3 py-3 shadow-sm transition-[border-color,box-shadow] min-h-[48px] ${listening ? 'border-emerald-400 ring-2 ring-emerald-200' : 'border-gray-200 dark:border-gray-700 focus-within:border-emerald-300 focus-within:ring-1 focus-within:ring-emerald-200'}`}>
             <Search className="w-4 h-4 text-gray-400 mr-2 flex-shrink-0" />
-            <input type="text" placeholder={listening ? "Listening..." : "Search languages..."} value={search} onChange={(e) => setSearch(e.target.value)} className="w-full outline-none text-sm text-gray-700 dark:text-white bg-transparent placeholder-gray-400" />
+            <input type="text" placeholder={listening ? "Listening..." : "Search languages..."} value={search} onChange={(e) => setSearch(e.target.value)} className="w-full outline-none text-sm text-gray-700 dark:text-white bg-transparent placeholder-gray-400 dark:placeholder-gray-500" />
             {search && (<button onClick={() => setSearch("")} className="ml-2 flex-shrink-0"><X className="w-4 h-4 text-gray-400" /></button>)}
             {hasSpeechSupport && (
               <div className="flex items-center gap-1 ml-2 flex-shrink-0">
-                <button onClick={cycleVoiceLang} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-[9px] font-bold text-gray-500 hover:bg-gray-200 active:bg-gray-300 transition-colors">
+                <button onClick={cycleVoiceLang} className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-[9px] font-bold text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700 active:bg-gray-300 transition-colors">
                   {voiceLangs.find(l => l.code === voiceLang)?.label}
                 </button>
-                <button onClick={startVoiceSearch} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${micBlocked ? 'bg-gray-200 cursor-not-allowed' : listening ? 'bg-emerald-500 animate-pulse' : 'bg-gray-100 hover:bg-gray-200 active:bg-gray-300'}`}>
+                <button onClick={startVoiceSearch} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${micBlocked ? 'bg-gray-200 cursor-not-allowed' : listening ? 'bg-emerald-500 animate-pulse' : 'bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 active:bg-gray-300'}`}>
                   {micBlocked ? <MicOff className="w-4 h-4 text-red-400" /> : <Mic className={`w-4 h-4 ${listening ? 'text-white' : 'text-gray-500'}`} />}
                 </button>
               </div>
@@ -210,7 +210,7 @@ export default function LanguagesPage() {
 
         {!loading && !error && filteredLanguages.length === 0 && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center justify-center py-20">
-            <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center mb-4"><Languages className="w-7 h-7 text-gray-300" /></div>
+            <div className="w-14 h-14 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4"><Languages className="w-7 h-7 text-gray-300" /></div>
             <p className="text-sm text-gray-500 font-medium">No languages found</p>
             <p className="text-xs text-gray-400 mt-1">Try a different search</p>
             {search && (<button onClick={() => setSearch("")} className="mt-3 text-sm text-emerald-600 font-semibold hover:underline">Clear search</button>)}

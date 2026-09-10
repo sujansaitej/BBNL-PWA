@@ -11,8 +11,12 @@ export default function Layout({ children, hideHeader = false, hideBottomNav = f
       {/* Header */}
       {!hideHeader && <Header onOpenSidebar={() => setSidebarOpen(true)} />}
 
-      {/* Main Content */}
-      <main className={`flex-1 ${!hideBottomNav ? 'pb-bottomnav' : ''}`}>
+      {/* Main Content.
+          With the nav: pb-bottomnav already clears both the nav chrome and the
+          home indicator. Without it, nothing did — the last row of content sat
+          under the iPhone home-indicator bar, so page-safe-bottom pays that
+          inset instead. */}
+      <main className={`flex-1 ${!hideBottomNav ? 'pb-bottomnav' : 'pb-safe'}`}>
         {children}
       </main>
 

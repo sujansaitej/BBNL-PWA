@@ -7,14 +7,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
 
-    <title>Fo-Fi - CRM</title>
-    <meta name="description" content="Fo-Fi CRM" />
+    <title>BBNL CRM</title>
+    <meta name="description" content="BBNL CRM" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Fo-Fi CRM" />
-    <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)">
-    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    <!-- Home-screen label on iOS. Keep it short: iOS truncates past ~12 chars. -->
+    <meta name="apple-mobile-web-app-title" content="BBNL CRM" />
+    <!-- Managed by ThemeContext.applyTheme(). Deliberately NOT media-scoped:
+         a media query follows the phone, which contradicts an explicit
+         in-app theme choice. The pre-paint script below sets the real value
+         before the first frame. -->
+    <meta name="theme-color" content="#ffffff">
     <link rel="apple-touch-icon" href="/icons/apple-icon-180.png">
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/favicon.png" />
     <!-- Minimal set of iOS splash sizes as placeholders -->
@@ -45,6 +49,33 @@
     <link rel="preconnect" href="https://api.ipify.org" crossorigin />
     <link rel="dns-prefetch" href="https://api.ipify.org" />
 
+    <!-- Resolve the theme BEFORE the first paint. Without this the page
+         renders light for a frame and then flips, and the UA paints its form
+         controls from the OS preference instead of the app's. Mirrors
+         ThemeContext.applyTheme() — keep the two in step. -->
+    <script>
+      (function () {
+        try {
+          var mode = null;
+          try { mode = localStorage.getItem('theme'); } catch (e) {}
+          if (mode !== 'light' && mode !== 'dark' && mode !== 'system') mode = 'system';
+          var dark = mode === 'dark';
+          if (mode === 'system') {
+            try {
+              dark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            } catch (e) { dark = false; }
+          }
+          var theme = dark ? 'dark' : 'light';
+          var root = document.documentElement;
+          root.classList.remove('light', 'dark');
+          root.classList.add(theme);
+          root.style.colorScheme = theme;
+          root.setAttribute('data-theme', theme);
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute('content', dark ? '#0f172a' : '#ffffff');
+        } catch (e) { /* theme is cosmetic — never block boot */ }
+      })();
+    </script>
   </head>
   <body class="bg-gray-50 dark:bg-gray-900">
     <div id="root">
@@ -54,7 +85,7 @@
       <div id="boot-loader" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,sans-serif;background:#f9fafb;color:#6b7280;padding:1rem;text-align:center">
         <div style="width:2rem;height:2rem;border:3px solid #d1d5db;border-top-color:#6366f1;border-radius:50%;animation:bspin .7s linear infinite;margin-bottom:.75rem"></div>
         <p style="font-size:.875rem;margin:0">Loading…</p>
-        <style>@keyframes bspin{to{transform:rotate(360deg)}}@media(prefers-color-scheme:dark){#boot-loader{background:#111827!important;color:#9ca3af!important}}</style>
+        <style>@keyframes bspin{to{transform:rotate(360deg)}}:root.dark #boot-loader{background:#111827!important;color:#9ca3af!important}.boot-err{background:#ffffff}.boot-err-title{color:#1f2937}.boot-err-msg{color:#6b7280}:root.dark .boot-err{background:#111827}:root.dark .boot-err-title{color:#f3f4f6}:root.dark .boot-err-msg{color:#9ca3af}</style>
       </div>
     </div>
 
@@ -69,12 +100,12 @@
           var el = document.getElementById('boot-loader');
           if (!el) el = document.getElementById('root');
           el.innerHTML =
-            '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,sans-serif;padding:1.5rem;text-align:center">' +
+            '<div class="boot-err" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,sans-serif;padding:1.5rem;text-align:center">' +
               '<div style="width:3rem;height:3rem;margin-bottom:.75rem;border-radius:50%;background:#fee2e2;display:flex;align-items:center;justify-content:center">' +
                 '<svg width="24" height="24" fill="none" stroke="#ef4444" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>' +
               '</div>' +
-              '<p style="font-size:.9375rem;font-weight:600;color:#1f2937;margin:0 0 .25rem">App failed to load</p>' +
-              '<p style="font-size:.8125rem;color:#6b7280;margin:0 0 1rem;max-width:20rem;word-break:break-word">' + (msg || 'An unexpected error occurred.') + '</p>' +
+              '<p class="boot-err-title" style="font-size:.9375rem;font-weight:600;margin:0 0 .25rem">App failed to load</p>' +
+              '<p class="boot-err-msg" style="font-size:.8125rem;margin:0 0 1rem;max-width:20rem;word-break:break-word">' + (msg || 'An unexpected error occurred.') + '</p>' +
               '<button onclick="clearAndReload()" style="padding:.625rem 1.25rem;background:#4f46e5;color:#fff;border:none;border-radius:.5rem;font-size:.875rem;font-weight:500;cursor:pointer">Reload App</button>' +
             '</div>';
         }

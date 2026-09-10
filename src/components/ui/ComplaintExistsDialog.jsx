@@ -40,7 +40,7 @@ export default function ComplaintExistsDialog({
             type="button"
             onClick={onClose}
             aria-label="Dismiss"
-            className="absolute top-3 right-3 z-10 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full p-1.5 transition-colors"
+            className="absolute top-3 right-3 z-10 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-700 rounded-full p-1.5 transition-colors"
           >
             <XMarkIcon className="h-5 w-5" />
           </button>

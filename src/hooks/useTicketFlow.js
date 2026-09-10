@@ -15,8 +15,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  checkMaintenance,
-  checkPendingTickets,
+  findOpenTicket,
   getSubjects,
   raiseTicket,
   getParticularTicketStatus,
@@ -27,28 +26,33 @@ import { decideCloseFlow } from "../services/customer/ticketFlow";
 /**
  * The raise-screen gate.
  *
- * Android's load order, reproduced exactly:
- *   maintenance  → err_code 0 required, else the form is dead
- *   pendingticket → "Pending Tickets Unavailable" required
- *   subjects      → populates the dropdown
+ * Android's order is maintenance -> pendingticket -> subjects, each gating the
+ * next. We deliberately do NOT reproduce that, because two of those three
+ * calls run a BLOCKING SHELL PING on the server and one of them cannot
+ * report anything useful at all. Measured 2026-09-01:
  *
- * Each step gates the next; the form stays disabled until all three pass.
- * `state` is one of: null (loading) | 'maintenance' | 'unreachable' |
- * 'pending' | 'ready' | 'error'.
+ *     apis/subjects/            1.2 - 1.7s
+ *     apis/maintenance/        12.5s   exec("ping -c 3 $nas")
+ *     apis/cust/pendingticket/ 12.6s   exec("ping -c 3 $nas")
  *
- * `unreachable` is ours, not Android's: the maintenance endpoint answers
- * err_msg "Error Pinging" with a top-level "Under Maintenance" message when
- * the customer's LINE is down — which is not a maintenance window and is
- * precisely when they need to complain. See services/customer/tickets.js.
+ * The NAS does not answer ICMP on this deployment, so both pings wait out all
+ * three packets on every page view. Gating on them cost ~12.6s to learn
+ * nothing, and made the form show a scary "we couldn't reach your connection"
+ * banner to every customer, every time.
+ *
+ * So: the catalogue opens the form, and the duplicate check runs behind it.
+ * `state` is one of: null (loading) | 'pending' | 'ready' | 'error'.
+ *
+ * `warning` is retained in the return shape but is no longer produced — see
+ * the note in run() for why the ping result is not worth showing anyone.
  */
-export function useRaiseGate({ service, customerId, enabled = true }) {
+export function useRaiseGate({ service, customerId, customerMobile = "", enabled = true }) {
   const [loading, setLoading] = useState(false);
   const [state, setState] = useState(null);
   const [message, setMessage] = useState("");
   const [warning, setWarning] = useState("");
   const [existing, setExisting] = useState(null);
   const [subjects, setSubjects] = useState([]);
-
   const run = useCallback(async () => {
     if (!service?.servicekey) return;
     setLoading(true);
@@ -59,77 +63,60 @@ export function useRaiseGate({ service, customerId, enabled = true }) {
     setSubjects([]);
 
     try {
-      // A missing operator id no longer blocks the gate. The complaint
-      // catalogue does not need it (see getSubjects), so blocking here would
-      // deny the customer a working form for a value only the SUBMIT step
-      // actually requires — useRaiseSubmit checks it there instead, where a
-      // missing operid would otherwise file an orphaned ticket.
-      const maint = await checkMaintenance({
-        apiopid: service.opid,
-        cid: customerId,
-        servicekey: service.servicekey,
-      });
-
-      // A PING FAILURE IS NOT A MAINTENANCE WINDOW — and must not block.
+      // BOTH CALLS ARE FAST, SO BOTH ARE AWAITED. Measured 2026-09-01:
       //
-      // This endpoint pings the customer's line as part of its check and
-      // answers err_code 1 / err_msg "Error Pinging" when it is unreachable,
-      // under a generic top-level "Under Maintenance" message. Android treats
-      // every non-zero err_code as a hard stop, which locks the raise form for
-      // exactly the customer who most needs it: the one whose connection is
-      // down. We downgrade it to a warning and continue.
+      //     apis/subjects/            1.2 - 1.7s
+      //     Apis/gettickets/          0.5s
+      //     apis/maintenance/        12.5s   <- dropped
+      //     apis/cust/pendingticket/ 12.6s   <- dropped
       //
-      // Safe because raiseTicket is a separate endpoint that performs no ping
-      // and never consults maintenance, and because the backend still rejects
-      // duplicates itself with "Tickets Are Pending".
-      if (!maint.open && !maint.pingFailed) {
-        setState("maintenance");
-        setMessage("This service is under maintenance. Please try again shortly.");
-        return;
-      }
-      if (maint.pingFailed) {
-        setWarning(
-          "We couldn't reach your connection. You can still raise a complaint — that may be exactly what's wrong."
-        );
-      }
-
-      const pend = await checkPendingTickets({
-        userid: customerId,
-        servicekey: service.servicekey,
-      });
-      if (pend.hasPending) {
-        setState("pending");
-        setExisting(pend.existing);
-        return;
-      }
-      // When the ping failed, `ticketstatus` comes back as an empty object, so
-      // hasPending is false and the duplicate check is simply unverified — not
-      // a block. raiseTicket is the backstop.
-
-      const subs = await getSubjects({
-        apiopid: service.opid,
-        cid: customerId,
-        servid: service.servid,
-      });
+      // The two dropped endpoints each run a blocking `exec("ping -c 3 $nas")`
+      // server-side (OldApis.php). The NAS does not answer ICMP here, so they
+      // wait out all three packets on every page view.
+      //
+      // maintenance was pure cost: read the controller and there is no
+      // maintenance flag in it at all, only ping success/failure dressed up
+      // with a cosmetic "Under Maintenance" string. Its failure branches
+      // ("No IP Address to ping", "Host details for X Not Available") used to
+      // LOCK the form, and its always-failing ping showed every customer a
+      // "we couldn't reach your connection" banner.
+      //
+      // pendingticket is the endpoint NAMED for the duplicate guard, but it
+      // pings BEFORE looking the ticket up, so on this deployment it never
+      // finds one. For a customer who demonstrably had an open ticket it
+      // answered `ticketstatus:{}` after 12.8s while Apis/gettickets/ returned
+      // the whole ticket in 0.5s. That is why the duplicate was only caught
+      // when raiseTicket rejected it — as a toast, instead of the
+      // existing-complaint dialog with its Close / Raise-Back actions.
+      const [subs, open] = await Promise.all([
+        getSubjects({ apiopid: service.opid, cid: customerId, servid: service.servid }),
+        // A guard that cannot be read is not worth blocking on: if this throws
+        // we still open the form, and raiseTicket remains the backstop (the
+        // backend rejects duplicates itself with "Tickets Are Pending").
+        findOpenTicket({ userid: customerId, mobile: customerMobile, servicekey: service.servicekey })
+          .catch(() => null),
+      ]);
 
       // NATIVE PARITY: the form is rendered whatever the catalogue size,
       // exactly as RaiseNewTicketsFragment does — it binds the adapter and
       // moves on. An empty catalogue therefore presents as a dropdown that
       // never opens, and Submit fails the "Invalid complaint" check.
-      //
-      // We intentionally do NOT convert that into an error screen: this
-      // subsystem is being held to native behaviour. getSubjects logs a
-      // warning naming the apiopid and the backend's message, which is how an
-      // empty catalogue gets diagnosed.
       setSubjects(subs || []);
+
+      if (open) {
+        setExisting(open);
+        setState("pending");
+        return;
+      }
       setState("ready");
+      return;
     } catch (err) {
       setState("error");
       setMessage(err?.message || "Something went wrong. Please try again.");
     } finally {
       setLoading(false);
     }
-  }, [service?.servicekey, service?.opid, service?.servid, customerId]);
+  }, [service?.servicekey, service?.opid, service?.servid, customerId, customerMobile]);
 
   useEffect(() => {
     if (enabled) run();

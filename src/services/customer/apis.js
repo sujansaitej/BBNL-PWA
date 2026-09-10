@@ -27,7 +27,7 @@ export async function ads(type) {
     method: "POST",
     headers,
     body: formData,
-  }, "ads", { group: "Customer" });
+  }, "ads", { group: "Customer", idempotent: true });
 
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   return readEnvelopeRaw(resp, "ads");

@@ -51,8 +51,75 @@ a, button, [role="button"], .tappable {
   contain-intrinsic-size: auto 80px;
 }
 
-:root { color-scheme: light dark; }
+/* ── Theme plumbing ───────────────────────────────────────────────────
+   `color-scheme` is what the USER AGENT paints from: input/select/textarea
+   backgrounds, the caret, scrollbars, autofill, iOS's form accessory bar and
+   date/time pickers. It does not read our `dark` class, so it must be pinned
+   to the theme we actually render. The previous `light dark` value said "use
+   whatever the OS prefers", which on a dark phone drew charcoal input boxes
+   inside a white login card. ThemeContext also sets this inline on <html>;
+   these rules are the pre-hydration and no-JS fallback. */
+:root,
+:root.light { color-scheme: light; }
+:root.dark { color-scheme: dark; }
+
 body { @apply text-gray-900 dark:text-gray-100; }
+
+/* Chrome/Android and iOS paint autofilled fields with their own background
+   and text colour, ignoring every utility class on the element. Without this
+   an autofilled username is dark-on-dark in dark mode and the field flashes
+   pale yellow in light mode. The inset shadow is the only way to repaint the
+   background; -webkit-text-fill-color is the only way to repaint the text. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: #111827;
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset;
+  box-shadow: 0 0 0 1000px #ffffff inset;
+  caret-color: #111827;
+  transition: background-color 9999s ease-in-out 0s;
+}
+:root.dark input:-webkit-autofill,
+:root.dark input:-webkit-autofill:hover,
+:root.dark input:-webkit-autofill:focus,
+:root.dark textarea:-webkit-autofill,
+:root.dark select:-webkit-autofill {
+  -webkit-text-fill-color: #f9fafb;
+  -webkit-box-shadow: 0 0 0 1000px #1f2937 inset;
+  box-shadow: 0 0 0 1000px #1f2937 inset;
+  caret-color: #f9fafb;
+}
+
+/* Opt a single control out of the app theme.
+   Anything sitting on a surface that stays light while the app theme is dark
+   must keep LIGHT user agent chrome (caret, date picker, select popup,
+   autofill), or you get a black calendar popover hanging off a white field.
+   Replaces the ad-hoc `[color-scheme:light]` utilities that were already
+   scattered around for exactly this reason.
+
+   Register (Add User) NO LONGER NEEDS THIS and no longer uses it on its
+   fields: QA reported it in Aug 2026 as a white island in a dark app, so its
+   cards, fields and floating labels now darken with the theme. What remains
+   there is the full-screen signature pad, which is light because the exported
+   signature is flattened onto white — see the note at that element.
+   Subscribe and Support still render white cards that never darken, and their
+   fields (components/ui/FloatingInput.jsx, ui/Input.jsx) still rely on this.
+   If those screens are ever darkened, drop the class there at the same time —
+   a dark field on a white card is the same bug in the other direction. */
+.scheme-light {
+  color-scheme: light;
+}
+:root.dark .scheme-light:-webkit-autofill,
+:root.dark .scheme-light:-webkit-autofill:hover,
+:root.dark .scheme-light:-webkit-autofill:focus {
+  -webkit-text-fill-color: #111827;
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset;
+  box-shadow: 0 0 0 1000px #ffffff inset;
+  caret-color: #111827;
+}
+
 
 /* Swiper tweaks */
 .swiper { padding-bottom: 8px; }
@@ -77,17 +144,28 @@ body { @apply text-gray-900 dark:text-gray-100; }
 }
 .ad-swiper .swiper-pagination {
   bottom: 6px !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  /* keep the dot row anchored: never let Swiper translate it */
+  transform: none !important;
+  width: 100%;
+  left: 0 !important;
 }
 .ad-swiper .swiper-pagination-bullet {
   width: 6px;
   height: 6px;
+  margin: 0 !important;
+  flex: 0 0 auto;
   background: rgba(148, 163, 184, 0.5);
-  opacity: 1;
-  transition: all 0.3s ease;
+  opacity: 1 !important;
+  border-radius: 999px;
+  transform: none !important;
+  transition: width 0.3s ease, background-color 0.3s ease;
 }
 .ad-swiper .swiper-pagination-bullet-active {
   width: 20px;
-  border-radius: 4px;
   background: #6366f1;
 }
 
@@ -187,13 +265,48 @@ white-icon { color: #ffffff !important; }
   animation: pulse-ring 1.5s ease-in-out infinite;
 }
 
-/* Safe area padding for notched phones */
+/* ── Safe areas (iPhone notch / Dynamic Island / home indicator) ──────────
+ *
+ * index.html ships `viewport-fit=cover` together with
+ * `apple-mobile-web-app-status-bar-style: black-translucent`. In an installed
+ * iOS PWA that combination means the web view starts at y=0 — UNDERNEATH the
+ * status bar and notch — and runs to the very bottom, underneath the home
+ * indicator. iOS reserves nothing. That is deliberate (it lets the blue header
+ * bleed under the status bar the way the Android app does), but it makes the
+ * insets mandatory: any screen that does not pay them has its first and last
+ * rows clipped on iPhone, while looking perfectly fine on Android where both
+ * insets report 0.
+ *
+ * Screens with the app Header/BottomNav already pay them inline. These tokens
+ * exist for everything else — full-bleed screens that own their own chrome
+ * (login, OTP, install gate, error/loader fallbacks).
+ */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
 .safe-top {
   padding-top: env(safe-area-inset-top, 0px);
 }
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
+
+/* These two are emitted AFTER `@tailwind utilities`, so they beat a p-4 /
+ * py-4 on the same element rather than racing it. That is why each carries a
+ * 1rem floor: the class has to be a complete replacement for the padding it
+ * overrides, not just the inset, or a page would LOSE its normal spacing on
+ * Android (where both insets are 0) in exchange for fixing iPhone.
+ *
+ *   .pt-safe — top-aligned screens with no app Header of their own.
+ *   .pb-safe — any full-height page root, so its last row clears the
+ *              home-indicator bar. Screens inside <Layout> do not need it;
+ *              pb-bottomnav already accounts for the same inset. */
+.pt-safe { padding-top: calc(1rem + var(--safe-top)); }
+.pb-safe { padding-bottom: calc(1rem + var(--safe-bottom)); }
 
 /* Dynamic viewport height with a 100vh fallback for iOS < 15.4.
    Redefines Tailwind's built-in dvh utilities (this block is emitted

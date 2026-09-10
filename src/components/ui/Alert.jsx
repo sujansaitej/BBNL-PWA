@@ -4,13 +4,13 @@ import { CheckCircleIcon, XCircleIcon, ExclamationTriangleIcon, InformationCircl
 
 const Alert = ({ isOpen, onClose, type = "success", title, message, autoClose = true, autoCloseMs = 5000 }) => {
     // Auto-close via a single guarded timer. This MUST live in an effect,
-    // not the render body â€” the old version called setTimeout(onClose) on
+    // not the render body — the old version called setTimeout(onClose) on
     // every render while open, scheduling a fresh uncleared timer each
     // time. On a parent that re-renders often (e.g. the FoFi page during
     // its staged refetches) that fired onClose repeatedly and made the
     // popup flicker/replay. We also read onClose through a ref so a new
     // inline onClose identity each render doesn't keep resetting the
-    // timer â€” the popup auto-closes exactly once per open.
+    // timer — the popup auto-closes exactly once per open.
     const onCloseRef = useRef(onClose);
     onCloseRef.current = onClose;
     useEffect(() => {
@@ -49,7 +49,7 @@ const Alert = ({ isOpen, onClose, type = "success", title, message, autoClose = 
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.8, y: 20 }}
                         transition={{ duration: 0.3, ease: "easeOut" }}
-                        className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
+                        className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
                         onClick={(e) => e.stopPropagation()}
                     >
                         {/* Gradient Header */}
@@ -66,7 +66,7 @@ const Alert = ({ isOpen, onClose, type = "success", title, message, autoClose = 
                                 transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
                                 className="flex justify-center mb-3"
                             >
-                                <div className="bg-white rounded-full p-3 shadow-lg">
+                                <div className="bg-white dark:bg-gray-800 rounded-full p-3 shadow-lg">
                                     {icons[type]}
                                 </div>
                             </motion.div>
@@ -79,13 +79,13 @@ const Alert = ({ isOpen, onClose, type = "success", title, message, autoClose = 
 
                         {/* Content */}
                         <div className={`${bgColors[type]} p-6`}>
-                            <p className="text-gray-700 text-center text-base leading-relaxed">
+                            <p className="text-gray-700 dark:text-gray-300 text-center text-base leading-relaxed">
                                 {message}
                             </p>
                         </div>
 
                         {/* Footer Button */}
-                        <div className="p-4 bg-white">
+                        <div className="p-4 bg-white dark:bg-gray-800">
                             <button
                                 onClick={onClose}
                                 className={`w-full bg-gradient-to-r ${gradients[type]} hover:opacity-90 text-white font-semibold py-3 px-6 rounded-lg transition-[opacity,box-shadow] duration-200 shadow-md hover:shadow-lg`}

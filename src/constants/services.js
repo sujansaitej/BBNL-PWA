@@ -27,14 +27,21 @@ export const SERVICES = {
   },
   CABLETV: {
     key: 'cabletv',
-    servid: null,
+    // ServiceApis/servServiceList, read live 2026-08-31: 1=Cable TV,
+    // 3=Fo-Fi Smart Box, 5=Voice Call, 7=Internet. These were left null while
+    // orderApis kept its own private {fofi:'3', cabletv:'1'} map — two sources
+    // of truth that already disagreed with each other. The ids live here now.
+    servid: '1',
     servicesApp: null,
     aliases: ['cabletv', 'iptv', 'iptv service', 'cable_tv', 'cable-tv', 'cable tv', 'cable', 'tv', 'catv', 'dpo', 'fta'],
     planNamePatterns: [/\bcable\s*tv\b/i, /\biptv\b/i, /\bchannel\s*pack\b/i, /\bfta\b/i, /\bdpo\b/i, /free\s*to\s*air/i],
   },
   VOICE: {
     key: 'voice',
-    servid: null,
+    // THE MISSING ONE. Voice orders never reached the screen because
+    // getOrderHistoryFor had no servid for them and fell through to the
+    // generic custpayhistory endpoint, which does not carry voice rows.
+    servid: '5',
     servicesApp: null,
     aliases: ['voice', 'voice_call', 'voicecall', 'voip'],
     planNamePatterns: [/voice\s*call/i, /\bvoip\b/i],
@@ -77,6 +84,20 @@ const CODED_KEY_FIELDS = [
   ['services_app', 'services_app'],
   ['serviceapp', 'services_app'],
 ];
+
+/**
+ * The backend service id for a service key, or null when it has none.
+ *
+ * Single source of truth for these ids — orderApis used to keep its own copy
+ * and Voice was missing from it, which is what left the Voice Service order
+ * history empty.
+ */
+export function servidForService(serviceKey) {
+  const key = canonicalServiceKey(serviceKey);
+  if (!key) return null;
+  const svc = Object.values(SERVICES).find((s) => s.key === key);
+  return svc?.servid ?? null;
+}
 
 /**
  * Determine which service an order belongs to.
@@ -155,7 +176,13 @@ export function resolveServiceFromOrder(order, planIdMap = null) {
  */
 export function filterOrdersByService(orders, serviceKey, planIdMap = null, options = {}) {
   if (!serviceKey || !Array.isArray(orders)) return orders || [];
-  const target = String(serviceKey).toLowerCase();
+  // CANONICALISE THE TARGET. resolveServiceFromOrder returns canonical keys,
+  // so comparing them against a raw caller string silently matches nothing:
+  // 'voicecall' — the servicekey the voice API itself uses — would never equal
+  // the canonical 'voice', and every voice order would be filtered out. The
+  // callers that work today happen to pass canonical keys already; this stops
+  // the next one from failing silently.
+  const target = canonicalServiceKey(serviceKey);
   const unclassifiedServiceKey = options.unclassifiedServiceKey
     ? canonicalServiceKey(options.unclassifiedServiceKey)
     : null;
